@@ -178,7 +178,7 @@ export interface IStorage {
   createProductionBatch(data: InsertProductionBatch, inputs: Omit<InsertProductionInput, "batchId">[]): Promise<ProductionBatchWithDetails>;
   updateProductionBatch(id: string, data: Partial<InsertProductionBatch>, inputs?: Omit<InsertProductionInput, "batchId">[]): Promise<ProductionBatch | undefined>;
   deleteProductionBatch(id: string): Promise<boolean>;
-  completeProductionBatch(id: string, actualQuantity: number, outputLotNumber: string, outputExpirationDate: string | null, locationId: string, qcStatus?: string, qcNotes?: string, endDate?: string): Promise<ProductionBatchWithDetails>;
+  completeProductionBatch(id: string, actualQuantity: number, outputLotNumber: string, outputExpirationDate: string | null, locationId: string, qcStatus?: string, qcNotes?: string, endDate?: string, qcDisposition?: string, qcReviewedBy?: string, yieldPercentage?: string): Promise<ProductionBatchWithDetails>;
   getNextBatchNumber(): Promise<string>;
   getNextOutputLotNumber(): Promise<string>;
 
@@ -1693,6 +1693,9 @@ export class MemStorage implements IStorage {
     qcStatus?: string,
     qcNotes?: string,
     endDate?: string,
+    qcDisposition?: string,
+    qcReviewedBy?: string,
+    yieldPercentage?: string,
   ): Promise<ProductionBatchWithDetails> {
     const batch = this.productionBatches.get(id);
     if (!batch) throw new Error("Production batch not found");
@@ -1723,6 +1726,9 @@ export class MemStorage implements IStorage {
       endDate: effectiveEndDate,
       qcStatus: qcStatus ?? "PENDING",
       qcNotes: qcNotes ?? null,
+      qcDisposition: qcDisposition ?? null,
+      qcReviewedBy: qcReviewedBy ?? null,
+      yieldPercentage: yieldPercentage ?? null,
       updatedAt: new Date(),
     };
     this.productionBatches.set(id, updated);

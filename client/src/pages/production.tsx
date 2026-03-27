@@ -15,6 +15,7 @@ import {
   SheetContent,
   SheetHeader,
   SheetTitle,
+  SheetFooter,
 } from "@/components/ui/sheet";
 import {
   Form,
@@ -873,9 +874,10 @@ function CompleteBatchDialog({
   const [outputLotNumber, setOutputLotNumber] = useState("");
   const [outputExpirationDate, setOutputExpirationDate] = useState("");
   const [outputLocationId, setOutputLocationId] = useState("");
-  const [qcStatus, setQcStatus] = useState("PASS");
-  const [qcNotes, setQcNotes] = useState("");
   const [endDate, setEndDate] = useState(new Date().toISOString().slice(0, 10));
+  const [disposition, setDisposition] = useState("");
+  const [reviewedBy, setReviewedBy] = useState("");
+  const [qcNotes, setQcNotes] = useState("");
 
   // Fetch next auto-generated lot number when dialog opens
   const { data: nextLotData } = useQuery<{ lotNumber: string }>({
@@ -894,15 +896,30 @@ function CompleteBatchDialog({
       setOutputLotNumber(nextLotData?.lotNumber ?? "");
       setOutputExpirationDate("");
       setOutputLocationId("");
-      setQcStatus("PASS");
-      setQcNotes("");
       setEndDate(new Date().toISOString().slice(0, 10));
+      setDisposition("");
+      setReviewedBy("");
+      setQcNotes("");
     }
   }, [batch?.id, nextLotData?.lotNumber]);
+
+  // Yield % calculation
+  const yieldPct = useMemo(() => {
+    const actual = parseFloat(actualQuantity);
+    const planned = parseFloat(batch?.plannedQuantity ?? "0");
+    if (!actual || !planned || planned === 0) return 0;
+    return (actual / planned) * 100;
+  }, [actualQuantity, batch?.plannedQuantity]);
+
+  const yieldColor = yieldPct === 0 ? "" :
+    (yieldPct >= 95 && yieldPct <= 105) ? "text-emerald-600 dark:text-emerald-400" :
+    (yieldPct >= 85 && yieldPct <= 115) ? "text-amber-600 dark:text-amber-400" :
+    "text-red-600 dark:text-red-400";
 
   const completeMutation = useMutation({
     mutationFn: async () => {
       if (!batch) throw new Error("No batch");
+      const qcStatus = disposition === "APPROVED_FOR_DISTRIBUTION" ? "PASS" : disposition === "REJECTED" ? "FAIL" : "ON_HOLD";
       try {
         const res = await apiRequest("POST", `/api/production-batches/${batch.id}/complete`, {
           actualQuantity,
@@ -912,10 +929,12 @@ function CompleteBatchDialog({
           qcStatus,
           qcNotes: qcNotes || null,
           endDate: endDate || undefined,
+          qcDisposition: disposition,
+          qcReviewedBy: reviewedBy,
+          yieldPercentage: yieldPct > 0 ? String(Math.round(yieldPct * 100) / 100) : null,
         });
         return res.json();
       } catch (err: unknown) {
-        // apiRequest throws with "status: body" format; extract the message from JSON body
         const errMsg = err instanceof Error ? err.message : String(err);
         const jsonStart = errMsg.indexOf("{");
         if (jsonStart >= 0) {
@@ -943,104 +962,137 @@ function CompleteBatchDialog({
     },
   });
 
+  const canSubmit = !!actualQuantity && !!outputLotNumber && !!outputLocationId && !!disposition && !!reviewedBy;
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md" data-testid="dialog-complete-batch">
-        <DialogHeader>
-          <DialogTitle>Complete Batch {batch?.batchNumber}</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-4 py-2">
-          <div>
-            <Label htmlFor="actual-qty">Actual Output Quantity</Label>
-            <Input
-              id="actual-qty"
-              type="number"
-              step="any"
-              value={actualQuantity}
-              onChange={e => setActualQuantity(e.target.value)}
-              data-testid="input-actual-qty"
-            />
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent className="w-full sm:max-w-xl overflow-y-auto" data-testid="dialog-complete-batch">
+        <SheetHeader>
+          <SheetTitle>Complete Batch {batch?.batchNumber}</SheetTitle>
+        </SheetHeader>
+
+        <div className="space-y-6 py-4">
+          {/* Section 1: Actual Output */}
+          <div className="space-y-4">
+            <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Actual Output</h3>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="actual-qty">Actual Output Quantity</Label>
+                <Input
+                  id="actual-qty"
+                  type="number"
+                  step="any"
+                  value={actualQuantity}
+                  onChange={e => setActualQuantity(e.target.value)}
+                  data-testid="input-actual-qty"
+                />
+              </div>
+              <div>
+                <Label>Yield %</Label>
+                <p className={`mt-2 text-sm font-semibold ${yieldColor}`}>
+                  {yieldPct > 0 ? `${formatQty(Math.round(yieldPct * 100) / 100)}%` : "—"}
+                </p>
+              </div>
+            </div>
+            <div>
+              <Label htmlFor="output-lot">Output Lot Number</Label>
+              <Input
+                id="output-lot"
+                value={outputLotNumber}
+                onChange={e => setOutputLotNumber(e.target.value)}
+                placeholder="e.g., FG-001"
+                data-testid="input-output-lot"
+              />
+            </div>
+            <div>
+              <Label htmlFor="output-exp">Output Expiration Date</Label>
+              <Input
+                id="output-exp"
+                type="date"
+                value={outputExpirationDate}
+                onChange={e => setOutputExpirationDate(e.target.value)}
+                data-testid="input-output-expiration"
+              />
+            </div>
+            <div>
+              <Label htmlFor="output-location">Output Location</Label>
+              <Select onValueChange={setOutputLocationId} value={outputLocationId}>
+                <SelectTrigger data-testid="select-output-location">
+                  <SelectValue placeholder="Select location..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {locations.map(loc => (
+                    <SelectItem key={loc.id} value={loc.id}>{loc.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label htmlFor="end-date">Completion Date</Label>
+              <Input
+                id="end-date"
+                type="date"
+                value={endDate}
+                onChange={e => setEndDate(e.target.value)}
+                data-testid="input-end-date"
+              />
+            </div>
           </div>
-          <div>
-            <Label htmlFor="output-lot">Output Lot Number</Label>
-            <Input
-              id="output-lot"
-              value={outputLotNumber}
-              onChange={e => setOutputLotNumber(e.target.value)}
-              placeholder="e.g., FG-001"
-              data-testid="input-output-lot"
-            />
-          </div>
-          <div>
-            <Label htmlFor="output-exp">Output Expiration Date</Label>
-            <Input
-              id="output-exp"
-              type="date"
-              value={outputExpirationDate}
-              onChange={e => setOutputExpirationDate(e.target.value)}
-              data-testid="input-output-expiration"
-            />
-          </div>
-          <div>
-            <Label htmlFor="output-location">Output Location</Label>
-            <Select onValueChange={setOutputLocationId} value={outputLocationId}>
-              <SelectTrigger data-testid="select-output-location">
-                <SelectValue placeholder="Select location..." />
-              </SelectTrigger>
-              <SelectContent>
-                {locations.map(loc => (
-                  <SelectItem key={loc.id} value={loc.id}>{loc.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div>
-            <Label htmlFor="qc-status">QC Status</Label>
-            <Select onValueChange={setQcStatus} value={qcStatus}>
-              <SelectTrigger data-testid="select-qc-status">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="PASS">Pass</SelectItem>
-                <SelectItem value="FAIL">Fail</SelectItem>
-                <SelectItem value="ON_HOLD">On Hold</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div>
-            <Label htmlFor="qc-notes">QC Notes (optional)</Label>
-            <Textarea
-              id="qc-notes"
-              value={qcNotes}
-              onChange={e => setQcNotes(e.target.value)}
-              rows={2}
-              placeholder="QC observations..."
-              data-testid="input-qc-notes"
-            />
-          </div>
-          <div>
-            <Label htmlFor="end-date">Completion Date</Label>
-            <Input
-              id="end-date"
-              type="date"
-              value={endDate}
-              onChange={e => setEndDate(e.target.value)}
-              data-testid="input-end-date"
-            />
+
+          <Separator />
+
+          {/* Section 2: QC Review */}
+          <div className="space-y-4">
+            <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">QC Review</h3>
+            <div>
+              <Label htmlFor="disposition">Disposition</Label>
+              <Select onValueChange={setDisposition} value={disposition}>
+                <SelectTrigger data-testid="select-disposition">
+                  <SelectValue placeholder="Select disposition..." />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="APPROVED_FOR_DISTRIBUTION">Approved for Distribution</SelectItem>
+                  <SelectItem value="REJECTED">Rejected</SelectItem>
+                  <SelectItem value="REPROCESS">Reprocess</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label htmlFor="reviewed-by">Reviewed By</Label>
+              <Input
+                id="reviewed-by"
+                value={reviewedBy}
+                onChange={e => setReviewedBy(e.target.value)}
+                placeholder="Reviewer name"
+                data-testid="input-reviewed-by"
+              />
+            </div>
+            <div>
+              <Label htmlFor="qc-notes">QC Notes (optional)</Label>
+              <Textarea
+                id="qc-notes"
+                value={qcNotes}
+                onChange={e => setQcNotes(e.target.value)}
+                rows={2}
+                placeholder="Optional review notes"
+                data-testid="input-qc-notes"
+              />
+            </div>
           </div>
         </div>
-        <DialogFooter>
+
+        <SheetFooter className="flex gap-2 pt-4">
           <Button variant="outline" onClick={() => onOpenChange(false)} data-testid="button-cancel-complete">Cancel</Button>
           <Button
             onClick={() => completeMutation.mutate()}
-            disabled={completeMutation.isPending || !actualQuantity || !outputLotNumber || !outputLocationId}
+            disabled={completeMutation.isPending || !canSubmit}
             data-testid="button-confirm-complete"
           >
             {completeMutation.isPending ? "Completing..." : "Complete Batch"}
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </SheetFooter>
+      </SheetContent>
+    </Sheet>
   );
 }
 
@@ -1177,6 +1229,18 @@ function BatchDetail({
             {batch.actualQuantity ? `${formatQty(batch.actualQuantity)} ${batch.outputUom}` : "—"}
           </p>
         </div>
+        {batch.yieldPercentage && (
+          <div>
+            <span className="text-muted-foreground">Yield</span>
+            <p className={`font-medium ${
+              parseFloat(batch.yieldPercentage) >= 95 && parseFloat(batch.yieldPercentage) <= 105
+                ? "text-emerald-600 dark:text-emerald-400"
+                : parseFloat(batch.yieldPercentage) >= 85 && parseFloat(batch.yieldPercentage) <= 115
+                ? "text-amber-600 dark:text-amber-400"
+                : "text-red-600 dark:text-red-400"
+            }`}>{formatQty(batch.yieldPercentage)}%</p>
+          </div>
+        )}
         <div>
           <span className="text-muted-foreground">Start Date</span>
           <p className="font-medium">{batch.startDate ?? "—"}</p>
@@ -1191,7 +1255,25 @@ function BatchDetail({
         </div>
         <div>
           <span className="text-muted-foreground">QC Status</span>
-          <div className="mt-0.5">{qcStatusBadge(batch.qcStatus)}</div>
+          {batch.qcDisposition ? (
+            <div className="mt-0.5">
+              <Badge variant="outline" className={
+                batch.qcDisposition === "APPROVED_FOR_DISTRIBUTION"
+                  ? "border-emerald-300 text-emerald-700 dark:border-emerald-700 dark:text-emerald-400"
+                  : batch.qcDisposition === "REJECTED"
+                  ? "border-red-300 text-red-700 dark:border-red-700 dark:text-red-400"
+                  : "border-amber-300 text-amber-700 dark:border-amber-700 dark:text-amber-400"
+              }>
+                {batch.qcDisposition === "APPROVED_FOR_DISTRIBUTION" ? "Approved for Distribution"
+                  : batch.qcDisposition === "REJECTED" ? "Rejected" : "Reprocess"}
+              </Badge>
+              {batch.qcReviewedBy && (
+                <p className="text-xs text-muted-foreground mt-1">Reviewed by: {batch.qcReviewedBy}</p>
+              )}
+            </div>
+          ) : (
+            <div className="mt-0.5">{qcStatusBadge(batch.qcStatus)}</div>
+          )}
         </div>
         {batch.qcNotes && (
           <div className="col-span-2">
@@ -1322,7 +1404,6 @@ function BatchDetail({
             Delete Batch
           </Button>
         )}
-        <BprLink batchId={batch.id} batchStatus={batch.status} />
         <Button
           variant="outline"
           size="sm"
