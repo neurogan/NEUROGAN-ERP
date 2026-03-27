@@ -1,23 +1,30 @@
 /**
- * Format a quantity for display with a maximum of 5 significant digits.
- * Like Excel: the displayed value is shortened but the underlying data stays intact.
+ * Smart number formatter with comma separators and adaptive decimals.
  *
- * Examples:
- *   formatQty(0.0000123456) → "0.00001"
- *   formatQty(12345.6789)   → "12346"
- *   formatQty(1234.56789)   → "1234.6"
- *   formatQty(0.05)         → "0.05"
- *   formatQty(100)          → "100"
- *   formatQty(0)            → "0"
+ * Magnitude-based decimal rules:
+ *   >= 1000  → 0 decimals (unless meaningful fractional part)
+ *   >= 1     → max 2 decimals
+ *   >= 0.01  → max 4 decimals
+ *   < 0.01   → max 6 decimals
+ *
+ * Trailing zeros are always trimmed.
  */
 export function formatQty(value: number | string): string {
   const num = typeof value === "string" ? parseFloat(value) : value;
-  if (isNaN(num)) return "0";
-  if (num === 0) return "0";
+  if (isNaN(num) || num === 0) return "0";
 
-  // Use toPrecision(5) for 5 significant digits, then strip trailing zeros
-  const formatted = num.toPrecision(5);
+  const abs = Math.abs(num);
+  const maxDecimals = abs >= 1000 ? 6 : abs >= 0.1 ? 2 : abs >= 0.01 ? 4 : 6;
 
-  // parseFloat removes trailing zeros and unnecessary decimal points
-  return String(parseFloat(formatted));
+  // Format with the chosen precision, then strip trailing zeros
+  let fixed = num.toFixed(maxDecimals);
+  if (fixed.includes(".")) {
+    fixed = fixed.replace(/0+$/, "").replace(/\.$/, "");
+  }
+
+  // Add thousand separators to the integer part
+  const [intPart, decPart] = fixed.split(".");
+  const withCommas = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+
+  return decPart ? `${withCommas}.${decPart}` : withCommas;
 }

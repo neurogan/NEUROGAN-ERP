@@ -6,7 +6,7 @@ import { sql } from "drizzle-orm";
 // Enums
 export const categoryEnum = pgEnum("category", ["ACTIVE_INGREDIENT", "SUPPORTING_INGREDIENT", "PRIMARY_PACKAGING", "SECONDARY_PACKAGING", "FINISHED_GOOD"]);
 export const statusEnum = pgEnum("status", ["ACTIVE", "DISCONTINUED"]);
-export const uomEnum = pgEnum("uom", ["kg", "g", "mg", "L", "mL", "gal", "pcs", "lb", "oz"]);
+export const uomEnum = pgEnum("uom", ["g", "mg", "L", "mL", "gal", "pcs", "lb", "oz"]);
 export const transactionTypeEnum = pgEnum("transaction_type", ["PO_RECEIPT", "PRODUCTION_CONSUMPTION", "PRODUCTION_OUTPUT", "COUNT_ADJUSTMENT"]);
 export const userRoleEnum = pgEnum("user_role", ["ADMIN", "OPERATOR"]);
 export const poStatusEnum = pgEnum("po_status", ["DRAFT", "SUBMITTED", "PARTIALLY_RECEIVED", "CLOSED", "CANCELLED"]);
@@ -17,7 +17,7 @@ export const products = pgTable("products", {
   name: text("name").notNull(),
   sku: text("sku").notNull().unique(),
   category: text("category").notNull().default("ACTIVE_INGREDIENT"),
-  defaultUom: text("default_uom").notNull().default("kg"),
+  defaultUom: text("default_uom").notNull().default("g"),
   description: text("description"),
   status: text("status").notNull().default("ACTIVE"),
   lowStockThreshold: decimal("low_stock_threshold"),
@@ -188,7 +188,7 @@ export const productCategoryAssignments = pgTable("product_category_assignments"
 export const appSettings = pgTable("app_settings", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   companyName: text("company_name").notNull().default("Neurogan"),
-  defaultUom: text("default_uom").notNull().default("kg"),
+  defaultUom: text("default_uom").notNull().default("g"),
   lowStockThreshold: decimal("low_stock_threshold").notNull().default("1"),
   dateFormat: text("date_format").notNull().default("MM/DD/YYYY"), // MM/DD/YYYY, DD/MM/YYYY, YYYY-MM-DD
   autoGenerateBatchNumbers: text("auto_generate_batch_numbers").notNull().default("true"),

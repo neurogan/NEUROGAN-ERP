@@ -172,7 +172,7 @@ function LogTransactionSheet({
         locationId: values.locationId,
         type: txType,
         quantity: String(qty),
-        uom: selectedProduct?.defaultUom ?? "kg",
+        uom: selectedProduct?.defaultUom ?? "g",
         productionBatchId: values.productionBatchId || null,
         notes: values.notes || null,
         performedBy: "admin",

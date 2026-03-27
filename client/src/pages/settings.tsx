@@ -193,12 +193,11 @@ function SettingsContent() {
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="defaultUom" className="text-xs font-medium">Default Unit of Measure</Label>
-              <Select value={form.defaultUom ?? "kg"} onValueChange={v => updateField("defaultUom", v)}>
+              <Select value={form.defaultUom ?? "g"} onValueChange={v => updateField("defaultUom", v)}>
                 <SelectTrigger className="h-9" data-testid="select-default-uom">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="kg">Kilograms (kg)</SelectItem>
                   <SelectItem value="g">Grams (g)</SelectItem>
                   <SelectItem value="mg">Milligrams (mg)</SelectItem>
                   <SelectItem value="L">Liters (L)</SelectItem>

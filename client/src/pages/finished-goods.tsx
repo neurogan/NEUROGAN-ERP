@@ -54,7 +54,7 @@ import { Plus, Trash2, Search, BookOpen, FlaskConical, Package, Pencil } from "l
 import type { Product, RecipeWithDetails } from "@shared/schema";
 import { formatQty } from "@/lib/formatQty";
 
-const UOMS = ["kg", "g", "mg", "L", "mL", "gal", "pcs", "lb", "oz"];
+const UOMS = ["g", "mg", "L", "mL", "gal", "pcs", "lb", "oz"];
 
 // ── Product form schema (create / edit name+SKU) ─────────
 

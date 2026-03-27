@@ -51,7 +51,7 @@ const CATEGORIES = [
   { value: "SECONDARY_PACKAGING", label: "Secondary Packaging" },
 ];
 
-const UOMS = ["kg", "g", "mg", "L", "mL", "gal", "pcs", "lb", "oz"];
+const UOMS = ["g", "mg", "L", "mL", "gal", "pcs", "lb", "oz"];
 const STATUSES = [
   { value: "ACTIVE", label: "Active" },
   { value: "DISCONTINUED", label: "Discontinued" },
@@ -87,7 +87,7 @@ function ProductFormDialog({
       name: product?.name ?? "",
       sku: product?.sku ?? "",
       category: product?.category ?? "ACTIVE_INGREDIENT",
-      defaultUom: product?.defaultUom ?? "kg",
+      defaultUom: product?.defaultUom ?? "g",
       description: product?.description ?? "",
       status: product?.status ?? "ACTIVE",
       lowStockThreshold: product?.lowStockThreshold ?? "",

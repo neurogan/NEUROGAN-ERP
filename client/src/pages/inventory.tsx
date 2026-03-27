@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -363,7 +363,7 @@ function EditMaterialDialog({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {["kg", "g", "mg", "L", "mL", "gal", "pcs", "lb", "oz"].map((u) => (
+                {["g", "mg", "L", "mL", "gal", "pcs", "lb", "oz"].map((u) => (
                   <SelectItem key={u} value={u}>{u}</SelectItem>
                 ))}
               </SelectContent>
@@ -550,6 +550,16 @@ function MaterialsTab({ initialSelectedId }: { initialSelectedId?: string | null
     queryKey: ["/api/inventory"],
   });
 
+  useEffect(() => {
+    if (initialSelectedId && data) {
+      const timer = setTimeout(() => {
+        const el = document.querySelector(`[data-testid="item-material-${initialSelectedId}"]`);
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+  }, [initialSelectedId, data]);
+
   const filtered = useMemo(() => {
     if (!data) return [];
     // Exclude FINISHED_GOOD items
@@ -677,7 +687,7 @@ const NEW_MATERIAL_CATEGORIES = [
   { value: "SECONDARY_PACKAGING", label: "Secondary Packaging" },
 ];
 
-const UOMS_MATERIAL = ["kg", "g", "mg", "L", "mL", "gal", "pcs", "lb", "oz"];
+const UOMS_MATERIAL = ["g", "mg", "L", "mL", "gal", "pcs", "lb", "oz"];
 
 function CreateMaterialDialog({
   open,
@@ -689,7 +699,7 @@ function CreateMaterialDialog({
   const [name, setName] = useState("");
   const [sku, setSku] = useState("");
   const [category, setCategory] = useState("ACTIVE_INGREDIENT");
-  const [uom, setUom] = useState("kg");
+  const [uom, setUom] = useState("g");
   const { toast } = useToast();
 
   const mutation = useMutation({
@@ -710,7 +720,7 @@ function CreateMaterialDialog({
       setName("");
       setSku("");
       setCategory("ACTIVE_INGREDIENT");
-      setUom("kg");
+      setUom("g");
       onOpenChange(false);
     },
     onError: (err: Error) => {
@@ -1051,7 +1061,7 @@ function RecipeDialog({
       productId: l.productId,
       quantity: String(l.quantity),
       uom: l.uom,
-    })) ?? [{ productId: "", quantity: "", uom: "kg" }]
+    })) ?? [{ productId: "", quantity: "", uom: "g" }]
   );
   const { toast } = useToast();
 
@@ -1066,7 +1076,7 @@ function RecipeDialog({
   );
 
   const addLine = () => {
-    setLines((prev) => [...prev, { productId: "", quantity: "", uom: "kg" }]);
+    setLines((prev) => [...prev, { productId: "", quantity: "", uom: "g" }]);
   };
 
   const removeLine = (idx: number) => {
@@ -1226,7 +1236,7 @@ function RecipeDialog({
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            {["kg", "g", "mg", "L", "mL", "gal", "pcs", "lb", "oz"].map(
+                            {["g", "mg", "L", "mL", "gal", "pcs", "lb", "oz"].map(
                               (u) => (
                                 <SelectItem key={u} value={u}>
                                   {u}
@@ -1834,6 +1844,16 @@ function ProductsTab({ initialSelectedId }: { initialSelectedId?: string | null 
   const { data: allProductCategories } = useQuery<ProductCategory[]>({
     queryKey: ["/api/product-categories"],
   });
+
+  useEffect(() => {
+    if (initialSelectedId && productsWithCats) {
+      const timer = setTimeout(() => {
+        const el = document.querySelector(`[data-testid="item-product-${initialSelectedId}"]`);
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+  }, [initialSelectedId, productsWithCats]);
 
   // Filter to finished goods only
   const finishedGoods = useMemo(
