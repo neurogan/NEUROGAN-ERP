@@ -58,6 +58,7 @@ import {
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { formatDate } from "@/lib/formatDate";
+import { DateInput } from "@/components/ui/date-input";
 import { useToast } from "@/hooks/use-toast";
 import type { Supplier, SupplierDocument, SupplierQualificationWithDetails } from "@shared/schema";
 import PurchaseOrders from "./purchase-orders";
@@ -573,8 +574,7 @@ function QualificationDialog({
         <div className="space-y-4">
           <div className="space-y-1.5">
             <Label className="text-sm">Qualification Date</Label>
-            <Input
-              type="date"
+            <DateInput
               value={qualificationDate}
               onChange={(e) => handleDateChange(e.target.value)}
               className="text-sm"
@@ -626,8 +626,7 @@ function QualificationDialog({
           </div>
           <div className="space-y-1.5">
             <Label className="text-sm">Next Requalification Due</Label>
-            <Input
-              type="date"
+            <DateInput
               value={nextDue}
               onChange={(e) => setNextDue(e.target.value)}
               className="text-sm"

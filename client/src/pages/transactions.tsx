@@ -44,6 +44,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Plus } from "lucide-react";
 import type { Product, Lot, Location } from "@shared/schema";
 import { formatQty } from "@/lib/formatQty";
+import { DateInput } from "@/components/ui/date-input";
 import { formatDate } from "@/lib/formatDate";
 
 interface TransactionWithDetails {
@@ -470,8 +471,7 @@ export default function Transactions() {
             </div>
             <div className="space-y-1">
               <label className="text-xs font-medium text-muted-foreground">From</label>
-              <Input
-                type="date"
+              <DateInput
                 value={filterDateFrom}
                 onChange={(e) => setFilterDateFrom(e.target.value)}
                 className="w-36 h-8 text-xs"
@@ -480,8 +480,7 @@ export default function Transactions() {
             </div>
             <div className="space-y-1">
               <label className="text-xs font-medium text-muted-foreground">To</label>
-              <Input
-                type="date"
+              <DateInput
                 value={filterDateTo}
                 onChange={(e) => setFilterDateTo(e.target.value)}
                 className="w-36 h-8 text-xs"

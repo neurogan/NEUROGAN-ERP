@@ -868,11 +868,15 @@ export default function Receiving() {
 
   const { data: records = [], isLoading } = useQuery<ReceivingRecordWithDetails[]>({
     queryKey: ["/api/receiving"],
+    refetchOnWindowFocus: true,
+    staleTime: 0,
   });
 
   // Fetch open POs (SUBMITTED or PARTIALLY_RECEIVED)
   const { data: allPOs } = useQuery<any[]>({
     queryKey: ["/api/purchase-orders"],
+    refetchOnWindowFocus: true,
+    staleTime: 0,
   });
   const submittedPOs = useMemo(() =>
     (allPOs ?? []).filter((po: any) => po.status === "SUBMITTED" || po.status === "PARTIALLY_RECEIVED"),

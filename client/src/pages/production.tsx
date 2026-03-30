@@ -59,6 +59,7 @@ import {
 import { Plus, Trash2, Beaker, Play, CheckCircle, Pause, RotateCcw, Pencil, XCircle, AlertTriangle, Info, MessageSquare, Send, ClipboardCheck, Printer } from "lucide-react";
 import { Link } from "wouter";
 import { formatQty } from "@/lib/formatQty";
+import { DateInput } from "@/components/ui/date-input";
 import { formatDateTime } from "@/lib/formatDate";
 import type {
   ProductionBatchWithDetails,
@@ -571,7 +572,7 @@ function CreateBatchSheet({
                 <FormItem>
                   <FormLabel>Start Date</FormLabel>
                   <FormControl>
-                    <Input {...field} type="date" data-testid="input-start-date" />
+                    <DateInput {...field} data-testid="input-start-date" />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -1016,9 +1017,8 @@ function CompleteBatchDialog({
             </div>
             <div>
               <Label htmlFor="output-exp">Output Expiration Date</Label>
-              <Input
+              <DateInput
                 id="output-exp"
-                type="date"
                 value={outputExpirationDate}
                 onChange={e => setOutputExpirationDate(e.target.value)}
                 data-testid="input-output-expiration"
@@ -1039,9 +1039,8 @@ function CompleteBatchDialog({
             </div>
             <div>
               <Label htmlFor="end-date">Completion Date</Label>
-              <Input
+              <DateInput
                 id="end-date"
-                type="date"
                 value={endDate}
                 onChange={e => setEndDate(e.target.value)}
                 data-testid="input-end-date"

@@ -51,6 +51,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { Plus, Trash2, ClipboardList, PackageCheck, X, Send, Ban, Upload, ClipboardPaste, Download, FileSpreadsheet, UserPlus, PackagePlus } from "lucide-react";
 import { formatQty } from "@/lib/formatQty";
+import { DateInput } from "@/components/ui/date-input";
 import { formatDate } from "@/lib/formatDate";
 import type {
   PurchaseOrderWithDetails,
@@ -718,7 +719,7 @@ function CreatePOSheet({
                     <FormItem>
                       <FormLabel>Order Date</FormLabel>
                       <FormControl>
-                        <Input {...field} type="date" data-testid="input-po-order-date" />
+                        <DateInput {...field} data-testid="input-po-order-date" />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -731,7 +732,7 @@ function CreatePOSheet({
                     <FormItem>
                       <FormLabel>Expected Delivery</FormLabel>
                       <FormControl>
-                        <Input {...field} type="date" data-testid="input-po-expected-date" />
+                        <DateInput {...field} data-testid="input-po-expected-date" />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -1234,6 +1235,7 @@ function ReceiveSheet({
       }
 
       queryClient.invalidateQueries({ queryKey: ["/api/purchase-orders"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/receiving"] });
       queryClient.invalidateQueries({ queryKey: ["/api/inventory"] });
       queryClient.invalidateQueries({ queryKey: ["/api/transactions"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
@@ -1274,7 +1276,7 @@ function ReceiveSheet({
                   <FormItem>
                     <FormLabel className="text-sm">Date Received</FormLabel>
                     <FormControl>
-                      <Input {...field} type="date" data-testid="input-received-date" />
+                      <DateInput {...field} data-testid="input-received-date" />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -1361,7 +1363,7 @@ function ReceiveSheet({
                             <FormItem>
                               <FormLabel className="text-xs">Expiration Date</FormLabel>
                               <FormControl>
-                                <Input {...field} type="date" data-testid={`input-receive-expiry-${index}`} />
+                                <DateInput {...field} data-testid={`input-receive-expiry-${index}`} />
                               </FormControl>
                               <FormMessage />
                             </FormItem>

@@ -2,6 +2,7 @@ import { useState, useMemo, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { formatDateTime } from "@/lib/formatDate";
+import { DateInput } from "@/components/ui/date-input";
 import { useToast } from "@/hooks/use-toast";
 import { Link } from "wouter";
 import { Badge } from "@/components/ui/badge";
@@ -727,8 +728,7 @@ function UploadCoaDialog({
             {/* Analysis Date */}
             <div className="space-y-1.5">
               <Label className="text-sm font-medium">Analysis Date</Label>
-              <Input
-                type="date"
+              <DateInput
                 value={analysisDate}
                 onChange={(e) => setAnalysisDate(e.target.value)}
                 className="text-sm"
