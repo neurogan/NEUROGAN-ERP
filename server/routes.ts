@@ -528,7 +528,7 @@ export async function registerRoutes(
 
   app.post("/api/production-batches/:id/complete", async (req, res) => {
     try {
-      const { actualQuantity, outputLotNumber, outputExpirationDate, locationId, qcStatus, qcNotes, endDate } = req.body;
+      const { actualQuantity, outputLotNumber, outputExpirationDate, locationId, qcStatus, qcNotes, endDate, qcDisposition, qcReviewedBy, yieldPercentage } = req.body;
       if (!actualQuantity || !outputLotNumber || !locationId) {
         return res.status(400).json({ message: "Missing required fields: actualQuantity, outputLotNumber, locationId" });
       }
@@ -541,6 +541,9 @@ export async function registerRoutes(
         qcStatus,
         qcNotes,
         endDate,
+        qcDisposition,
+        qcReviewedBy,
+        yieldPercentage,
       );
       res.json(batch);
     } catch (err) {

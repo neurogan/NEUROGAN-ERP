@@ -144,6 +144,9 @@ export const productionBatches = pgTable("production_batches", {
   endDate: text("end_date"),
   qcStatus: text("qc_status").default("PENDING"), // PENDING, PASS, FAIL, ON_HOLD
   qcNotes: text("qc_notes"),
+  qcDisposition: text("qc_disposition"), // APPROVED_FOR_DISTRIBUTION, REJECTED, REPROCESS
+  qcReviewedBy: text("qc_reviewed_by"),
+  yieldPercentage: decimal("yield_percentage"),
   operatorName: text("operator_name"),
   notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow(),
@@ -517,6 +520,9 @@ export type ProductionBatchWithDetails = ProductionBatch & {
   productName: string;
   productSku: string;
   inputs: ProductionInputWithDetails[];
+  qcDisposition?: string | null;
+  qcReviewedBy?: string | null;
+  yieldPercentage?: string | null;
 };
 
 export type RecipeLineWithDetails = RecipeLine & {

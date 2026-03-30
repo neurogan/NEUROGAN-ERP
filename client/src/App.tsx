@@ -18,7 +18,6 @@ import Receiving from "@/pages/receiving";
 import CoaLibrary from "@/pages/coa-library";
 import Settings from "@/pages/settings";
 import SupplyChain from "@/pages/supply-chain";
-import BprDetail from "@/pages/bpr";
 import BatchPrint from "@/pages/batch-print";
 
 const navItems = [
@@ -120,7 +119,6 @@ function AppLayout() {
           <Route path="/receiving" component={Receiving} />
           <Route path="/coa" component={CoaLibrary} />
           <Route path="/production" component={Production} />
-          <Route path="/bpr/:id" component={BprDetail} />
           <Route path="/transactions" component={Transactions} />
           <Route path="/settings" component={Settings} />
           <Route component={NotFound} />
