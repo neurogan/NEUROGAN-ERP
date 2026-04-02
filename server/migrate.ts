@@ -12,7 +12,11 @@ export async function runMigrations() {
   }
 
   console.log("[migrate] Checking database tables...");
-  const pool = new Pool({ connectionString });
+  const pool = new Pool({ 
+    connectionString,
+    ssl: { rejectUnauthorized: false },
+    connectionTimeoutMillis: 15000,
+  });
 
   try {
     // Check if tables already exist
