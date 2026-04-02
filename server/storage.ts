@@ -2998,5 +2998,7 @@ export const storage: IStorage = process.env.DATABASE_URL
   ? new DatabaseStorage()
   : new MemStorage();
 
-// Auto-seed product categories after construction
-storage.seedProductCategories();
+// Auto-seed product categories after construction (MemStorage only)
+if (!process.env.DATABASE_URL && 'seedProductCategories' in storage) {
+  (storage as any).seedProductCategories();
+}
