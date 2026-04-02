@@ -61,8 +61,12 @@ app.use((req, res, next) => {
 
 (async () => {
   // Auto-create database tables on first boot
-  const { runMigrations } = await import("./migrate");
-  await runMigrations();
+  try {
+    const { runMigrations } = await import("./migrate");
+    await runMigrations();
+  } catch (err) {
+    console.error("[startup] Migration failed, continuing anyway:", (err as Error).message);
+  }
 
   await registerRoutes(httpServer, app);
 
