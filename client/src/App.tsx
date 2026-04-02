@@ -19,6 +19,7 @@ import CoaLibrary from "@/pages/coa-library";
 import Settings from "@/pages/settings";
 import SupplyChain from "@/pages/supply-chain";
 import BatchPrint from "@/pages/batch-print";
+import SkuManager from "@/pages/sku-manager";
 
 const navItems = [
   { href: "/", label: "Dashboard" },
@@ -120,6 +121,7 @@ function AppLayout() {
           <Route path="/coa" component={CoaLibrary} />
           <Route path="/production" component={Production} />
           <Route path="/transactions" component={Transactions} />
+          <Route path="/sku-manager" component={SkuManager} />
           <Route path="/settings" component={Settings} />
           <Route component={NotFound} />
         </Switch>

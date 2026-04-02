@@ -46,7 +46,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useState, useEffect } from "react";
-import { Save, Building2, AlertTriangle, Hash, Tag, Plus, Pencil, Trash2 } from "lucide-react";
+import { Save, Building2, AlertTriangle, Hash, Tag, Plus, Pencil, Trash2, Package } from "lucide-react";
 import type { Location } from "@shared/schema";
 
 // ─── Types ──────────────────────────────────────────────────
@@ -303,6 +303,22 @@ function SettingsContent() {
                 <span className="text-xs text-muted-foreground font-mono">-XXXXX</span>
               </div>
             </div>
+          </CardContent>
+        </Card>
+
+        {/* SKU Management */}
+        <Card data-testid="card-settings-sku-manager">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base font-semibold flex items-center gap-2">
+              <Package className="h-4 w-4 text-muted-foreground" />
+              SKU Management
+            </CardTitle>
+            <CardDescription className="text-xs">View, edit, and delete all materials and products</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button variant="outline" size="sm" onClick={() => window.location.hash = '#/sku-manager'} data-testid="button-open-sku-manager">
+              Open SKU Manager
+            </Button>
           </CardContent>
         </Card>
       </div>
