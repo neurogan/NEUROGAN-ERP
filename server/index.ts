@@ -60,6 +60,10 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // Auto-create database tables on first boot
+  const { runMigrations } = await import("./migrate");
+  await runMigrations();
+
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
