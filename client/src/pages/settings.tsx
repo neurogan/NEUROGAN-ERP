@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -306,21 +307,7 @@ function SettingsContent() {
           </CardContent>
         </Card>
 
-        {/* SKU Management */}
-        <Card data-testid="card-settings-sku-manager">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base font-semibold flex items-center gap-2">
-              <Package className="h-4 w-4 text-muted-foreground" />
-              SKU Management
-            </CardTitle>
-            <CardDescription className="text-xs">View, edit, and delete all materials and products</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Button variant="outline" size="sm" onClick={() => window.location.hash = '#/sku-manager'} data-testid="button-open-sku-manager">
-              Open SKU Manager
-            </Button>
-          </CardContent>
-        </Card>
+
       </div>
     </div>
   );
@@ -594,7 +581,17 @@ function LocationsContent() {
 //  MAIN SETTINGS PAGE
 // ═══════════════════════════════════════════════════════════
 
-type SettingsTab = "settings" | "locations";
+const LazySkuManager = lazy(() => import("@/pages/sku-manager"));
+
+function SkuManagerEmbed() {
+  return (
+    <Suspense fallback={<div className="p-6"><Skeleton className="h-96 w-full" /></div>}>
+      <LazySkuManager />
+    </Suspense>
+  );
+}
+
+type SettingsTab = "settings" | "locations" | "sku-manager";
 
 export default function Settings() {
   const [activeTab, setActiveTab] = useState<SettingsTab>("settings");
@@ -631,6 +628,17 @@ export default function Settings() {
           >
             Locations
           </button>
+          <button
+            onClick={() => setActiveTab("sku-manager")}
+            data-testid="tab-sku-manager"
+            className={`px-4 py-2 text-sm font-medium rounded-t-lg border border-b-0 transition-colors ${
+              activeTab === "sku-manager"
+                ? "bg-background text-foreground border-border"
+                : "bg-muted/50 text-muted-foreground border-transparent hover:text-foreground hover:bg-muted"
+            }`}
+          >
+            SKU Manager
+          </button>
         </div>
       </div>
 
@@ -638,6 +646,7 @@ export default function Settings() {
       <div className="flex-1 overflow-auto">
         {activeTab === "settings" && <SettingsContent />}
         {activeTab === "locations" && <LocationsContent />}
+        {activeTab === "sku-manager" && <SkuManagerEmbed />}
       </div>
     </div>
   );
