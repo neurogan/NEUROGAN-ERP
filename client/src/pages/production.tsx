@@ -57,6 +57,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { Plus, Trash2, Beaker, Play, CheckCircle, Pause, RotateCcw, Pencil, XCircle, AlertTriangle, Info, MessageSquare, Send, ClipboardCheck, Printer } from "lucide-react";
+import { LocationSelectWithAdd } from "@/components/LocationSelectWithAdd";
 import { Link } from "wouter";
 import { formatQty } from "@/lib/formatQty";
 import { DateInput } from "@/components/ui/date-input";
@@ -1026,16 +1027,12 @@ function CompleteBatchDialog({
             </div>
             <div>
               <Label htmlFor="output-location">Output Location</Label>
-              <Select onValueChange={setOutputLocationId} value={outputLocationId}>
-                <SelectTrigger data-testid="select-output-location">
-                  <SelectValue placeholder="Select location..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {locations.map(loc => (
-                    <SelectItem key={loc.id} value={loc.id}>{loc.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <LocationSelectWithAdd
+                locations={locations}
+                value={outputLocationId}
+                onValueChange={setOutputLocationId}
+                data-testid="select-output-location"
+              />
             </div>
             <div>
               <Label htmlFor="end-date">Completion Date</Label>

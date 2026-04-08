@@ -50,6 +50,7 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Plus, Trash2, ClipboardList, PackageCheck, X, Send, Ban, Upload, ClipboardPaste, Download, FileSpreadsheet, UserPlus, PackagePlus } from "lucide-react";
+import { LocationSelectWithAdd } from "@/components/LocationSelectWithAdd";
 import { formatQty } from "@/lib/formatQty";
 import { DateInput } from "@/components/ui/date-input";
 import { formatDate } from "@/lib/formatDate";
@@ -1340,18 +1341,15 @@ function ReceiveSheet({
                           render={({ field }) => (
                             <FormItem>
                               <FormLabel className="text-xs">Location</FormLabel>
-                              <Select onValueChange={field.onChange} value={field.value}>
-                                <FormControl>
-                                  <SelectTrigger data-testid={`select-receive-location-${index}`}>
-                                    <SelectValue placeholder="Select" />
-                                  </SelectTrigger>
-                                </FormControl>
-                                <SelectContent>
-                                  {locations.map((l) => (
-                                    <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
+                              <FormControl>
+                                <LocationSelectWithAdd
+                                  locations={locations}
+                                  value={field.value}
+                                  onValueChange={field.onChange}
+                                  placeholder="Select"
+                                  data-testid={`select-receive-location-${index}`}
+                                />
+                              </FormControl>
                               <FormMessage />
                             </FormItem>
                           )}

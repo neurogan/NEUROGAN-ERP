@@ -63,6 +63,14 @@ export async function registerRoutes(
       if (err instanceof ZodError) {
         return res.status(400).json({ message: formatZodError(err) });
       }
+      // PostgreSQL unique constraint violation (duplicate SKU)
+      if ((err as any)?.code === "23505") {
+        const detail = (err as any)?.detail ?? "";
+        if (detail.includes("sku")) {
+          return res.status(409).json({ message: `A product with SKU "${req.body.sku}" already exists.` });
+        }
+        return res.status(409).json({ message: "A product with that value already exists." });
+      }
       res.status(500).json({ message: "Failed to create product" });
     }
   });

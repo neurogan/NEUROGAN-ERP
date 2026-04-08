@@ -69,12 +69,15 @@ import { formatQty } from "@/lib/formatQty";
 import { formatDate } from "@/lib/formatDate";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { Checkbox } from "@/components/ui/checkbox";
+import { LocationSelectWithAdd } from "@/components/LocationSelectWithAdd";
 import type {
   InventoryGrouped,
   Product,
   ProductWithCategories,
   ProductCategory,
   RecipeWithDetails,
+  Location,
 } from "@shared/schema";
 
 // ─── Helpers ───────────────────────────────────────────────
@@ -741,7 +744,15 @@ function CreateMaterialDialog({
   const [category, setCategory] = useState("ACTIVE_INGREDIENT");
   const [uom, setUom] = useState("g");
   const [lotNumber, setLotNumber] = useState("");
+  const [addStock, setAddStock] = useState(false);
+  const [stockQty, setStockQty] = useState("");
+  const [stockLocationId, setStockLocationId] = useState("");
   const { toast } = useToast();
+
+  const { data: locations = [] } = useQuery<Location[]>({
+    queryKey: ["/api/locations"],
+    enabled: open,
+  });
 
   const lotRequired = ["ACTIVE_INGREDIENT", "SUPPORTING_INGREDIENT", "PRIMARY_PACKAGING"].includes(category);
 
@@ -756,10 +767,23 @@ function CreateMaterialDialog({
       });
       const product = await res.json();
       // Create lot if lotNumber is provided
+      let lot: any = null;
       if (lotNumber.trim()) {
-        await apiRequest("POST", "/api/lots", {
+        const lotRes = await apiRequest("POST", "/api/lots", {
           productId: product.id,
           lotNumber: lotNumber.trim(),
+        });
+        lot = await lotRes.json();
+      }
+      // Create stock adjustment if requested
+      if (addStock && stockQty && parseFloat(stockQty) > 0 && stockLocationId && lot) {
+        await apiRequest("POST", "/api/transactions", {
+          lotId: lot.id,
+          locationId: stockLocationId,
+          type: "ADJUSTMENT",
+          quantity: stockQty,
+          uom,
+          notes: "Initial stock on material creation",
         });
       }
       return product;
@@ -768,12 +792,16 @@ function CreateMaterialDialog({
       queryClient.invalidateQueries({ queryKey: ["/api/inventory"] });
       queryClient.invalidateQueries({ queryKey: ["/api/products"] });
       queryClient.invalidateQueries({ queryKey: ["/api/lots"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/transactions"] });
       toast({ title: "Material created" });
       setName("");
       setSku("");
       setCategory("ACTIVE_INGREDIENT");
       setUom("g");
       setLotNumber("");
+      setAddStock(false);
+      setStockQty("");
+      setStockLocationId("");
       onCreated?.(product.id);
       onOpenChange(false);
     },
@@ -781,6 +809,8 @@ function CreateMaterialDialog({
       toast({ title: "Error", description: err.message, variant: "destructive" });
     },
   });
+
+  const stockValid = !addStock || (stockQty && parseFloat(stockQty) > 0 && stockLocationId && lotNumber.trim());
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -827,7 +857,7 @@ function CreateMaterialDialog({
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="lot-number" className="text-sm">
-              Lot Number {lotRequired ? <span className="text-red-500">*</span> : "(optional)"}
+              Lot Number {lotRequired || addStock ? <span className="text-red-500">*</span> : "(optional)"}
             </Label>
             <Input
               id="lot-number"
@@ -850,6 +880,46 @@ function CreateMaterialDialog({
               </SelectContent>
             </Select>
           </div>
+
+          {/* Add existing stock section */}
+          <div className="border rounded-md p-3 space-y-3">
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="add-stock"
+                checked={addStock}
+                onCheckedChange={(c) => setAddStock(c === true)}
+                data-testid="checkbox-add-stock"
+              />
+              <Label htmlFor="add-stock" className="text-sm cursor-pointer font-medium">
+                Add existing stock
+              </Label>
+            </div>
+            {addStock && (
+              <div className="space-y-3 pl-6">
+                <div className="space-y-1.5">
+                  <Label className="text-sm">Quantity</Label>
+                  <Input
+                    type="number"
+                    step="any"
+                    min="0"
+                    value={stockQty}
+                    onChange={(e) => setStockQty(e.target.value)}
+                    placeholder={`Amount in ${uom}`}
+                    data-testid="input-stock-qty"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-sm">Location</Label>
+                  <LocationSelectWithAdd
+                    locations={locations}
+                    value={stockLocationId}
+                    onValueChange={setStockLocationId}
+                    data-testid="select-stock-location"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
         </div>
         <DialogFooter>
           <Button
@@ -861,7 +931,7 @@ function CreateMaterialDialog({
           </Button>
           <Button
             onClick={() => mutation.mutate()}
-            disabled={!name.trim() || !sku.trim() || (lotRequired && !lotNumber.trim()) || mutation.isPending}
+            disabled={!name.trim() || !sku.trim() || (lotRequired && !lotNumber.trim()) || !stockValid || mutation.isPending}
             data-testid="button-submit-create-material"
           >
             {mutation.isPending ? "Creating..." : "Create"}
