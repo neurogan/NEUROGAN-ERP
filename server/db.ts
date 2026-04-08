@@ -11,9 +11,11 @@ export function getDb() {
     if (!connectionString) {
       throw new Error("DATABASE_URL is not set");
     }
-    _pool = new Pool({ 
+    _pool = new Pool({
       connectionString,
-      ssl: { rejectUnauthorized: false },
+      ssl: connectionString.includes("sslmode=require") || connectionString.includes("railway.app")
+        ? { rejectUnauthorized: false }
+        : false,
       connectionTimeoutMillis: 10000,
       idleTimeoutMillis: 30000,
       max: 10,

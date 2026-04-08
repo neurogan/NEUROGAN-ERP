@@ -12,7 +12,7 @@ export const userRoleEnum = pgEnum("user_role", ["ADMIN", "OPERATOR"]);
 export const poStatusEnum = pgEnum("po_status", ["DRAFT", "SUBMITTED", "PARTIALLY_RECEIVED", "CLOSED", "CANCELLED"]);
 
 // Products
-export const products = pgTable("products", {
+export const products = pgTable("erp_products", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   name: text("name").notNull(),
   sku: text("sku").notNull().unique(),
@@ -26,7 +26,7 @@ export const products = pgTable("products", {
 });
 
 // Lots
-export const lots = pgTable("lots", {
+export const lots = pgTable("erp_lots", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   productId: varchar("product_id").notNull(),
   lotNumber: text("lot_number").notNull(),
@@ -44,7 +44,7 @@ export const lots = pgTable("lots", {
 });
 
 // Receiving Records (quarantine + visual inspection for incoming materials)
-export const receivingRecords = pgTable("receiving_records", {
+export const receivingRecords = pgTable("erp_receiving_records", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   purchaseOrderId: varchar("purchase_order_id"),
   lotId: varchar("lot_id").notNull(),
@@ -73,14 +73,14 @@ export const receivingRecords = pgTable("receiving_records", {
 });
 
 // Locations
-export const locations = pgTable("locations", {
+export const locations = pgTable("erp_locations", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   name: text("name").notNull().unique(),
   description: text("description"),
 });
 
 // Transactions (append-only audit log)
-export const transactions = pgTable("transactions", {
+export const transactions = pgTable("erp_transactions", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   lotId: varchar("lot_id").notNull(),
   locationId: varchar("location_id").notNull(),
@@ -94,7 +94,7 @@ export const transactions = pgTable("transactions", {
 });
 
 // Suppliers
-export const suppliers = pgTable("suppliers", {
+export const suppliers = pgTable("erp_suppliers", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   name: text("name").notNull(),
   contactEmail: text("contact_email"),
@@ -104,7 +104,7 @@ export const suppliers = pgTable("suppliers", {
 });
 
 // Purchase Orders
-export const purchaseOrders = pgTable("purchase_orders", {
+export const purchaseOrders = pgTable("erp_purchase_orders", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   poNumber: text("po_number").notNull().unique(),
   supplierId: varchar("supplier_id").notNull(),
@@ -118,7 +118,7 @@ export const purchaseOrders = pgTable("purchase_orders", {
 });
 
 // PO Line Items
-export const poLineItems = pgTable("po_line_items", {
+export const poLineItems = pgTable("erp_po_line_items", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   purchaseOrderId: varchar("purchase_order_id").notNull(),
   productId: varchar("product_id").notNull(),
@@ -131,7 +131,7 @@ export const poLineItems = pgTable("po_line_items", {
 });
 
 // Production Batches
-export const productionBatches = pgTable("production_batches", {
+export const productionBatches = pgTable("erp_production_batches", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   batchNumber: text("batch_number").notNull().unique(),
   productId: varchar("product_id").notNull(), // finished product being made
@@ -155,7 +155,7 @@ export const productionBatches = pgTable("production_batches", {
 });
 
 // Recipes (BOM for finished goods — defines materials per 1 unit of output)
-export const recipes = pgTable("recipes", {
+export const recipes = pgTable("erp_recipes", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   productId: varchar("product_id").notNull(), // the finished good this recipe is for
   name: text("name").notNull(), // e.g. "Standard Formula"
@@ -165,7 +165,7 @@ export const recipes = pgTable("recipes", {
 });
 
 // Recipe Lines (individual material lines in a recipe)
-export const recipeLines = pgTable("recipe_lines", {
+export const recipeLines = pgTable("erp_recipe_lines", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   recipeId: varchar("recipe_id").notNull(),
   productId: varchar("product_id").notNull(), // the material/ingredient
@@ -175,21 +175,21 @@ export const recipeLines = pgTable("recipe_lines", {
 });
 
 // Product Categories (e.g. "Spermidine", "GHK-Cu", "AHK-Cu")
-export const productCategories = pgTable("product_categories", {
+export const productCategories = pgTable("erp_product_categories", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   name: text("name").notNull().unique(),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
 // Product-to-Category assignments (many-to-many)
-export const productCategoryAssignments = pgTable("product_category_assignments", {
+export const productCategoryAssignments = pgTable("erp_product_category_assignments", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   productId: varchar("product_id").notNull(),
   categoryId: varchar("category_id").notNull(),
 });
 
 // App Settings (single-row key-value store)
-export const appSettings = pgTable("app_settings", {
+export const appSettings = pgTable("erp_app_settings", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   companyName: text("company_name").notNull().default("Neurogan"),
   defaultUom: text("default_uom").notNull().default("g"),
@@ -206,7 +206,7 @@ export const appSettings = pgTable("app_settings", {
 });
 
 // COA Documents (Certificates of Analysis)
-export const coaDocuments = pgTable("coa_documents", {
+export const coaDocuments = pgTable("erp_coa_documents", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   lotId: varchar("lot_id").notNull(),
   receivingRecordId: varchar("receiving_record_id"),
@@ -232,7 +232,7 @@ export const coaDocuments = pgTable("coa_documents", {
 });
 
 // Supplier Qualifications (for relying on supplier COAs per 21 CFR 111.75)
-export const supplierQualifications = pgTable("supplier_qualifications", {
+export const supplierQualifications = pgTable("erp_supplier_qualifications", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   supplierId: varchar("supplier_id").notNull(),
   qualificationDate: text("qualification_date"),
@@ -249,7 +249,7 @@ export const supplierQualifications = pgTable("supplier_qualifications", {
 });
 
 // Batch Production Records (21 CFR 111.255-260 compliance)
-export const batchProductionRecords = pgTable("batch_production_records", {
+export const batchProductionRecords = pgTable("erp_batch_production_records", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   productionBatchId: varchar("production_batch_id").notNull(),
   batchNumber: text("batch_number").notNull(),
@@ -283,7 +283,7 @@ export const batchProductionRecords = pgTable("batch_production_records", {
 });
 
 // BPR Steps (per-step documentation with dual verification)
-export const bprSteps = pgTable("bpr_steps", {
+export const bprSteps = pgTable("erp_bpr_steps", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   bprId: varchar("bpr_id").notNull(),
   stepNumber: decimal("step_number").notNull(),
@@ -313,7 +313,7 @@ export const bprSteps = pgTable("bpr_steps", {
 });
 
 // BPR Deviations (Sec. 111.140(b)(3))
-export const bprDeviations = pgTable("bpr_deviations", {
+export const bprDeviations = pgTable("erp_bpr_deviations", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   bprId: varchar("bpr_id").notNull(),
   bprStepId: varchar("bpr_step_id"),
@@ -333,7 +333,7 @@ export const bprDeviations = pgTable("bpr_deviations", {
 });
 
 // Production Notes (append-only comment log on batches)
-export const productionNotes = pgTable("production_notes", {
+export const productionNotes = pgTable("erp_production_notes", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   batchId: varchar("batch_id").notNull(),
   content: text("content").notNull(),
@@ -342,7 +342,7 @@ export const productionNotes = pgTable("production_notes", {
 });
 
 // Supplier Documents (contracts, COAs, etc.)
-export const supplierDocuments = pgTable("supplier_documents", {
+export const supplierDocuments = pgTable("erp_supplier_documents", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   supplierId: varchar("supplier_id").notNull(),
   fileName: text("file_name").notNull(),
@@ -353,7 +353,7 @@ export const supplierDocuments = pgTable("supplier_documents", {
 });
 
 // Production Input Lines (materials consumed in a batch)
-export const productionInputs = pgTable("production_inputs", {
+export const productionInputs = pgTable("erp_production_inputs", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   batchId: varchar("batch_id").notNull(),
   productId: varchar("product_id").notNull(), // the input material

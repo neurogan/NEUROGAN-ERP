@@ -12,17 +12,19 @@ export async function runMigrations() {
   }
 
   console.log("[migrate] Checking database tables...");
-  const pool = new Pool({ 
+  const pool = new Pool({
     connectionString,
-    ssl: { rejectUnauthorized: false },
+    ssl: connectionString.includes("sslmode=require") || connectionString.includes("railway.app")
+      ? { rejectUnauthorized: false }
+      : false,
     connectionTimeoutMillis: 15000,
   });
 
   try {
     // Check if tables already exist
     const { rows } = await pool.query(`
-      SELECT table_name FROM information_schema.tables 
-      WHERE table_schema = 'public' AND table_name = 'products'
+      SELECT table_name FROM information_schema.tables
+      WHERE table_schema = 'public' AND table_name = 'erp_products'
     `);
 
     if (rows.length > 0) {
@@ -35,7 +37,7 @@ export async function runMigrations() {
 
     await pool.query(`
       -- Products
-      CREATE TABLE IF NOT EXISTS products (
+      CREATE TABLE IF NOT EXISTS erp_products (
         id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
         name TEXT NOT NULL,
         sku TEXT NOT NULL UNIQUE,
@@ -49,7 +51,7 @@ export async function runMigrations() {
       );
 
       -- Lots
-      CREATE TABLE IF NOT EXISTS lots (
+      CREATE TABLE IF NOT EXISTS erp_lots (
         id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
         product_id VARCHAR NOT NULL,
         lot_number TEXT NOT NULL,
@@ -67,14 +69,14 @@ export async function runMigrations() {
       );
 
       -- Locations
-      CREATE TABLE IF NOT EXISTS locations (
+      CREATE TABLE IF NOT EXISTS erp_locations (
         id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
         name TEXT NOT NULL UNIQUE,
         description TEXT
       );
 
       -- Transactions
-      CREATE TABLE IF NOT EXISTS transactions (
+      CREATE TABLE IF NOT EXISTS erp_transactions (
         id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
         lot_id VARCHAR NOT NULL,
         location_id VARCHAR NOT NULL,
@@ -88,7 +90,7 @@ export async function runMigrations() {
       );
 
       -- Suppliers
-      CREATE TABLE IF NOT EXISTS suppliers (
+      CREATE TABLE IF NOT EXISTS erp_suppliers (
         id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
         name TEXT NOT NULL,
         contact_email TEXT,
@@ -98,7 +100,7 @@ export async function runMigrations() {
       );
 
       -- Purchase Orders
-      CREATE TABLE IF NOT EXISTS purchase_orders (
+      CREATE TABLE IF NOT EXISTS erp_purchase_orders (
         id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
         po_number TEXT NOT NULL UNIQUE,
         supplier_id VARCHAR NOT NULL,
@@ -112,7 +114,7 @@ export async function runMigrations() {
       );
 
       -- PO Line Items
-      CREATE TABLE IF NOT EXISTS po_line_items (
+      CREATE TABLE IF NOT EXISTS erp_po_line_items (
         id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
         purchase_order_id VARCHAR NOT NULL,
         product_id VARCHAR NOT NULL,
@@ -125,7 +127,7 @@ export async function runMigrations() {
       );
 
       -- Production Batches
-      CREATE TABLE IF NOT EXISTS production_batches (
+      CREATE TABLE IF NOT EXISTS erp_production_batches (
         id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
         batch_number TEXT NOT NULL UNIQUE,
         product_id VARCHAR NOT NULL,
@@ -149,7 +151,7 @@ export async function runMigrations() {
       );
 
       -- Production Inputs
-      CREATE TABLE IF NOT EXISTS production_inputs (
+      CREATE TABLE IF NOT EXISTS erp_production_inputs (
         id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
         batch_id VARCHAR NOT NULL,
         product_id VARCHAR NOT NULL,
@@ -160,7 +162,7 @@ export async function runMigrations() {
       );
 
       -- Recipes
-      CREATE TABLE IF NOT EXISTS recipes (
+      CREATE TABLE IF NOT EXISTS erp_recipes (
         id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
         product_id VARCHAR NOT NULL,
         name TEXT NOT NULL,
@@ -170,7 +172,7 @@ export async function runMigrations() {
       );
 
       -- Recipe Lines
-      CREATE TABLE IF NOT EXISTS recipe_lines (
+      CREATE TABLE IF NOT EXISTS erp_recipe_lines (
         id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
         recipe_id VARCHAR NOT NULL,
         product_id VARCHAR NOT NULL,
@@ -180,21 +182,21 @@ export async function runMigrations() {
       );
 
       -- Product Categories
-      CREATE TABLE IF NOT EXISTS product_categories (
+      CREATE TABLE IF NOT EXISTS erp_product_categories (
         id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
         name TEXT NOT NULL UNIQUE,
         created_at TIMESTAMP DEFAULT NOW()
       );
 
       -- Product Category Assignments
-      CREATE TABLE IF NOT EXISTS product_category_assignments (
+      CREATE TABLE IF NOT EXISTS erp_product_category_assignments (
         id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
         product_id VARCHAR NOT NULL,
         category_id VARCHAR NOT NULL
       );
 
       -- App Settings
-      CREATE TABLE IF NOT EXISTS app_settings (
+      CREATE TABLE IF NOT EXISTS erp_app_settings (
         id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
         company_name TEXT NOT NULL DEFAULT 'Neurogan',
         default_uom TEXT NOT NULL DEFAULT 'g',
@@ -211,7 +213,7 @@ export async function runMigrations() {
       );
 
       -- Receiving Records
-      CREATE TABLE IF NOT EXISTS receiving_records (
+      CREATE TABLE IF NOT EXISTS erp_receiving_records (
         id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
         purchase_order_id VARCHAR,
         lot_id VARCHAR NOT NULL,
@@ -238,7 +240,7 @@ export async function runMigrations() {
       );
 
       -- COA Documents
-      CREATE TABLE IF NOT EXISTS coa_documents (
+      CREATE TABLE IF NOT EXISTS erp_coa_documents (
         id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
         lot_id VARCHAR NOT NULL,
         receiving_record_id VARCHAR,
@@ -264,7 +266,7 @@ export async function runMigrations() {
       );
 
       -- Supplier Qualifications
-      CREATE TABLE IF NOT EXISTS supplier_qualifications (
+      CREATE TABLE IF NOT EXISTS erp_supplier_qualifications (
         id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
         supplier_id VARCHAR NOT NULL,
         qualification_date TEXT,
@@ -281,7 +283,7 @@ export async function runMigrations() {
       );
 
       -- Batch Production Records
-      CREATE TABLE IF NOT EXISTS batch_production_records (
+      CREATE TABLE IF NOT EXISTS erp_batch_production_records (
         id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
         production_batch_id VARCHAR NOT NULL,
         batch_number TEXT NOT NULL,
@@ -311,7 +313,7 @@ export async function runMigrations() {
       );
 
       -- BPR Steps
-      CREATE TABLE IF NOT EXISTS bpr_steps (
+      CREATE TABLE IF NOT EXISTS erp_bpr_steps (
         id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
         bpr_id VARCHAR NOT NULL,
         step_number DECIMAL NOT NULL,
@@ -338,7 +340,7 @@ export async function runMigrations() {
       );
 
       -- BPR Deviations
-      CREATE TABLE IF NOT EXISTS bpr_deviations (
+      CREATE TABLE IF NOT EXISTS erp_bpr_deviations (
         id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
         bpr_id VARCHAR NOT NULL,
         bpr_step_id VARCHAR,
@@ -358,7 +360,7 @@ export async function runMigrations() {
       );
 
       -- Production Notes
-      CREATE TABLE IF NOT EXISTS production_notes (
+      CREATE TABLE IF NOT EXISTS erp_production_notes (
         id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
         batch_id VARCHAR NOT NULL,
         content TEXT NOT NULL,
@@ -367,7 +369,7 @@ export async function runMigrations() {
       );
 
       -- Supplier Documents
-      CREATE TABLE IF NOT EXISTS supplier_documents (
+      CREATE TABLE IF NOT EXISTS erp_supplier_documents (
         id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
         supplier_id VARCHAR NOT NULL,
         file_name TEXT NOT NULL,

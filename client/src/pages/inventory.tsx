@@ -533,7 +533,19 @@ function MaterialDetailPanel({
         <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">
           Lots ({item.lots.length})
         </h3>
-        <LotTable lots={item.lots} />
+        {item.lots.length === 0 ? (
+          <Card>
+            <CardContent className="py-8 text-center">
+              <Package className="h-8 w-8 mx-auto mb-2 text-muted-foreground/40" />
+              <p className="text-sm font-medium text-muted-foreground">No stock on hand</p>
+              <p className="text-xs text-muted-foreground/70 mt-1">
+                Receive items via a Purchase Order to add stock.
+              </p>
+            </CardContent>
+          </Card>
+        ) : (
+          <LotTable lots={item.lots} />
+        )}
       </div>
     </div>
   );
@@ -545,12 +557,41 @@ function MaterialsTab({ initialSelectedId }: { initialSelectedId?: string | null
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [showCreateMaterial, setShowCreateMaterial] = useState(false);
 
-  const { data, isLoading } = useQuery<InventoryGrouped[]>({
+  const { data: inventoryData = [], isLoading: invLoading } = useQuery<InventoryGrouped[]>({
     queryKey: ["/api/inventory"],
   });
 
+  const { data: allProducts = [], isLoading: prodLoading } = useQuery<Product[]>({
+    queryKey: ["/api/products"],
+  });
+
+  const isLoading = invLoading || prodLoading;
+
+  // Merge: all non-FINISHED_GOOD products, enriched with inventory data if available
+  const data = useMemo(() => {
+    const materialCategories = ["ACTIVE_INGREDIENT", "SUPPORTING_INGREDIENT", "PRIMARY_PACKAGING", "SECONDARY_PACKAGING"];
+    const allMaterials = allProducts.filter(p => materialCategories.includes(p.category));
+    const invMap = new Map(inventoryData.map(i => [i.productId, i]));
+
+    return allMaterials.map(product => {
+      if (invMap.has(product.id)) {
+        return invMap.get(product.id)!;
+      }
+      return {
+        productId: product.id,
+        productName: product.name,
+        sku: product.sku,
+        category: product.category,
+        defaultUom: product.defaultUom,
+        totalQuantity: 0,
+        lowStockThreshold: product.lowStockThreshold ? parseFloat(product.lowStockThreshold) : null,
+        lots: [],
+      } as InventoryGrouped;
+    }).sort((a, b) => a.productName.localeCompare(b.productName));
+  }, [inventoryData, allProducts]);
+
   useEffect(() => {
-    if (initialSelectedId && data) {
+    if (initialSelectedId && data.length > 0) {
       const timer = setTimeout(() => {
         const el = document.querySelector(`[data-testid="item-material-${initialSelectedId}"]`);
         if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -560,9 +601,7 @@ function MaterialsTab({ initialSelectedId }: { initialSelectedId?: string | null
   }, [initialSelectedId, data]);
 
   const filtered = useMemo(() => {
-    if (!data) return [];
-    // Exclude FINISHED_GOOD items
-    let result = data.filter((item) => item.category !== "FINISHED_GOOD");
+    let result = data;
     if (categoryFilter && categoryFilter !== "all") {
       result = result.filter((item) => item.category === categoryFilter);
     }
@@ -578,7 +617,7 @@ function MaterialsTab({ initialSelectedId }: { initialSelectedId?: string | null
   }, [data, search, categoryFilter]);
 
   const selectedItem = useMemo(() => {
-    if (!selectedId || !data) return null;
+    if (!selectedId) return null;
     return data.find((item) => item.productId === selectedId) ?? null;
   }, [selectedId, data]);
 
@@ -639,7 +678,7 @@ function MaterialsTab({ initialSelectedId }: { initialSelectedId?: string | null
             </div>
           ) : filtered.length === 0 ? (
             <div className="p-6 text-center text-sm text-muted-foreground">
-              {search ? "No matching materials." : "No inventory data."}
+              {search || categoryFilter !== "all" ? "No matching materials." : "No materials found."}
             </div>
           ) : (
             filtered.map((item) => (
