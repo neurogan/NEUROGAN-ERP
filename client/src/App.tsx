@@ -20,6 +20,9 @@ import Settings from "@/pages/settings";
 import SupplyChain from "@/pages/supply-chain";
 import BatchPrint from "@/pages/batch-print";
 import SkuManager from "@/pages/sku-manager";
+import QmsDashboard from "@/pages/qms-dashboard";
+import QmsReleaseQueue from "@/pages/qms-release-queue";
+import QmsCapa from "@/pages/qms-capa";
 
 const navItems = [
   { href: "/", label: "Dashboard" },
@@ -29,6 +32,7 @@ const navItems = [
   { href: "/receiving", label: "Receiving" },
   { href: "/production", label: "Production" },
   { href: "/transactions", label: "Transactions" },
+  { href: "/qms", label: "QMS", badge: true },
 ];
 
 function ThemeToggle() {
@@ -94,7 +98,14 @@ function TopNav() {
                 }`}
                 data-testid={`nav-${item.label.toLowerCase().replace(/\s+/g, "-")}`}
               >
-                {item.label}
+                <span className="flex items-center gap-1.5">
+                  {item.label}
+                  {"badge" in item && item.badge && (
+                    <span className="inline-flex items-center justify-center h-4 min-w-4 px-1 rounded-full bg-amber-500 text-white text-[9px] font-bold leading-none">
+                      !
+                    </span>
+                  )}
+                </span>
                 {isActive && (
                   <span className="absolute bottom-0 left-0 right-0 h-[2px] bg-primary rounded-t-full" />
                 )}
@@ -122,6 +133,9 @@ function AppLayout() {
           <Route path="/production" component={Production} />
           <Route path="/transactions" component={Transactions} />
           <Route path="/sku-manager" component={SkuManager} />
+          <Route path="/qms" component={QmsDashboard} />
+          <Route path="/qms/release-queue" component={QmsReleaseQueue} />
+          <Route path="/qms/capa" component={QmsCapa} />
           <Route path="/settings" component={Settings} />
           <Route component={NotFound} />
         </Switch>
