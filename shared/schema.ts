@@ -1,4 +1,4 @@
-import { pgTable, text, varchar, decimal, timestamp, pgEnum } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, decimal, timestamp, pgEnum, boolean, bigint } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { sql } from "drizzle-orm";
@@ -542,6 +542,171 @@ export type RecipeWithDetails = Recipe & {
 // Product with category assignments
 export type ProductWithCategories = Product & {
   categories: ProductCategory[];
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// QMS Tables (Phase 1)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const qmsRoleEnum = pgEnum("qms_role", [
+  "QC_MANAGER", "PRODUCTION_LEAD", "WAREHOUSE_LEAD",
+  "CS_MANAGER", "CHEMIST", "CO_FOUNDER", "ADMIN", "READ_ONLY",
+]);
+
+// QMS Users (hardcoded for demo; real bcrypt login is a Phase 4 prerequisite)
+export const qmsUsers = pgTable("qms_users", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  email: text("email").notNull().unique(),
+  role: text("role").notNull().default("READ_ONLY"),
+  pin: text("pin").notNull().default("0000"), // demo re-auth PIN (NOT Part 11 compliant)
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Immutable audit log — INSERT ONLY, no update/delete routes ever exposed
+export const qmsAuditLog = pgTable("qms_audit_log", {
+  id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+  tableName: text("table_name").notNull(),
+  recordId: text("record_id").notNull(),
+  operation: text("operation").notNull(), // CREATE | UPDATE | DELETE | SIGN | TRANSITION
+  actorId: varchar("actor_id").notNull(),
+  actorEmail: text("actor_email").notNull(),
+  beforeJson: text("before_json"),
+  afterJson: text("after_json"),
+  occurredAt: timestamp("occurred_at").defaultNow(),
+});
+
+// E-signatures (21 CFR Part 11) — INSERT ONLY
+export const qmsSignatures = pgTable("qms_signatures", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tableName: text("table_name").notNull(),
+  recordId: text("record_id").notNull(),
+  signerId: varchar("signer_id").notNull(),
+  signerEmail: text("signer_email").notNull(),
+  signedAt: timestamp("signed_at").defaultNow(),
+  meaning: text("meaning").notNull(), // APPROVED | REJECTED | REVIEWED | TRAINED | RELEASED | CLOSED
+  reauthMethod: text("reauth_method").notNull().default("PIN_DEMO"),
+  payloadHash: text("payload_hash").notNull(), // SHA-256 of (recordId + signerId + meaning + timestamp)
+});
+
+// Lot release gate — one record per lot
+export const qmsLotReleases = pgTable("qms_lot_releases", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  lotId: varchar("lot_id").notNull().unique(),
+  lotNumber: text("lot_number").notNull(),
+  productName: text("product_name").notNull(),
+  productSku: text("product_sku").notNull(),
+  bprId: varchar("bpr_id"),
+  coaId: varchar("coa_id"),
+  status: text("status").notNull().default("PENDING_QC_REVIEW"), // PENDING_QC_REVIEW | APPROVED | REJECTED | ON_HOLD
+  decision: text("decision"), // APPROVED | REJECTED | ON_HOLD
+  signedBy: varchar("signed_by"),
+  signedAt: timestamp("signed_at"),
+  signatureId: varchar("signature_id"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// CAPAs
+export const qmsCapas = pgTable("qms_capas", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  number: text("number").notNull().unique(), // CAPA-2026-XXXX
+  title: text("title").notNull(),
+  source: text("source").notNull().default("internal"), // fda_observation | customer_complaint | internal_audit | internal
+  fdaObs: text("fda_obs"), // e.g. "Obs 5"
+  owner: text("owner").notNull(),
+  targetDate: text("target_date").notNull(),
+  daysLeft: decimal("days_left"),
+  phase: text("phase").notNull().default("30d"), // 30d | 90d | 180d
+  status: text("status").notNull().default("open"), // open | in_progress | pending_effectiveness | closed | verified | on_hold | reopened
+  description: text("description"),
+  rootCause: text("root_cause"),
+  actionPlan: text("action_plan"),
+  effectivenessResult: text("effectiveness_result"),
+  asanaUrl: text("asana_url"),
+  closedBy: varchar("closed_by"),
+  closedAt: timestamp("closed_at"),
+  verifiedBy: varchar("verified_by"),
+  verifiedAt: timestamp("verified_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// CAPA action items
+export const qmsCapaActions = pgTable("qms_capa_actions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  capaId: varchar("capa_id").notNull(),
+  description: text("description").notNull(),
+  assignedTo: text("assigned_to"),
+  dueDate: text("due_date"),
+  completedAt: timestamp("completed_at"),
+  completedBy: text("completed_by"),
+  status: text("status").notNull().default("open"), // open | complete
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Customer / quality complaints
+export const qmsComplaints = pgTable("qms_complaints", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  number: text("number").notNull().unique(), // CMP-2026-XXXX
+  category: text("category").notNull().default("quality"), // quality | adverse_event | serious_adverse_event | labeling | foreign_matter
+  lotId: varchar("lot_id"),
+  lotNumber: text("lot_number"),
+  sku: text("sku"),
+  productName: text("product_name"),
+  source: text("source").default("gorgias"), // gorgias | email | phone | in_person
+  gorgiasTicketId: text("gorgias_ticket_id"),
+  customerName: text("customer_name"),
+  description: text("description").notNull(),
+  status: text("status").notNull().default("open"), // open | under_investigation | pending_qc_review | closed | escalated_sae
+  lotLinkageRequired: boolean("lot_linkage_required").notNull().default(false),
+  rootCause: text("root_cause"),
+  correctiveAction: text("corrective_action"),
+  closedBy: varchar("closed_by"),
+  closedAt: timestamp("closed_at"),
+  receivedAt: timestamp("received_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Insert schemas (QMS)
+export const insertQmsUserSchema = createInsertSchema(qmsUsers).omit({ id: true, createdAt: true });
+export const insertQmsAuditLogSchema = createInsertSchema(qmsAuditLog).omit({ id: true, occurredAt: true });
+export const insertQmsSignatureSchema = createInsertSchema(qmsSignatures).omit({ id: true, signedAt: true });
+export const insertQmsLotReleaseSchema = createInsertSchema(qmsLotReleases).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertQmsCapaSchema = createInsertSchema(qmsCapas).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertQmsCapaActionSchema = createInsertSchema(qmsCapaActions).omit({ id: true, createdAt: true });
+export const insertQmsComplaintSchema = createInsertSchema(qmsComplaints).omit({ id: true, createdAt: true, updatedAt: true, receivedAt: true });
+
+// Types (QMS)
+export type QmsUser = typeof qmsUsers.$inferSelect;
+export type InsertQmsUser = z.infer<typeof insertQmsUserSchema>;
+export type QmsAuditLog = typeof qmsAuditLog.$inferSelect;
+export type InsertQmsAuditLog = z.infer<typeof insertQmsAuditLogSchema>;
+export type QmsSignature = typeof qmsSignatures.$inferSelect;
+export type InsertQmsSignature = z.infer<typeof insertQmsSignatureSchema>;
+export type QmsLotRelease = typeof qmsLotReleases.$inferSelect;
+export type InsertQmsLotRelease = z.infer<typeof insertQmsLotReleaseSchema>;
+export type QmsCapa = typeof qmsCapas.$inferSelect;
+export type InsertQmsCapa = z.infer<typeof insertQmsCapaSchema>;
+export type QmsCapaAction = typeof qmsCapaActions.$inferSelect;
+export type InsertQmsCapaAction = z.infer<typeof insertQmsCapaActionSchema>;
+export type QmsComplaint = typeof qmsComplaints.$inferSelect;
+export type InsertQmsComplaint = z.infer<typeof insertQmsComplaintSchema>;
+
+export type QmsCapaWithActions = QmsCapa & { actions: QmsCapaAction[] };
+export type QmsLotReleaseWithDetails = QmsLotRelease & {
+  signerName?: string | null;
+  signerEmail?: string | null;
+};
+
+export type QmsDashboardStats = {
+  pendingReleases: number;
+  openCapas: number;
+  openComplaints: number;
+  trainingGaps: number;
 };
 
 // Supply chain capacity types

@@ -27,6 +27,15 @@ import {
   type SupplierQualification, type InsertSupplierQualification, type SupplierQualificationWithDetails,
   type BatchProductionRecord, type InsertBpr, type BprStep, type InsertBprStep,
   type BprDeviation, type InsertBprDeviation, type BprWithDetails,
+  // QMS
+  type QmsUser, type InsertQmsUser,
+  type QmsAuditLog, type InsertQmsAuditLog,
+  type QmsSignature, type InsertQmsSignature,
+  type QmsLotRelease, type InsertQmsLotRelease, type QmsLotReleaseWithDetails,
+  type QmsCapa, type InsertQmsCapa, type QmsCapaWithActions,
+  type QmsCapaAction, type InsertQmsCapaAction,
+  type QmsComplaint, type InsertQmsComplaint,
+  type QmsDashboardStats,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 
@@ -266,6 +275,47 @@ export interface IStorage {
 
   // BPR Deviations
   addBprDeviation(bprId: string, data: InsertBprDeviation): Promise<BprDeviation>;
+
+  // ─── QMS ──────────────────────────────────────────────
+
+  // QMS Users
+  getQmsUsers(): Promise<QmsUser[]>;
+  getQmsUser(id: string): Promise<QmsUser | undefined>;
+  getQmsUserByEmail(email: string): Promise<QmsUser | undefined>;
+  verifyQmsPin(userId: string, pin: string): Promise<boolean>;
+
+  // Audit log (INSERT-only)
+  writeAuditLog(entry: InsertQmsAuditLog): Promise<QmsAuditLog>;
+  getAuditLog(filters?: { tableName?: string; recordId?: string; actorId?: string; limit?: number }): Promise<QmsAuditLog[]>;
+
+  // Signatures (INSERT-only)
+  createSignature(data: InsertQmsSignature): Promise<QmsSignature>;
+
+  // Lot releases
+  getLotReleases(filters?: { status?: string }): Promise<QmsLotReleaseWithDetails[]>;
+  getLotRelease(id: string): Promise<QmsLotReleaseWithDetails | undefined>;
+  getLotReleaseByLotId(lotId: string): Promise<QmsLotRelease | undefined>;
+  createLotRelease(data: InsertQmsLotRelease): Promise<QmsLotRelease>;
+  signLotRelease(id: string, decision: "APPROVED" | "REJECTED" | "ON_HOLD", signerId: string, signerEmail: string, pin: string, notes?: string): Promise<QmsLotRelease>;
+
+  // CAPAs
+  getCapas(filters?: { status?: string; phase?: string }): Promise<QmsCapaWithActions[]>;
+  getCapa(id: string): Promise<QmsCapaWithActions | undefined>;
+  createCapa(data: InsertQmsCapa): Promise<QmsCapa>;
+  updateCapa(id: string, data: Partial<InsertQmsCapa>): Promise<QmsCapa | undefined>;
+  transitionCapa(id: string, newStatus: string, actorId: string, actorEmail: string): Promise<QmsCapa | undefined>;
+  createCapaAction(data: InsertQmsCapaAction): Promise<QmsCapaAction>;
+  updateCapaAction(id: string, data: Partial<InsertQmsCapaAction>): Promise<QmsCapaAction | undefined>;
+
+  // Complaints
+  getComplaints(filters?: { status?: string; category?: string }): Promise<QmsComplaint[]>;
+  getComplaint(id: string): Promise<QmsComplaint | undefined>;
+  createComplaint(data: InsertQmsComplaint): Promise<QmsComplaint>;
+  updateComplaint(id: string, data: Partial<InsertQmsComplaint>): Promise<QmsComplaint | undefined>;
+  transitionComplaint(id: string, newStatus: string, actorId: string, actorEmail: string): Promise<QmsComplaint | undefined>;
+
+  // Dashboard aggregation
+  getQmsDashboardStats(): Promise<QmsDashboardStats>;
 }
 
 export class MemStorage implements IStorage {
@@ -2994,6 +3044,34 @@ export class MemStorage implements IStorage {
       }
     }
   }
+
+  // ─── QMS stubs (MemStorage — not used in production) ──
+
+  async getQmsUsers(): Promise<QmsUser[]> { return []; }
+  async getQmsUser(_id: string): Promise<QmsUser | undefined> { return undefined; }
+  async getQmsUserByEmail(_email: string): Promise<QmsUser | undefined> { return undefined; }
+  async verifyQmsPin(_userId: string, _pin: string): Promise<boolean> { return false; }
+  async writeAuditLog(_entry: InsertQmsAuditLog): Promise<QmsAuditLog> { throw new Error("MemStorage: QMS not supported"); }
+  async getAuditLog(_filters?: any): Promise<QmsAuditLog[]> { return []; }
+  async createSignature(_data: InsertQmsSignature): Promise<QmsSignature> { throw new Error("MemStorage: QMS not supported"); }
+  async getLotReleases(_filters?: any): Promise<QmsLotReleaseWithDetails[]> { return []; }
+  async getLotRelease(_id: string): Promise<QmsLotReleaseWithDetails | undefined> { return undefined; }
+  async getLotReleaseByLotId(_lotId: string): Promise<QmsLotRelease | undefined> { return undefined; }
+  async createLotRelease(_data: InsertQmsLotRelease): Promise<QmsLotRelease> { throw new Error("MemStorage: QMS not supported"); }
+  async signLotRelease(_id: string, _decision: "APPROVED" | "REJECTED" | "ON_HOLD", _signerId: string, _signerEmail: string, _pin: string, _notes?: string): Promise<QmsLotRelease> { throw new Error("MemStorage: QMS not supported"); }
+  async getCapas(_filters?: any): Promise<QmsCapaWithActions[]> { return []; }
+  async getCapa(_id: string): Promise<QmsCapaWithActions | undefined> { return undefined; }
+  async createCapa(_data: InsertQmsCapa): Promise<QmsCapa> { throw new Error("MemStorage: QMS not supported"); }
+  async updateCapa(_id: string, _data: Partial<InsertQmsCapa>): Promise<QmsCapa | undefined> { return undefined; }
+  async transitionCapa(_id: string, _newStatus: string, _actorId: string, _actorEmail: string): Promise<QmsCapa | undefined> { return undefined; }
+  async createCapaAction(_data: InsertQmsCapaAction): Promise<QmsCapaAction> { throw new Error("MemStorage: QMS not supported"); }
+  async updateCapaAction(_id: string, _data: Partial<InsertQmsCapaAction>): Promise<QmsCapaAction | undefined> { return undefined; }
+  async getComplaints(_filters?: any): Promise<QmsComplaint[]> { return []; }
+  async getComplaint(_id: string): Promise<QmsComplaint | undefined> { return undefined; }
+  async createComplaint(_data: InsertQmsComplaint): Promise<QmsComplaint> { throw new Error("MemStorage: QMS not supported"); }
+  async updateComplaint(_id: string, _data: Partial<InsertQmsComplaint>): Promise<QmsComplaint | undefined> { return undefined; }
+  async transitionComplaint(_id: string, _newStatus: string, _actorId: string, _actorEmail: string): Promise<QmsComplaint | undefined> { return undefined; }
+  async getQmsDashboardStats(): Promise<QmsDashboardStats> { return { pendingReleases: 0, openCapas: 0, openComplaints: 0, trainingGaps: 0 }; }
 }
 
 import { DatabaseStorage } from "./db-storage";

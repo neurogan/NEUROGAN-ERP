@@ -62,8 +62,9 @@ app.use((req, res, next) => {
 (async () => {
   // Auto-create database tables on first boot
   try {
-    const { runMigrations } = await import("./migrate");
+    const { runMigrations, runQmsMigrations } = await import("./migrate");
     await runMigrations();
+    await runQmsMigrations();
   } catch (err) {
     console.error("[startup] Migration failed, continuing anyway:", (err as Error).message);
   }

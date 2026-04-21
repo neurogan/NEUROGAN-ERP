@@ -1,6 +1,7 @@
 import { eq, desc, asc, and, sql, gte, lte, inArray, ilike, ne } from "drizzle-orm";
 import { db } from "./db";
 import * as schema from "@shared/schema";
+import { createHash } from "crypto";
 import {
   type Product, type InsertProduct,
   type Lot, type InsertLot,
@@ -30,6 +31,15 @@ import {
   type SupplierQualification, type InsertSupplierQualification, type SupplierQualificationWithDetails,
   type BatchProductionRecord, type InsertBpr, type BprStep, type InsertBprStep,
   type BprDeviation, type InsertBprDeviation, type BprWithDetails,
+  // QMS
+  type QmsUser, type InsertQmsUser,
+  type QmsAuditLog, type InsertQmsAuditLog,
+  type QmsSignature, type InsertQmsSignature,
+  type QmsLotRelease, type InsertQmsLotRelease, type QmsLotReleaseWithDetails,
+  type QmsCapa, type InsertQmsCapa, type QmsCapaWithActions,
+  type QmsCapaAction, type InsertQmsCapaAction,
+  type QmsComplaint, type InsertQmsComplaint,
+  type QmsDashboardStats,
 } from "@shared/schema";
 import type {
   IStorage,
@@ -711,16 +721,33 @@ export class DatabaseStorage implements IStorage {
       });
     }
 
-    // 3. Create output lot
+    // 3. Create output lot with PENDING_QC quarantine status (lot release gate)
     const outputLot = await this.createLot({
       productId: batch.productId,
       lotNumber: outputLotNumber,
       expirationDate: outputExpirationDate ?? null,
       receivedDate: effectiveEndDate,
+      quarantineStatus: "PENDING_QC",
       notes: `Produced in batch ${batch.batchNumber}`,
     });
 
-    // 4. Create PRODUCTION_OUTPUT transaction only if actualQuantity > 0
+    // 4. Auto-create QMS lot release record for QC review queue
+    try {
+      const product = await this.getProduct(batch.productId);
+      const bpr = await this.getBprByBatchId(id).catch(() => null);
+      await db.insert(schema.qmsLotReleases).values({
+        lotId: outputLot.id,
+        lotNumber: outputLotNumber,
+        productName: product?.name ?? "Unknown",
+        productSku: product?.sku ?? "UNKNOWN",
+        bprId: bpr?.id ?? null,
+        status: "PENDING_QC_REVIEW",
+      });
+    } catch (_e) {
+      // Non-fatal — lot release record can be created manually if this fails
+    }
+
+    // 5. Create PRODUCTION_OUTPUT transaction only if actualQuantity > 0
     if (actualQuantity > 0) {
       await this.createTransaction({
         lotId: outputLot.id,
@@ -741,7 +768,13 @@ export class DatabaseStorage implements IStorage {
 
   async getAvailableStock(productId: string): Promise<StockByLotLocation[]> {
     // Get lot IDs for this product
-    const productLots = await db.select().from(schema.lots).where(eq(schema.lots.productId, productId));
+    // FINISHED_GOOD lots with quarantine_status != 'APPROVED' are excluded (lot release gate)
+    const product = await this.getProduct(productId);
+    const lotsQuery = db.select().from(schema.lots).where(eq(schema.lots.productId, productId));
+    const productLots = (await lotsQuery).filter(l =>
+      product?.category !== "FINISHED_GOOD" ||
+      (l.quarantineStatus === "APPROVED" || l.quarantineStatus === null || l.quarantineStatus === undefined)
+    );
     if (productLots.length === 0) return [];
     const lotIds = productLots.map(l => l.id);
 
@@ -1663,5 +1696,308 @@ export class DatabaseStorage implements IStorage {
     if (!bpr) throw new Error("BPR not found");
     const [row] = await db.insert(schema.bprDeviations).values({ ...data, bprId }).returning();
     return row;
+  }
+
+  // ─── QMS: Audit Log ──────────────────────────────────
+
+  async writeAuditLog(entry: InsertQmsAuditLog): Promise<QmsAuditLog> {
+    const [row] = await db.insert(schema.qmsAuditLog).values(entry).returning();
+    return row;
+  }
+
+  async getAuditLog(filters?: { tableName?: string; recordId?: string; actorId?: string; limit?: number }): Promise<QmsAuditLog[]> {
+    let q = db.select().from(schema.qmsAuditLog).$dynamic();
+    if (filters?.tableName) q = q.where(eq(schema.qmsAuditLog.tableName, filters.tableName));
+    if (filters?.recordId) q = q.where(eq(schema.qmsAuditLog.recordId, filters.recordId));
+    if (filters?.actorId) q = q.where(eq(schema.qmsAuditLog.actorId, filters.actorId));
+    const rows = await q.orderBy(desc(schema.qmsAuditLog.occurredAt)).limit(filters?.limit ?? 500);
+    return rows;
+  }
+
+  // ─── QMS: Signatures ─────────────────────────────────
+
+  async createSignature(data: InsertQmsSignature): Promise<QmsSignature> {
+    const [row] = await db.insert(schema.qmsSignatures).values(data).returning();
+    return row;
+  }
+
+  // ─── QMS: Users ──────────────────────────────────────
+
+  async getQmsUsers(): Promise<QmsUser[]> {
+    return db.select().from(schema.qmsUsers).where(eq(schema.qmsUsers.isActive, true)).orderBy(asc(schema.qmsUsers.name));
+  }
+
+  async getQmsUser(id: string): Promise<QmsUser | undefined> {
+    const [row] = await db.select().from(schema.qmsUsers).where(eq(schema.qmsUsers.id, id));
+    return row;
+  }
+
+  async getQmsUserByEmail(email: string): Promise<QmsUser | undefined> {
+    const [row] = await db.select().from(schema.qmsUsers).where(eq(schema.qmsUsers.email, email));
+    return row;
+  }
+
+  async verifyQmsPin(userId: string, pin: string): Promise<boolean> {
+    const [user] = await db.select().from(schema.qmsUsers).where(eq(schema.qmsUsers.id, userId));
+    if (!user) return false;
+    return user.pin === pin;
+  }
+
+  // ─── QMS: Lot Releases ───────────────────────────────
+
+  async getLotReleases(filters?: { status?: string }): Promise<QmsLotReleaseWithDetails[]> {
+    let q = db.select().from(schema.qmsLotReleases).$dynamic();
+    if (filters?.status) q = q.where(eq(schema.qmsLotReleases.status, filters.status));
+    const rows = await q.orderBy(desc(schema.qmsLotReleases.createdAt));
+    return rows.map(r => ({ ...r, signerName: null, signerEmail: null }));
+  }
+
+  async getLotRelease(id: string): Promise<QmsLotReleaseWithDetails | undefined> {
+    const [row] = await db.select().from(schema.qmsLotReleases).where(eq(schema.qmsLotReleases.id, id));
+    if (!row) return undefined;
+    return { ...row, signerName: null, signerEmail: null };
+  }
+
+  async getLotReleaseByLotId(lotId: string): Promise<QmsLotRelease | undefined> {
+    const [row] = await db.select().from(schema.qmsLotReleases).where(eq(schema.qmsLotReleases.lotId, lotId));
+    return row;
+  }
+
+  async createLotRelease(data: InsertQmsLotRelease): Promise<QmsLotRelease> {
+    const [row] = await db.insert(schema.qmsLotReleases).values(data).returning();
+    await this.writeAuditLog({
+      tableName: "qms_lot_releases",
+      recordId: row.id,
+      operation: "CREATE",
+      actorId: "system",
+      actorEmail: "system",
+      beforeJson: null,
+      afterJson: JSON.stringify(row),
+    });
+    return row;
+  }
+
+  async signLotRelease(
+    id: string,
+    decision: "APPROVED" | "REJECTED" | "ON_HOLD",
+    signerId: string,
+    signerEmail: string,
+    pin: string,
+    notes?: string,
+  ): Promise<QmsLotRelease> {
+    const pinOk = await this.verifyQmsPin(signerId, pin);
+    if (!pinOk) throw new Error("Incorrect PIN");
+
+    const [existing] = await db.select().from(schema.qmsLotReleases).where(eq(schema.qmsLotReleases.id, id));
+    if (!existing) throw new Error("Lot release not found");
+    if (existing.status !== "PENDING_QC_REVIEW" && existing.status !== "ON_HOLD") {
+      throw new Error("Lot release has already been decided");
+    }
+
+    const now = new Date();
+    const payloadHash = createHash("sha256")
+      .update(`${id}|${signerId}|${decision}|${now.toISOString()}`)
+      .digest("hex");
+
+    const sig = await this.createSignature({
+      tableName: "qms_lot_releases",
+      recordId: id,
+      signerId,
+      signerEmail,
+      meaning: decision === "APPROVED" ? "RELEASED" : decision === "REJECTED" ? "REJECTED" : "REVIEWED",
+      reauthMethod: "PIN_DEMO",
+      payloadHash,
+    });
+
+    const [updated] = await db.update(schema.qmsLotReleases).set({
+      status: decision,
+      decision,
+      signedBy: signerId,
+      signedAt: now,
+      signatureId: sig.id,
+      notes: notes ?? null,
+      updatedAt: now,
+    }).where(eq(schema.qmsLotReleases.id, id)).returning();
+
+    // Update lot quarantine status
+    const newQuarantine = decision === "APPROVED" ? "APPROVED" : decision === "REJECTED" ? "REJECTED" : "ON_HOLD";
+    await db.update(schema.lots).set({ quarantineStatus: newQuarantine }).where(eq(schema.lots.id, existing.lotId));
+
+    await this.writeAuditLog({
+      tableName: "qms_lot_releases",
+      recordId: id,
+      operation: "SIGN",
+      actorId: signerId,
+      actorEmail: signerEmail,
+      beforeJson: JSON.stringify(existing),
+      afterJson: JSON.stringify(updated),
+    });
+
+    return updated;
+  }
+
+  // ─── QMS: CAPAs ──────────────────────────────────────
+
+  async getCapas(filters?: { status?: string; phase?: string }): Promise<QmsCapaWithActions[]> {
+    let q = db.select().from(schema.qmsCapas).$dynamic();
+    if (filters?.status) q = q.where(eq(schema.qmsCapas.status, filters.status));
+    if (filters?.phase) q = q.where(eq(schema.qmsCapas.phase, filters.phase));
+    const rows = await q.orderBy(asc(schema.qmsCapas.targetDate));
+    const actions = await db.select().from(schema.qmsCapaActions);
+    return rows.map(r => ({
+      ...r,
+      actions: actions.filter(a => a.capaId === r.id),
+    }));
+  }
+
+  async getCapa(id: string): Promise<QmsCapaWithActions | undefined> {
+    const [row] = await db.select().from(schema.qmsCapas).where(eq(schema.qmsCapas.id, id));
+    if (!row) return undefined;
+    const actions = await db.select().from(schema.qmsCapaActions).where(eq(schema.qmsCapaActions.capaId, id));
+    return { ...row, actions };
+  }
+
+  async createCapa(data: InsertQmsCapa): Promise<QmsCapa> {
+    const [row] = await db.insert(schema.qmsCapas).values(data).returning();
+    await this.writeAuditLog({
+      tableName: "qms_capas",
+      recordId: row.id,
+      operation: "CREATE",
+      actorId: "system",
+      actorEmail: "system",
+      beforeJson: null,
+      afterJson: JSON.stringify(row),
+    });
+    return row;
+  }
+
+  async updateCapa(id: string, data: Partial<InsertQmsCapa>): Promise<QmsCapa | undefined> {
+    const [existing] = await db.select().from(schema.qmsCapas).where(eq(schema.qmsCapas.id, id));
+    if (!existing) return undefined;
+    const [row] = await db.update(schema.qmsCapas).set({ ...data, updatedAt: new Date() }).where(eq(schema.qmsCapas.id, id)).returning();
+    await this.writeAuditLog({
+      tableName: "qms_capas",
+      recordId: id,
+      operation: "UPDATE",
+      actorId: "system",
+      actorEmail: "system",
+      beforeJson: JSON.stringify(existing),
+      afterJson: JSON.stringify(row),
+    });
+    return row;
+  }
+
+  async transitionCapa(id: string, newStatus: string, actorId: string, actorEmail: string): Promise<QmsCapa | undefined> {
+    const [existing] = await db.select().from(schema.qmsCapas).where(eq(schema.qmsCapas.id, id));
+    if (!existing) return undefined;
+    const extra: Partial<InsertQmsCapa> = {};
+    if (newStatus === "closed") { extra.closedBy = actorId; extra.closedAt = new Date() as any; }
+    if (newStatus === "verified") { extra.verifiedBy = actorId; extra.verifiedAt = new Date() as any; }
+    const [row] = await db.update(schema.qmsCapas).set({ status: newStatus, ...extra, updatedAt: new Date() }).where(eq(schema.qmsCapas.id, id)).returning();
+    await this.writeAuditLog({
+      tableName: "qms_capas",
+      recordId: id,
+      operation: "TRANSITION",
+      actorId,
+      actorEmail,
+      beforeJson: JSON.stringify(existing),
+      afterJson: JSON.stringify(row),
+    });
+    return row;
+  }
+
+  async createCapaAction(data: InsertQmsCapaAction): Promise<QmsCapaAction> {
+    const [row] = await db.insert(schema.qmsCapaActions).values(data).returning();
+    return row;
+  }
+
+  async updateCapaAction(id: string, data: Partial<InsertQmsCapaAction>): Promise<QmsCapaAction | undefined> {
+    const [row] = await db.update(schema.qmsCapaActions).set(data).where(eq(schema.qmsCapaActions.id, id)).returning();
+    return row;
+  }
+
+  // ─── QMS: Complaints ─────────────────────────────────
+
+  async getComplaints(filters?: { status?: string; category?: string }): Promise<QmsComplaint[]> {
+    let q = db.select().from(schema.qmsComplaints).$dynamic();
+    if (filters?.status) q = q.where(eq(schema.qmsComplaints.status, filters.status));
+    if (filters?.category) q = q.where(eq(schema.qmsComplaints.category, filters.category));
+    return q.orderBy(desc(schema.qmsComplaints.receivedAt));
+  }
+
+  async getComplaint(id: string): Promise<QmsComplaint | undefined> {
+    const [row] = await db.select().from(schema.qmsComplaints).where(eq(schema.qmsComplaints.id, id));
+    return row;
+  }
+
+  async createComplaint(data: InsertQmsComplaint): Promise<QmsComplaint> {
+    const [row] = await db.insert(schema.qmsComplaints).values({
+      ...data,
+      lotLinkageRequired: !data.lotId,
+    }).returning();
+    await this.writeAuditLog({
+      tableName: "qms_complaints",
+      recordId: row.id,
+      operation: "CREATE",
+      actorId: "system",
+      actorEmail: "system",
+      beforeJson: null,
+      afterJson: JSON.stringify(row),
+    });
+    return row;
+  }
+
+  async updateComplaint(id: string, data: Partial<InsertQmsComplaint>): Promise<QmsComplaint | undefined> {
+    const [existing] = await db.select().from(schema.qmsComplaints).where(eq(schema.qmsComplaints.id, id));
+    if (!existing) return undefined;
+    const [row] = await db.update(schema.qmsComplaints).set({ ...data, updatedAt: new Date() }).where(eq(schema.qmsComplaints.id, id)).returning();
+    await this.writeAuditLog({
+      tableName: "qms_complaints",
+      recordId: id,
+      operation: "UPDATE",
+      actorId: "system",
+      actorEmail: "system",
+      beforeJson: JSON.stringify(existing),
+      afterJson: JSON.stringify(row),
+    });
+    return row;
+  }
+
+  async transitionComplaint(id: string, newStatus: string, actorId: string, actorEmail: string): Promise<QmsComplaint | undefined> {
+    const [existing] = await db.select().from(schema.qmsComplaints).where(eq(schema.qmsComplaints.id, id));
+    if (!existing) return undefined;
+    const extra: any = {};
+    if (newStatus === "closed") { extra.closedBy = actorId; extra.closedAt = new Date(); }
+    const [row] = await db.update(schema.qmsComplaints).set({ status: newStatus, ...extra, updatedAt: new Date() }).where(eq(schema.qmsComplaints.id, id)).returning();
+    await this.writeAuditLog({
+      tableName: "qms_complaints",
+      recordId: id,
+      operation: "TRANSITION",
+      actorId,
+      actorEmail,
+      beforeJson: JSON.stringify(existing),
+      afterJson: JSON.stringify(row),
+    });
+    return row;
+  }
+
+  // ─── QMS: Dashboard ──────────────────────────────────
+
+  async getQmsDashboardStats(): Promise<QmsDashboardStats> {
+    const [releases, capas, complaints] = await Promise.all([
+      db.select().from(schema.qmsLotReleases).where(eq(schema.qmsLotReleases.status, "PENDING_QC_REVIEW")),
+      db.select().from(schema.qmsCapas).where(
+        sql`${schema.qmsCapas.status} IN ('open', 'in_progress', 'pending_effectiveness', 'on_hold')`
+      ),
+      db.select().from(schema.qmsComplaints).where(
+        sql`${schema.qmsComplaints.status} IN ('open', 'under_investigation', 'pending_qc_review')`
+      ),
+    ]);
+    return {
+      pendingReleases: releases.length,
+      openCapas: capas.length,
+      openComplaints: complaints.length,
+      trainingGaps: 0, // Phase 2
+    };
   }
 }

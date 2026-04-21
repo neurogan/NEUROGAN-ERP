@@ -1,4 +1,5 @@
 import { Link } from "wouter";
+import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -19,42 +20,52 @@ import {
   ChevronRight,
   Clock,
   CheckCircle2,
-  XCircle,
   AlertCircle,
-  Pause,
+  Loader2,
 } from "lucide-react";
+import { QmsComplianceBanner } from "@/components/qms-compliance-banner";
 
-// ─── Mock data ────────────────────────────────────────
+// ─── Types ────────────────────────────────────────────
 
-const pendingReleases = [
-  { lotCode: "LOT-2026-0412", sku: "UA-60CT-500MG",   product: "Urolithin A 500mg", submittedAt: "2026-04-20", bpr: true, coa: true },
-  { lotCode: "LOT-2026-0408", sku: "NMN-60CT-500MG",  product: "NMN 500mg",          submittedAt: "2026-04-19", bpr: true, coa: false },
-  { lotCode: "LOT-2026-0401", sku: "OMGA-60CT-1000MG", product: "Omega-3 1000mg",    submittedAt: "2026-04-18", bpr: true, coa: true },
-];
+interface LotRelease {
+  id: string;
+  lotNumber: string;
+  productName: string;
+  productSku: string;
+  bprId: string | null;
+  coaId: string | null;
+  status: string;
+}
 
-const openCapas = [
-  { number: "CAPA-2026-0002", title: "Weigher/verifier separation enforcement", source: "fda_observation", targetDate: "2026-05-06", daysLeft: 15, status: "in_progress" },
-  { number: "CAPA-2026-0003", title: "COA review workflow — Urolithin A & NMN raw materials", source: "fda_observation", targetDate: "2026-05-06", daysLeft: 15, status: "in_progress" },
-  { number: "CAPA-2026-0004", title: "Label reconciliation added to all BPRs", source: "fda_observation", targetDate: "2026-05-20", daysLeft: 29, status: "open" },
-  { number: "CAPA-2026-0005", title: "OOS investigation SOP for finished goods testing", source: "fda_observation", targetDate: "2026-05-20", daysLeft: 29, status: "open" },
-];
+interface Capa {
+  id: string;
+  number: string;
+  title: string;
+  daysLeft: string | null;
+  status: string;
+  targetDate: string;
+}
 
-const openComplaints = [
-  { number: "CMP-2026-0021", category: "adverse_event", sku: "UA-60CT-500MG",    receivedAt: "2026-04-19", status: "under_investigation" },
-  { number: "CMP-2026-0020", category: "quality",        sku: "NMN-60CT-500MG",  receivedAt: "2026-04-17", status: "open" },
-  { number: "CMP-2026-0018", category: "quality",        sku: "OMGA-60CT-1000MG", receivedAt: "2026-04-14", status: "open" },
-];
+interface Complaint {
+  id: string;
+  number: string;
+  category: string;
+  sku: string | null;
+  receivedAt: string | null;
+  status: string;
+}
 
-const trainingGaps = [
-  { name: "Marcus R.",  role: "Production Lead", sop: "SOP-QC-005 — In-Process Checks", dueDate: "2026-04-28" },
-  { name: "Diane P.",   role: "Warehouse Lead",  sop: "SOP-WH-002 — Label Reconciliation", dueDate: "2026-04-28" },
-  { name: "Tom K.",     role: "Production Lead", sop: "SOP-QC-012 — Deviation Reporting", dueDate: "2026-05-05" },
-];
+interface DashboardStats {
+  pendingReleases: number;
+  openCapas: number;
+  openComplaints: number;
+  trainingGaps: number;
+}
 
 // ─── Helpers ─────────────────────────────────────────
 
 function categoryBadge(cat: string) {
-  if (cat === "adverse_event")
+  if (cat === "adverse_event" || cat === "serious_adverse_event")
     return <Badge variant="destructive" className="text-xs">Adverse Event</Badge>;
   return <Badge variant="secondary" className="text-xs">Quality</Badge>;
 }
@@ -65,16 +76,12 @@ function capaStatusBadge(status: string) {
   return <Badge variant="outline" className="text-xs">Open</Badge>;
 }
 
-function daysLeftBadge(days: number) {
-  if (days <= 7) return <span className="text-xs font-medium text-destructive">{days}d left</span>;
-  if (days <= 21) return <span className="text-xs font-medium text-amber-600 dark:text-amber-400">{days}d left</span>;
-  return <span className="text-xs text-muted-foreground">{days}d left</span>;
-}
-
-function coaIcon(ok: boolean) {
-  return ok
-    ? <CheckCircle2 className="h-4 w-4 text-green-600" />
-    : <AlertCircle className="h-4 w-4 text-amber-500" />;
+function daysLeftBadge(days: string | null) {
+  const n = days ? parseFloat(days) : null;
+  if (n === null) return null;
+  if (n <= 7) return <span className="text-xs font-medium text-destructive">{n}d left</span>;
+  if (n <= 21) return <span className="text-xs font-medium text-amber-600 dark:text-amber-400">{n}d left</span>;
+  return <span className="text-xs text-muted-foreground">{n}d left</span>;
 }
 
 // ─── Stat card ────────────────────────────────────────
@@ -85,8 +92,9 @@ interface StatCardProps {
   value: string | number;
   sub?: string;
   urgent?: boolean;
+  loading?: boolean;
 }
-function StatCard({ icon, label, value, sub, urgent }: StatCardProps) {
+function StatCard({ icon, label, value, sub, urgent, loading }: StatCardProps) {
   return (
     <Card className={urgent ? "border-destructive/50" : ""}>
       <CardContent className="pt-5">
@@ -94,9 +102,10 @@ function StatCard({ icon, label, value, sub, urgent }: StatCardProps) {
           <div className={`p-2 rounded-lg ${urgent ? "bg-destructive/10" : "bg-muted"}`}>
             {icon}
           </div>
-          <span className={`text-3xl font-bold tracking-tight ${urgent ? "text-destructive" : "text-foreground"}`}>
-            {value}
-          </span>
+          {loading
+            ? <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            : <span className={`text-3xl font-bold tracking-tight ${urgent ? "text-destructive" : "text-foreground"}`}>{value}</span>
+          }
         </div>
         <div className="mt-3">
           <div className="text-sm font-medium text-foreground">{label}</div>
@@ -110,8 +119,42 @@ function StatCard({ icon, label, value, sub, urgent }: StatCardProps) {
 // ─── Page ─────────────────────────────────────────────
 
 export default function QmsDashboard() {
+  const { data: stats, isLoading: statsLoading } = useQuery<DashboardStats>({
+    queryKey: ["/api/qms/dashboard"],
+    refetchInterval: 30_000,
+  });
+
+  const { data: pendingReleases = [], isLoading: releasesLoading } = useQuery<LotRelease[]>({
+    queryKey: ["/api/qms/lot-releases", "PENDING_QC_REVIEW"],
+    queryFn: () => fetch("/api/qms/lot-releases?status=PENDING_QC_REVIEW").then(r => r.json()),
+    refetchInterval: 30_000,
+  });
+
+  const { data: openCapas = [], isLoading: capasLoading } = useQuery<Capa[]>({
+    queryKey: ["/api/qms/capas", "open"],
+    queryFn: () => fetch("/api/qms/capas").then(r => r.json()),
+    refetchInterval: 30_000,
+  });
+
+  const { data: openComplaints = [], isLoading: complaintsLoading } = useQuery<Complaint[]>({
+    queryKey: ["/api/qms/complaints", "open"],
+    queryFn: () => fetch("/api/qms/complaints").then(r => r.json()),
+    refetchInterval: 30_000,
+  });
+
+  const activeCapas = openCapas.filter(c =>
+    ["open", "in_progress", "pending_effectiveness", "on_hold"].includes(c.status)
+  ).slice(0, 4);
+
+  const activeComplaints = openComplaints.filter(c =>
+    ["open", "under_investigation", "pending_qc_review"].includes(c.status)
+  ).slice(0, 3);
+
   return (
     <div className="p-6 space-y-6">
+      {/* Compliance banner */}
+      <QmsComplianceBanner />
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -133,28 +176,31 @@ export default function QmsDashboard() {
         <StatCard
           icon={<Clock className="h-4 w-4 text-amber-600" />}
           label="Lots awaiting release"
-          value={pendingReleases.length}
+          value={stats?.pendingReleases ?? 0}
           sub="QC signature required"
-          urgent={false}
+          loading={statsLoading}
         />
         <StatCard
           icon={<ClipboardList className="h-4 w-4 text-blue-600" />}
           label="Open CAPAs"
-          value={openCapas.length}
-          sub="4 FDA observations"
+          value={stats?.openCapas ?? 0}
+          sub="FDA observations"
+          loading={statsLoading}
         />
         <StatCard
           icon={<AlertTriangle className="h-4 w-4 text-destructive" />}
           label="Open complaints"
-          value={openComplaints.length}
-          sub="1 adverse event"
-          urgent
+          value={stats?.openComplaints ?? 0}
+          sub="incl. adverse events"
+          urgent={!!(stats && stats.openComplaints > 0)}
+          loading={statsLoading}
         />
         <StatCard
           icon={<GraduationCap className="h-4 w-4 text-purple-600" />}
           label="Training gaps"
-          value={trainingGaps.length}
-          sub="Due within 7 days"
+          value={stats?.trainingGaps ?? 0}
+          sub="Phase 2 — coming soon"
+          loading={statsLoading}
         />
       </div>
 
@@ -176,33 +222,45 @@ export default function QmsDashboard() {
             </div>
           </CardHeader>
           <CardContent className="p-0">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="pl-6 text-xs">Lot code</TableHead>
-                  <TableHead className="text-xs">Product</TableHead>
-                  <TableHead className="text-xs text-center">BPR</TableHead>
-                  <TableHead className="text-xs text-center pr-6">COA</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {pendingReleases.map((r) => (
-                  <TableRow key={r.lotCode}>
-                    <TableCell className="pl-6 font-mono text-xs">{r.lotCode}</TableCell>
-                    <TableCell>
-                      <div className="text-xs font-medium">{r.product}</div>
-                      <div className="text-xs text-muted-foreground">{r.sku}</div>
-                    </TableCell>
-                    <TableCell className="text-center">
-                      <CheckCircle2 className="h-4 w-4 text-green-600 mx-auto" />
-                    </TableCell>
-                    <TableCell className="text-center pr-6">
-                      {coaIcon(r.coa)}
-                    </TableCell>
+            {releasesLoading ? (
+              <div className="flex items-center justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
+            ) : pendingReleases.length === 0 ? (
+              <div className="px-6 py-6 text-center text-sm text-muted-foreground">No lots pending QC release</div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="pl-6 text-xs">Lot code</TableHead>
+                    <TableHead className="text-xs">Product</TableHead>
+                    <TableHead className="text-xs text-center">BPR</TableHead>
+                    <TableHead className="text-xs text-center pr-6">COA</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {pendingReleases.slice(0, 5).map((r) => (
+                    <TableRow key={r.id}>
+                      <TableCell className="pl-6 font-mono text-xs">{r.lotNumber}</TableCell>
+                      <TableCell>
+                        <div className="text-xs font-medium">{r.productName}</div>
+                        <div className="text-xs text-muted-foreground">{r.productSku}</div>
+                      </TableCell>
+                      <TableCell className="text-center">
+                        {r.bprId
+                          ? <CheckCircle2 className="h-4 w-4 text-green-600 mx-auto" />
+                          : <AlertCircle className="h-4 w-4 text-amber-500 mx-auto" />
+                        }
+                      </TableCell>
+                      <TableCell className="text-center pr-6">
+                        {r.coaId
+                          ? <CheckCircle2 className="h-4 w-4 text-green-600 mx-auto" />
+                          : <AlertCircle className="h-4 w-4 text-amber-500 mx-auto" />
+                        }
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
           </CardContent>
         </Card>
 
@@ -222,34 +280,39 @@ export default function QmsDashboard() {
             </div>
           </CardHeader>
           <CardContent className="p-0">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="pl-6 text-xs">CAPA #</TableHead>
-                  <TableHead className="text-xs">Title</TableHead>
-                  <TableHead className="text-xs text-right pr-6">Due</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {openCapas.map((c) => (
-                  <TableRow key={c.number}>
-                    <TableCell className="pl-6 font-mono text-xs whitespace-nowrap">{c.number}</TableCell>
-                    <TableCell>
-                      <div className="text-xs font-medium leading-tight">{c.title}</div>
-                      <div className="mt-0.5">{capaStatusBadge(c.status)}</div>
-                    </TableCell>
-                    <TableCell className="text-right pr-6">{daysLeftBadge(c.daysLeft)}</TableCell>
+            {capasLoading ? (
+              <div className="flex items-center justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
+            ) : activeCapas.length === 0 ? (
+              <div className="px-6 py-6 text-center text-sm text-muted-foreground">No open CAPAs</div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="pl-6 text-xs">CAPA #</TableHead>
+                    <TableHead className="text-xs">Title</TableHead>
+                    <TableHead className="text-xs text-right pr-6">Due</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {activeCapas.map((c) => (
+                    <TableRow key={c.id}>
+                      <TableCell className="pl-6 font-mono text-xs whitespace-nowrap">{c.number}</TableCell>
+                      <TableCell>
+                        <div className="text-xs font-medium leading-tight">{c.title}</div>
+                        <div className="mt-0.5">{capaStatusBadge(c.status)}</div>
+                      </TableCell>
+                      <TableCell className="text-right pr-6">{daysLeftBadge(c.daysLeft)}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
           </CardContent>
         </Card>
       </div>
 
-      {/* Complaints + Training gaps */}
+      {/* Complaints */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Complaints */}
         <Card>
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
@@ -257,33 +320,46 @@ export default function QmsDashboard() {
                 <AlertTriangle className="h-4 w-4 text-destructive" />
                 Open Complaints
               </CardTitle>
+              <Link href="/qms/complaints">
+                <Button variant="ghost" size="sm" className="text-xs h-7 px-2 gap-1">
+                  View all <ChevronRight className="h-3 w-3" />
+                </Button>
+              </Link>
             </div>
           </CardHeader>
           <CardContent className="p-0">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="pl-6 text-xs">Complaint #</TableHead>
-                  <TableHead className="text-xs">Category</TableHead>
-                  <TableHead className="text-xs">SKU</TableHead>
-                  <TableHead className="text-xs pr-6">Received</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {openComplaints.map((c) => (
-                  <TableRow key={c.number}>
-                    <TableCell className="pl-6 font-mono text-xs">{c.number}</TableCell>
-                    <TableCell>{categoryBadge(c.category)}</TableCell>
-                    <TableCell className="text-xs text-muted-foreground">{c.sku}</TableCell>
-                    <TableCell className="text-xs text-muted-foreground pr-6">{c.receivedAt}</TableCell>
+            {complaintsLoading ? (
+              <div className="flex items-center justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
+            ) : activeComplaints.length === 0 ? (
+              <div className="px-6 py-6 text-center text-sm text-muted-foreground">No open complaints</div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="pl-6 text-xs">Complaint #</TableHead>
+                    <TableHead className="text-xs">Category</TableHead>
+                    <TableHead className="text-xs">SKU</TableHead>
+                    <TableHead className="text-xs pr-6">Received</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {activeComplaints.map((c) => (
+                    <TableRow key={c.id}>
+                      <TableCell className="pl-6 font-mono text-xs">{c.number}</TableCell>
+                      <TableCell>{categoryBadge(c.category)}</TableCell>
+                      <TableCell className="text-xs text-muted-foreground">{c.sku ?? "—"}</TableCell>
+                      <TableCell className="text-xs text-muted-foreground pr-6">
+                        {c.receivedAt ? new Date(c.receivedAt).toLocaleDateString() : "—"}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
           </CardContent>
         </Card>
 
-        {/* Training gaps */}
+        {/* Training gaps placeholder */}
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-base font-semibold flex items-center gap-2">
@@ -291,28 +367,10 @@ export default function QmsDashboard() {
               Training Gaps
             </CardTitle>
           </CardHeader>
-          <CardContent className="p-0">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="pl-6 text-xs">Person</TableHead>
-                  <TableHead className="text-xs">SOP</TableHead>
-                  <TableHead className="text-xs text-right pr-6">Due</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {trainingGaps.map((t) => (
-                  <TableRow key={`${t.name}-${t.sop}`}>
-                    <TableCell className="pl-6">
-                      <div className="text-xs font-medium">{t.name}</div>
-                      <div className="text-xs text-muted-foreground">{t.role}</div>
-                    </TableCell>
-                    <TableCell className="text-xs text-muted-foreground max-w-[180px] truncate">{t.sop}</TableCell>
-                    <TableCell className="text-right text-xs font-medium text-destructive pr-6">{t.dueDate}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+          <CardContent>
+            <div className="text-sm text-muted-foreground text-center py-4">
+              Training records module launches in Phase 2 (by 2026-05-20).
+            </div>
           </CardContent>
         </Card>
       </div>

@@ -23,6 +23,9 @@ import SkuManager from "@/pages/sku-manager";
 import QmsDashboard from "@/pages/qms-dashboard";
 import QmsReleaseQueue from "@/pages/qms-release-queue";
 import QmsCapa from "@/pages/qms-capa";
+import QmsComplaints from "@/pages/qms-complaints";
+import QmsAuditLog from "@/pages/qms-audit-log";
+import { QmsUserSelector } from "@/components/qms-user-selector";
 
 const navItems = [
   { href: "/", label: "Dashboard" },
@@ -77,6 +80,7 @@ function TopNav() {
               <span>Settings</span>
             </button>
           </Link>
+          <QmsUserSelector />
           <ThemeToggle />
         </div>
       </div>
@@ -136,6 +140,8 @@ function AppLayout() {
           <Route path="/qms" component={QmsDashboard} />
           <Route path="/qms/release-queue" component={QmsReleaseQueue} />
           <Route path="/qms/capa" component={QmsCapa} />
+          <Route path="/qms/complaints" component={QmsComplaints} />
+          <Route path="/qms/audit-log" component={QmsAuditLog} />
           <Route path="/settings" component={Settings} />
           <Route component={NotFound} />
         </Switch>

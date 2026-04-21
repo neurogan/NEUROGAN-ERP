@@ -1191,5 +1191,235 @@ export async function registerRoutes(
     }
   });
 
+  // ─── QMS Auth ────────────────────────────────────────────
+
+  app.get("/api/auth/users", async (_req, res) => {
+    try {
+      const users = await storage.getQmsUsers();
+      // Never expose PINs
+      res.json(users.map(u => ({ id: u.id, name: u.name, email: u.email, role: u.role })));
+    } catch (err) {
+      res.status(500).json({ message: "Failed to fetch QMS users" });
+    }
+  });
+
+  app.post("/api/auth/verify-pin", async (req, res) => {
+    const { userId, pin } = req.body;
+    if (!userId || !pin) return res.status(400).json({ message: "userId and pin required" });
+    try {
+      const ok = await storage.verifyQmsPin(String(userId), String(pin));
+      if (!ok) return res.status(401).json({ message: "Incorrect PIN" });
+      res.json({ verified: true });
+    } catch (err) {
+      res.status(500).json({ message: "Failed to verify PIN" });
+    }
+  });
+
+  // ─── QMS Dashboard ───────────────────────────────────────
+
+  app.get("/api/qms/dashboard", async (_req, res) => {
+    try {
+      const stats = await storage.getQmsDashboardStats();
+      res.json(stats);
+    } catch (err) {
+      res.status(500).json({ message: "Failed to fetch QMS dashboard stats" });
+    }
+  });
+
+  // ─── QMS Lot Releases ────────────────────────────────────
+
+  app.get("/api/qms/lot-releases", async (req, res) => {
+    try {
+      const status = req.query.status as string | undefined;
+      const releases = await storage.getLotReleases(status ? { status } : undefined);
+      res.json(releases);
+    } catch (err) {
+      res.status(500).json({ message: "Failed to fetch lot releases" });
+    }
+  });
+
+  app.get("/api/qms/lot-releases/:id", async (req, res) => {
+    try {
+      const release = await storage.getLotRelease(req.params.id);
+      if (!release) return res.status(404).json({ message: "Lot release not found" });
+      res.json(release);
+    } catch (err) {
+      res.status(500).json({ message: "Failed to fetch lot release" });
+    }
+  });
+
+  app.post("/api/qms/lot-releases", async (req, res) => {
+    try {
+      const release = await storage.createLotRelease(req.body);
+      res.status(201).json(release);
+    } catch (err) {
+      res.status(500).json({ message: "Failed to create lot release" });
+    }
+  });
+
+  app.post("/api/qms/lot-releases/:id/sign", async (req, res) => {
+    const { decision, signerId, signerEmail, pin, notes } = req.body;
+    if (!decision || !signerId || !signerEmail || !pin) {
+      return res.status(400).json({ message: "decision, signerId, signerEmail, and pin are required" });
+    }
+    if (!["APPROVED", "REJECTED", "ON_HOLD"].includes(decision)) {
+      return res.status(400).json({ message: "decision must be APPROVED, REJECTED, or ON_HOLD" });
+    }
+    try {
+      const release = await storage.signLotRelease(req.params.id, decision, String(signerId), String(signerEmail), String(pin), notes);
+      res.json(release);
+    } catch (err: any) {
+      if (err.message === "Incorrect PIN") return res.status(401).json({ message: "Incorrect PIN" });
+      if (err.message === "Lot release has already been decided") return res.status(409).json({ message: err.message });
+      res.status(500).json({ message: err.message ?? "Failed to sign lot release" });
+    }
+  });
+
+  // ─── QMS CAPAs ───────────────────────────────────────────
+
+  app.get("/api/qms/capas", async (req, res) => {
+    try {
+      const status = req.query.status as string | undefined;
+      const phase = req.query.phase as string | undefined;
+      const capas = await storage.getCapas({ status, phase });
+      res.json(capas);
+    } catch (err) {
+      res.status(500).json({ message: "Failed to fetch CAPAs" });
+    }
+  });
+
+  app.get("/api/qms/capas/:id", async (req, res) => {
+    try {
+      const capa = await storage.getCapa(req.params.id);
+      if (!capa) return res.status(404).json({ message: "CAPA not found" });
+      res.json(capa);
+    } catch (err) {
+      res.status(500).json({ message: "Failed to fetch CAPA" });
+    }
+  });
+
+  app.post("/api/qms/capas", async (req, res) => {
+    try {
+      const capa = await storage.createCapa(req.body);
+      res.status(201).json(capa);
+    } catch (err) {
+      res.status(500).json({ message: "Failed to create CAPA" });
+    }
+  });
+
+  app.patch("/api/qms/capas/:id", async (req, res) => {
+    try {
+      const capa = await storage.updateCapa(req.params.id, req.body);
+      if (!capa) return res.status(404).json({ message: "CAPA not found" });
+      res.json(capa);
+    } catch (err) {
+      res.status(500).json({ message: "Failed to update CAPA" });
+    }
+  });
+
+  app.post("/api/qms/capas/:id/transition", async (req, res) => {
+    const { status, actorId, actorEmail } = req.body;
+    if (!status || !actorId || !actorEmail) {
+      return res.status(400).json({ message: "status, actorId, and actorEmail are required" });
+    }
+    try {
+      const capa = await storage.transitionCapa(req.params.id, status, String(actorId), String(actorEmail));
+      if (!capa) return res.status(404).json({ message: "CAPA not found" });
+      res.json(capa);
+    } catch (err) {
+      res.status(500).json({ message: "Failed to transition CAPA" });
+    }
+  });
+
+  app.post("/api/qms/capa-actions", async (req, res) => {
+    try {
+      const action = await storage.createCapaAction(req.body);
+      res.status(201).json(action);
+    } catch (err) {
+      res.status(500).json({ message: "Failed to create CAPA action" });
+    }
+  });
+
+  app.patch("/api/qms/capa-actions/:id", async (req, res) => {
+    try {
+      const action = await storage.updateCapaAction(req.params.id, req.body);
+      if (!action) return res.status(404).json({ message: "CAPA action not found" });
+      res.json(action);
+    } catch (err) {
+      res.status(500).json({ message: "Failed to update CAPA action" });
+    }
+  });
+
+  // ─── QMS Complaints ──────────────────────────────────────
+
+  app.get("/api/qms/complaints", async (req, res) => {
+    try {
+      const status = req.query.status as string | undefined;
+      const category = req.query.category as string | undefined;
+      const complaints = await storage.getComplaints({ status, category });
+      res.json(complaints);
+    } catch (err) {
+      res.status(500).json({ message: "Failed to fetch complaints" });
+    }
+  });
+
+  app.get("/api/qms/complaints/:id", async (req, res) => {
+    try {
+      const complaint = await storage.getComplaint(req.params.id);
+      if (!complaint) return res.status(404).json({ message: "Complaint not found" });
+      res.json(complaint);
+    } catch (err) {
+      res.status(500).json({ message: "Failed to fetch complaint" });
+    }
+  });
+
+  app.post("/api/qms/complaints", async (req, res) => {
+    try {
+      const complaint = await storage.createComplaint(req.body);
+      res.status(201).json(complaint);
+    } catch (err) {
+      res.status(500).json({ message: "Failed to create complaint" });
+    }
+  });
+
+  app.patch("/api/qms/complaints/:id", async (req, res) => {
+    try {
+      const complaint = await storage.updateComplaint(req.params.id, req.body);
+      if (!complaint) return res.status(404).json({ message: "Complaint not found" });
+      res.json(complaint);
+    } catch (err) {
+      res.status(500).json({ message: "Failed to update complaint" });
+    }
+  });
+
+  app.post("/api/qms/complaints/:id/transition", async (req, res) => {
+    const { status, actorId, actorEmail } = req.body;
+    if (!status || !actorId || !actorEmail) {
+      return res.status(400).json({ message: "status, actorId, and actorEmail are required" });
+    }
+    try {
+      const complaint = await storage.transitionComplaint(req.params.id, status, String(actorId), String(actorEmail));
+      if (!complaint) return res.status(404).json({ message: "Complaint not found" });
+      res.json(complaint);
+    } catch (err) {
+      res.status(500).json({ message: "Failed to transition complaint" });
+    }
+  });
+
+  // ─── QMS Audit Log ───────────────────────────────────────
+
+  app.get("/api/qms/audit-log", async (req, res) => {
+    try {
+      const tableName = req.query.table as string | undefined;
+      const recordId = req.query.recordId as string | undefined;
+      const actorId = req.query.actorId as string | undefined;
+      const limit = req.query.limit ? parseInt(req.query.limit as string) : undefined;
+      const logs = await storage.getAuditLog({ tableName, recordId, actorId, limit });
+      res.json(logs);
+    } catch (err) {
+      res.status(500).json({ message: "Failed to fetch audit log" });
+    }
+  });
+
   return httpServer;
 }
