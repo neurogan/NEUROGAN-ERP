@@ -106,6 +106,11 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # Apply drizzle migrations to the disposable Postgres before tests run.
+      # CI starts with an empty DB each time; 0000_baseline + 0001+ apply
+      # cleanly in sequence. On Railway staging/prod the baseline is marked
+      # 'already applied' by a one-time ops step (see F-01 PR description).
+      - run: pnpm migrate:up
       - run: pnpm test:integration
 
   build:
