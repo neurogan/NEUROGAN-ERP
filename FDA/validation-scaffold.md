@@ -46,10 +46,10 @@ Populate one table row per URS item. Copy the template when adding.
 | URS-F-01-02 | System shall allow role assignment (ADMIN / QA / PRODUCTION / RECEIVING / VIEWER) and prevent privilege escalation without ADMIN action. | §111.8, Part 11 §11.10(g) | IMPLEMENTED (F-01) |
 | URS-F-01-03 | System shall prevent the removal of administrative access from the last active administrator (retain at least one ADMIN at all times). | Part 11 §11.10(g) | IMPLEMENTED (F-01) |
 | URS-F-01-04 | System shall disable, rather than delete, user accounts to preserve the audit trail. | §111.180, §111.605 | IMPLEMENTED (F-01) |
-| URS-F-02-01 | System shall authenticate users before any regulated action. | Part 11 §11.10(d) | DRAFT |
-| URS-F-02-02 | System shall apply a password policy consistent with NIST 800-63B guidance. | Part 11 §11.300 | DRAFT |
-| URS-F-02-03 | System shall automatically log users out after 15 minutes of inactivity. | Part 11 §11.10(d) | DRAFT |
-| URS-F-02-04 | System shall lock a user account after five consecutive failed login attempts. | Part 11 §11.300(d) | DRAFT |
+| URS-F-02-01 | System shall authenticate users before any regulated action. | Part 11 §11.10(d) | IMPLEMENTED (F-02) |
+| URS-F-02-02 | System shall apply a password policy consistent with NIST 800-63B guidance. | Part 11 §11.300 | IMPLEMENTED (F-02) |
+| URS-F-02-03 | System shall automatically log users out after 15 minutes of inactivity. | Part 11 §11.10(d) | IMPLEMENTED (F-02) |
+| URS-F-02-04 | System shall lock a user account after five consecutive failed login attempts. | Part 11 §11.300(d) | IMPLEMENTED (F-02) |
 | URS-F-03-01 | System shall maintain a tamper-resistant, computer-generated audit trail of all regulated writes. | §111.180, Part 11 §11.10(e) | DRAFT |
 | URS-F-03-02 | Audit trail entries shall capture time, user, action, entity, before, and after values. | Part 11 §11.10(e) | DRAFT |
 | URS-F-04-01 | Regulated state transitions shall require an electronic signature. | Part 11 §11.100 | DRAFT |
@@ -99,9 +99,11 @@ FRS items describe *what the software does* to meet a URS. One FRS may serve mul
 | FRS-F-01-03 | `PATCH /api/users/:id/status` transitions between ACTIVE and DISABLED; refuses with `SELF_DISABLE` (409) on self, `LAST_ADMIN` (409) on disabling the only active administrator. | URS-F-01-03, 01-04 | IMPLEMENTED (F-01) |
 | FRS-F-01-04 | `GET /api/users` and `GET /api/users/:id` return `UserResponse` (never `passwordHash`); admin-only fields (`passwordChangedAt`, `lockedUntil`, `failedLoginCount`) are redacted for QA viewers. | URS-F-01-01 | IMPLEMENTED (F-01) |
 | FRS-F-01-05 | Role-gate middleware (`requireAuth`, `requireRole`, `requireRoleOrSelf`) returns 401 on missing session and 403 on role mismatch. Defined in F-01; mounted globally by F-02. | URS-F-01-02 | IMPLEMENTED (F-01) |
-| FRS-F-02-01 | `POST /api/auth/login` authenticates via `passport-local`; sets session cookie; increments failure count on wrong password; locks after 5. | URS-F-02-01, 02-04 | DRAFT |
-| FRS-F-02-02 | `POST /api/auth/rotate-password` validates policy, writes new argon2 hash, updates `passwordChangedAt`. | URS-F-02-02 | DRAFT |
-| FRS-F-02-03 | Session middleware sets 15-minute rolling idle timeout; server destroys on timeout. | URS-F-02-03 | DRAFT |
+| FRS-F-02-01 | `POST /api/auth/login` authenticates via `passport-local`; sets session cookie; increments failure count on wrong password; locks after 5 failures (30-min lockout). Returns 423 when locked, 200+`mustRotatePassword:true` when password expired. | URS-F-02-01, 02-04 | IMPLEMENTED (F-02) |
+| FRS-F-02-02 | `POST /api/auth/rotate-password` validates: current password correct, new password meets complexity (≥12 chars, upper/lower/digit/symbol), no reuse of last 5 hashes; on success writes new argon2id hash and resets `passwordChangedAt`. | URS-F-02-02 | IMPLEMENTED (F-02) |
+| FRS-F-02-03 | `express-session` rolling cookie (15-min maxAge, httpOnly, sameSite=lax, secure in production). Client-side inactivity timer warns at 14 min; auto-logout at 15 min. | URS-F-02-03 | IMPLEMENTED (F-02) |
+| FRS-F-02-04 | `GET /api/auth/me` returns current user + roles + `mustRotatePassword` flag. `POST /api/auth/logout` destroys session and clears cookie. All `/api/*` routes (except `/api/health` and `/api/auth/*`) require an active session. | URS-F-02-01 | IMPLEMENTED (F-02) |
+| FRS-F-02-05 | `rejectIdentityInBody` middleware (D-10) added to `server/auth/middleware.ts`. | URS-F-06-01 | IMPLEMENTED (F-02) |
 | FRS-F-03-01 | `withAudit(entityType, id, action, before, fn)` wraps every regulated write in a transaction that inserts an `audit_trail` row. | URS-F-03-01, 03-02 | DRAFT |
 | FRS-F-04-01 | Shared `<SignatureCeremony>` dialog requires password re-entry + meaning code before submitting a signing action. | URS-F-04-01, 04-02, 04-03 | DRAFT |
 | FRS-F-05-01 | `transition(entity, action, context)` validates `from → to` + role + signature; throws `ILLEGAL_TRANSITION`, `FORBIDDEN`, or `SIGNATURE_REQUIRED`. | URS-F-05-01, 05-02 | DRAFT |
@@ -122,8 +124,10 @@ DS items describe *how the software is implemented*. Types, tables, columns, mid
 | DS-F-01-03 | `server/auth/password.ts` wraps argon2id (`memoryCost: 64 MiB`, `timeCost: 3`, `parallelism: 2` per D-02). Exports `hashPassword`, `verifyPassword`, `generateTemporaryPassword` (16 bytes base64url; ≥ 22 chars). | FRS-F-01-01 | IMPLEMENTED (F-01) |
 | DS-F-01-04 | `server/auth/middleware.ts` exports `requireAuth`, `requireRole`, `requireRoleOrSelf`. `server/types/express.d.ts` declares the global `Express.Request.user` augmentation. | FRS-F-01-05 | IMPLEMENTED (F-01) |
 | DS-F-01-05 | `server/errors.ts` defines `AppError` + `ErrorCode` union + convenience constructors (`errors.unauthenticated()`, `errors.forbidden()`, `errors.duplicateEmail()`, `errors.lastAdmin()`, `errors.selfDisable()`, etc). `server/error-middleware.ts` renders `AppError` as `{ error: { code, message, details? } }` with the appropriate HTTP status; renders `ZodError` as 422 `VALIDATION_FAILED`. Mounted from both `server/index.ts` and the integration-test harness. | FRS-F-01-01 through 01-05 | IMPLEMENTED (F-01) |
-| DS-F-02-01 | `passport-local` strategy in `server/auth/strategies.ts` verifies argon2 hash; `serializeUser` stores `user.id` only. | FRS-F-02-01 | DRAFT |
-| DS-F-02-02 | `express-session` with `connect-pg-simple`; cookie `secure`, `httpOnly`, `sameSite=lax`, `maxAge=15m` rolling. | FRS-F-02-01, 02-03 | DRAFT |
+| DS-F-02-01 | `server/auth/passport.ts`: `passport-local` strategy verifies argon2id hash via `verifyPassword`; `serializeUser` stores `user.id` only; `deserializeUser` reloads full user+roles from DB on every request (role/status changes take effect immediately without re-login). | FRS-F-02-01 | IMPLEMENTED (F-02) |
+| DS-F-02-02 | `server/index.ts` mounts `express-session` + `ConnectPgSimple` (`session` table, pruned daily), rolling cookie (`httpOnly`, `sameSite=lax`, `secure` in production, `maxAge=15 min`). Global `requireAuth` gate on `/api/*` except `/api/health` and `/api/auth/*`. | FRS-F-02-01, 02-03, 02-04 | IMPLEMENTED (F-02) |
+| DS-F-02-03 | `server/auth/password-policy.ts`: `validatePasswordComplexity` (≥12 chars, upper, lower, digit, symbol), `isPasswordExpired` (90-day window). `migrations/0002_f02_session_and_password_history.sql` adds `session` and `erp_password_history` tables. `IStorage.rotatePassword` archives old hash to `erp_password_history` in a transaction before updating `passwordHash`. | FRS-F-02-02 | IMPLEMENTED (F-02) |
+| DS-F-02-04 | `client/src/lib/auth.ts`: `useAuth`, `useLogin`, `useLogout`, `useRotatePassword` hooks. `AuthGate` in `App.tsx` redirects to `/login` or `/profile/rotate-password`. `InactivityWarning` component: countdown dialog at 14 min, auto-logout at 15 min using native DOM event listeners. | FRS-F-02-03 | IMPLEMENTED (F-02) |
 | DS-F-03-01 | `erp_audit_trail` table owned by schema owner; `INSERT`-only grant to app role; `CHECK (occurred_at <= now() + '1 minute')`. | FRS-F-03-01 | DRAFT |
 | DS-F-04-01 | `erp_electronic_signatures` table with `fullNameAtSigning`, `titleAtSigning` snapshots; signature creation always in same transaction as the state change. | FRS-F-04-01 | DRAFT |
 | DS-F-05-01 | `server/state/transitions.ts` defines a `Transition<T>[]` per entity; `transition()` looks up the row, validates, and returns the new state. | FRS-F-05-01 | DRAFT |
@@ -188,8 +192,10 @@ One row per URS. Fill as tickets close. Row is complete when all five columns re
 | URS-F-01-02 | FRS-F-01-02, 01-05 | DS-F-01-01, 01-02, 01-04 | OQ-F-01-02 | Cross-cutting |
 | URS-F-01-03 | FRS-F-01-02, 01-03 | DS-F-01-02 | OQ-F-01-03 | Cross-cutting |
 | URS-F-01-04 | FRS-F-01-03 | DS-F-01-02 | OQ-F-01-04 | Cross-cutting (§111.180) |
-| URS-F-02-01 | FRS-F-02-01 | DS-F-02-01 | OQ-F-02-01 | Cross-cutting |
-| URS-F-02-02 | FRS-F-02-02 | DS-F-02-02 | OQ-F-02-02 | Cross-cutting |
+| URS-F-02-01 | FRS-F-02-01, 02-04 | DS-F-02-01, 02-02 | OQ-F-02-01 | Cross-cutting |
+| URS-F-02-02 | FRS-F-02-02 | DS-F-02-03 | OQ-F-02-02 | Cross-cutting |
+| URS-F-02-03 | FRS-F-02-03 | DS-F-02-02, 02-04 | OQ-F-02-03 | Cross-cutting |
+| URS-F-02-04 | FRS-F-02-01 | DS-F-02-01, 02-02 | OQ-F-02-04 | Cross-cutting |
 | URS-F-03-01 | FRS-F-03-01 | DS-F-03-01 | OQ-F-03-01 | Cross-cutting (§111.180) |
 | URS-F-04-01 | FRS-F-04-01 | DS-F-04-01 | OQ-F-04-01 | Obs 4, 5 |
 | URS-F-05-01 | FRS-F-05-01 | DS-F-05-01 | OQ-F-05-01 | Obs 2, 3 |
