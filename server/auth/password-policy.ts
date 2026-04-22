@@ -1,5 +1,5 @@
 // Password policy per D-02 of FDA/neurogan-erp-build-spec.md and NIST 800-63B:
-//   ≥ 12 characters, ≥ 1 uppercase, ≥ 1 lowercase, ≥ 1 digit, ≥ 1 symbol.
+//   ≥ 8 characters, ≥ 1 uppercase, ≥ 1 lowercase, ≥ 1 digit, ≥ 1 symbol.
 //   90-day rotation window (soft-gate on login; hard-gate on rotate endpoint).
 //   No reuse of previous 5 hashes (checked at the storage layer — this module
 //   owns only the synchronous policy logic).
@@ -14,7 +14,7 @@ export interface PolicyResult {
   violations: PolicyViolation[];
 }
 
-const MIN_LENGTH = 12;
+const MIN_LENGTH = 8;
 const ROTATION_DAYS = 90;
 
 export function validatePasswordComplexity(password: string): PolicyResult {

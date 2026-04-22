@@ -174,7 +174,7 @@ function RotatePasswordForm({ mustRotate, onSuccess }: { mustRotate: boolean; on
               disabled={rotatePassword.isPending}
             />
             <p className="text-xs text-muted-foreground">
-              12+ chars, uppercase, lowercase, digit, symbol
+              8+ chars, uppercase, lowercase, digit, symbol
             </p>
           </div>
           <div className="space-y-1.5">
