@@ -97,7 +97,7 @@ function buildParams(filters: Filters, cursor?: string): URLSearchParams {
 // ── Row detail expand ────────────────────────────────────────
 
 function JsonBlock({ label, value }: { label: string; value: unknown }) {
-  if (value == null) return null;
+  if (value === null || value === undefined) return null;
   return (
     <div className="space-y-0.5">
       <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">{label}</div>
@@ -109,7 +109,9 @@ function JsonBlock({ label, value }: { label: string; value: unknown }) {
 }
 
 function ExpandedRow({ row }: { row: AuditRow }) {
-  const hasDetail = row.before != null || row.after != null || row.meta != null;
+  const hasDetail = row.before !== null && row.before !== undefined
+    || row.after !== null && row.after !== undefined
+    || row.meta !== null && row.meta !== undefined;
   if (!hasDetail) {
     return (
       <TableRow>

@@ -1,4 +1,4 @@
-import { eq, ne, desc, asc, and, sql, gte, lte, inArray, lt, type SQL } from "drizzle-orm";
+import { eq, ne, desc, asc, and, sql, gte, lte, inArray, type SQL } from "drizzle-orm";
 import { db, type Tx } from "./db";
 import * as schema from "@shared/schema";
 import {

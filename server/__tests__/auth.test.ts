@@ -42,7 +42,9 @@ describeIfDb("F-02 — /api/auth", () => {
   });
 
   beforeEach(async () => {
-    // Clean tables in FK-safe order.
+    // Clean tables in FK-safe order. auditTrail must come before users
+    // because of the erp_audit_trail_user_id_fkey FK constraint (F-03).
+    await db.delete(schema.auditTrail);
     await db.delete(schema.passwordHistory);
     await db.delete(schema.userRoles);
     await db.delete(schema.users);

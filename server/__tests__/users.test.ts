@@ -45,8 +45,10 @@ describeIfDb("F-01 — /api/users", () => {
   });
 
   beforeEach(async () => {
-    // Clean the F-01 tables in FK-safe order. This keeps every test
-    // deterministic; no test inherits state from another.
+    // Clean tables in FK-safe order. auditTrail must come before users
+    // because of the erp_audit_trail_user_id_fkey FK constraint (F-03).
+    await db.delete(schema.auditTrail);
+    await db.delete(schema.passwordHistory);
     await db.delete(schema.userRoles);
     await db.delete(schema.users);
 
