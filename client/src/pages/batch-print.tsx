@@ -9,15 +9,6 @@ import type {
   RecipeWithDetails,
 } from "@shared/schema";
 
-function formatDate(dateStr: string | null | undefined): string {
-  if (!dateStr) return "—";
-  const d = new Date(dateStr + "T00:00:00");
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  const yyyy = d.getFullYear();
-  return `${mm}-${dd}-${yyyy}`;
-}
-
 function formatNumber(n: number): string {
   return n.toLocaleString("en-US");
 }

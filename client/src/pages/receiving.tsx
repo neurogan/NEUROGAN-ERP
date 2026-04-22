@@ -379,7 +379,7 @@ function CoaStatusSection({ lotId, receivingRecordId }: { lotId: string; receivi
             </Badge>
             {!showCoaForm && (
               <Button
-                variant="link"
+                variant="ghost"
                 size="sm"
                 className="text-xs h-auto p-0"
                 onClick={() => setShowCoaForm(true)}
