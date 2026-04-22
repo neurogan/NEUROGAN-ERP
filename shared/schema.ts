@@ -694,3 +694,15 @@ export type InsertUserRole = z.infer<typeof insertUserRoleSchema>;
 export type UserResponse = Omit<User, "passwordHash"> & {
   roles: UserRole[];
 };
+
+// Password history — last N hashes per user for reuse checking (D-02).
+export const passwordHistory = pgTable("erp_password_history", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  passwordHash: text("password_hash").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type PasswordHistoryRow = typeof passwordHistory.$inferSelect;

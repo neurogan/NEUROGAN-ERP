@@ -15,6 +15,13 @@
       "when": 1776882189533,
       "tag": "0001_f01_users_and_roles",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1745193600000,
+      "tag": "0002_f02_session_and_password_history",
+      "breakpoints": true
     }
   ]
 }
