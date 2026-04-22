@@ -1717,6 +1717,9 @@ export class DatabaseStorage implements IStorage {
     // roles attached. Duplicate email surfaces as a Postgres UNIQUE violation
     // (error code 23505) which the route layer maps to errors.duplicateEmail.
     return db.transaction(async (tx) => {
+      // Set passwordChangedAt to epoch so the 90-day rotation gate fires
+      // immediately — all new accounts start with a temp password (F-01
+      // generateTemporaryPassword) and must rotate on first login (F-02).
       const [user] = await tx
         .insert(schema.users)
         .values({
@@ -1724,6 +1727,7 @@ export class DatabaseStorage implements IStorage {
           fullName: data.fullName.trim(),
           title: data.title ?? null,
           passwordHash: data.passwordHash,
+          passwordChangedAt: new Date(0),
           createdByUserId: data.createdByUserId,
         })
         .returning();
@@ -1794,6 +1798,95 @@ export class DatabaseStorage implements IStorage {
       const finalRoles = [...new Set(nextRoles)].sort();
       return DatabaseStorage.toUserResponse(user, finalRoles);
     });
+  }
+
+  // ─── Auth helpers (F-02) ──────────────────────────────────
+
+  async recordFailedLogin(userId: string): Promise<{ lockedUntil: Date | null }> {
+    const LOCKOUT_THRESHOLD = 5;
+    const LOCKOUT_MINUTES = 30;
+
+    const [current] = await db
+      .select({ failedLoginCount: schema.users.failedLoginCount })
+      .from(schema.users)
+      .where(eq(schema.users.id, userId));
+
+    if (!current) return { lockedUntil: null };
+
+    const newCount = current.failedLoginCount + 1;
+    const lockedUntil =
+      newCount >= LOCKOUT_THRESHOLD
+        ? new Date(Date.now() + LOCKOUT_MINUTES * 60 * 1000)
+        : null;
+
+    await db
+      .update(schema.users)
+      .set({ failedLoginCount: newCount, lockedUntil })
+      .where(eq(schema.users.id, userId));
+
+    return { lockedUntil };
+  }
+
+  async recordSuccessfulLogin(userId: string): Promise<void> {
+    await db
+      .update(schema.users)
+      .set({ failedLoginCount: 0, lockedUntil: null })
+      .where(eq(schema.users.id, userId));
+  }
+
+  async rotatePassword(userId: string, newHash: string): Promise<UserResponse | undefined> {
+    return db.transaction(async (tx) => {
+      // Archive the current hash before overwriting.
+      const [current] = await tx
+        .select({ passwordHash: schema.users.passwordHash })
+        .from(schema.users)
+        .where(eq(schema.users.id, userId));
+
+      if (!current) return undefined;
+
+      await tx.insert(schema.passwordHistory).values({
+        userId,
+        passwordHash: current.passwordHash,
+      });
+
+      const [updated] = await tx
+        .update(schema.users)
+        .set({
+          passwordHash: newHash,
+          passwordChangedAt: new Date(),
+          failedLoginCount: 0,
+          lockedUntil: null,
+        })
+        .where(eq(schema.users.id, userId))
+        .returning();
+
+      if (!updated) return undefined;
+      const roleMap = await this.fetchRolesByUserIds([userId]);
+      return DatabaseStorage.toUserResponse(updated, roleMap.get(userId) ?? []);
+    });
+  }
+
+  async getPasswordHistory(userId: string, limit: number): Promise<string[]> {
+    // Returns the most-recent `limit` history hashes (oldest entries in the
+    // history table) plus the user's CURRENT password hash — so callers can
+    // check all of them for reuse without needing a separate query.
+    const [current, historyRows] = await Promise.all([
+      db
+        .select({ passwordHash: schema.users.passwordHash })
+        .from(schema.users)
+        .where(eq(schema.users.id, userId)),
+      db
+        .select({ passwordHash: schema.passwordHistory.passwordHash })
+        .from(schema.passwordHistory)
+        .where(eq(schema.passwordHistory.userId, userId))
+        .orderBy(desc(schema.passwordHistory.createdAt))
+        .limit(limit - 1),
+    ]);
+
+    const hashes: string[] = [];
+    if (current[0]) hashes.push(current[0].passwordHash);
+    for (const row of historyRows) hashes.push(row.passwordHash);
+    return hashes;
   }
 
   async isLastActiveAdmin(userId: string): Promise<boolean> {

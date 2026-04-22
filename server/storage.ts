@@ -300,6 +300,25 @@ export interface IStorage {
   // OTHER user currently has an active ADMIN role. Route layer checks this
   // before any operation that could remove the final administrator.
   isLastActiveAdmin(userId: string): Promise<boolean>;
+
+  // ─── Auth helpers (F-02) ──────────────────────────────────
+  //
+  // recordFailedLogin increments failedLoginCount; at threshold 5 it also sets
+  // lockedUntil = now + 30 min. Returns the updated lockout state so the login
+  // route can return 423 with a lockedUntil timestamp.
+  recordFailedLogin(userId: string): Promise<{ lockedUntil: Date | null }>;
+
+  // recordSuccessfulLogin resets failedLoginCount to 0 and clears lockedUntil.
+  recordSuccessfulLogin(userId: string): Promise<void>;
+
+  // rotatePassword replaces passwordHash + resets passwordChangedAt to now +
+  // failedLoginCount to 0 + clears lockedUntil. The old hash is appended to
+  // password history before the update.
+  rotatePassword(userId: string, newHash: string): Promise<UserResponse | undefined>;
+
+  // Returns up to `limit` previous password hashes for the user, newest first,
+  // for reuse checking. Includes the current passwordHash from erp_users.
+  getPasswordHistory(userId: string, limit: number): Promise<string[]>;
 }
 
 // DATABASE_URL is required. The legacy MemStorage fallback was removed —
