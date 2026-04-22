@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,19 +11,15 @@ export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [, navigate] = useLocation();
   const login = useLogin();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
     try {
-      const result = await login.mutateAsync({ email, password });
-      if (result.user.mustRotatePassword) {
-        navigate("/profile/rotate-password");
-      } else {
-        navigate("/");
-      }
+      // useLogin.onSuccess sets the auth cache synchronously. AuthGate
+      // re-renders immediately and handles the redirect — no navigate() needed here.
+      await login.mutateAsync({ email, password });
     } catch (err) {
       const e = err as Error & { status?: number };
       if (e.status === 423) {

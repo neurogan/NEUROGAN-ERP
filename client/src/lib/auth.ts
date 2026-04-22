@@ -59,8 +59,15 @@ export function useLogin() {
       }
       return res.json() as Promise<{ user: AuthUser & { mustRotatePassword: boolean } }>;
     },
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ["auth", "me"] });
+    onSuccess: (data) => {
+      // Set the cache immediately so AuthGate sees the user as authenticated
+      // synchronously — invalidating alone causes a race where AuthGate renders
+      // with stale null data and bounces back to /login before the refetch lands.
+      qc.setQueryData<MeResponse>(["auth", "me"], {
+        user: data.user,
+        roles: data.user.roles,
+        mustRotatePassword: data.user.mustRotatePassword,
+      });
     },
   });
 }
