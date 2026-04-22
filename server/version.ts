@@ -1,21 +1,23 @@
 import { readFileSync } from "fs";
-import { dirname, resolve } from "path";
-import { fileURLToPath } from "url";
+import { resolve } from "path";
 
 // IQ (Installation Qualification) traceability per first-session.md §3 and
 // FDA/validation-scaffold.md. Exposes the running code's identity so an
 // auditor (or the release log) can confirm "the deployed build is exactly the
 // commit we expect." Required for GAMP 5 Cat 5 IQ records.
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+//
+// NOTE(F-01 followup): this module used to derive __dirname via
+// fileURLToPath(import.meta.url). esbuild bundles server/index.ts to a single
+// dist/index.cjs (CommonJS). In CJS, import.meta.url is undefined, and
+// fileURLToPath(undefined) throws at module load — crashing the Railway prod
+// container before the first request. process.cwd() works in both dev (where
+// you invoke pnpm from the repo root) and Railway (where the container's
+// working directory is /app, and package.json is there after Nixpacks install).
 
 function readPackageVersion(): string {
   try {
-    // dev: server/ next to package.json at repo root
-    // prod: dist/ has no package.json, so fall through to "unknown"
-    const pkgPath = resolve(__dirname, "../package.json");
-    const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
+    const pkgPath = resolve(process.cwd(), "package.json");
+    const pkg = JSON.parse(readFileSync(pkgPath, "utf-8")) as { version?: unknown };
     return typeof pkg.version === "string" ? pkg.version : "unknown";
   } catch {
     return "unknown";
