@@ -8,6 +8,7 @@ import { errorMiddleware } from "./error-middleware";
 import { passport } from "./auth/passport";
 import { requireAuth } from "./auth/middleware";
 import { authRouter } from "./auth/auth-routes";
+import { getPool } from "./db";
 
 const app = express();
 const httpServer = createServer(app);
@@ -33,9 +34,8 @@ const PgSession = ConnectPgSimple(session);
 app.use(
   session({
     store: new PgSession({
-      conString: process.env.DATABASE_URL,
+      pool: getPool(),
       tableName: "session",
-      // Prune expired sessions once per day.
       pruneSessionInterval: 24 * 60 * 60,
     }),
     secret: process.env.SESSION_SECRET ?? "dev-secret-change-in-production",

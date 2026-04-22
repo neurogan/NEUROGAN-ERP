@@ -31,3 +31,11 @@ export const db = new Proxy({} as ReturnType<typeof drizzle>, {
     return Reflect.get(getDb(), prop);
   },
 });
+
+// Expose the underlying pg.Pool so the session store can share the same
+// connection (including SSL config) rather than creating its own.
+export function getPool(): Pool {
+  getDb(); // ensure pool is initialised
+  if (!_pool) throw new Error("Pool not initialised");
+  return _pool;
+}
