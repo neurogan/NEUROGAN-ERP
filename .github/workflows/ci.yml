@@ -1,9 +1,7 @@
 name: CI
 
 # CI jobs per AGENTS.md §3 and first-session.md §3:
-#   lint        — ESLint. Stubbed until F-00-e installs eslint config + fixes
-#                 pre-existing debt. Keeps the slot so branch protection can
-#                 reference 'lint' as a required check after F-00-e lands.
+#   lint        — ESLint (--max-warnings 0) + prettier --check.
 #   typecheck   — tsc --noEmit.
 #   unit        — vitest run (shared/**, server/**, client/**, excl. server/__tests__).
 #   integration — vitest run --config vitest.integration.config.ts against a
@@ -26,14 +24,24 @@ env:
 
 jobs:
   lint:
-    name: lint (stubbed until F-00-e)
+    name: lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Lint stub
-        run: |
-          echo "::warning::ESLint is not yet installed. F-00-e will install eslint + prettier and fix pre-existing debt (47 unused-vars + 29 no-explicit-any at F-00 time)."
-          exit 0
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      # Prettier is installed and runnable via 'pnpm format' / 'pnpm format:check'
+      # but not enforced in CI yet — the codebase has ~87 files with whitespace
+      # drift from the default .prettierrc. A follow-up ticket will do the
+      # bulk 'prettier --write' pass in its own focused PR and add format:check
+      # to this step at that time.
 
   typecheck:
     name: typecheck
