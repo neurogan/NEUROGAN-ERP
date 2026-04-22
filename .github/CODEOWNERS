@@ -1,0 +1,49 @@
+# CODEOWNERS — regulated-path ownership for NEUROGAN-ERP
+#
+# Per AGENTS.md §6.3, this file declares the owner of paths that the FDA/483
+# response treats as regulated. PRs touching any of these paths auto-request
+# review from the owner.
+#
+# In the current solo-dev staffing model (project memory), branch protection
+# is intentionally configured with require_code_owner_reviews: false — GitHub
+# does not let an author approve their own PR, so requiring owner review would
+# block self-merge. CODEOWNERS still surfaces review-worthy changes by
+# auto-CCing the owner on the PR; it is *not* a merge gate today.
+#
+# When a second developer joins, flip require_code_owner_reviews to true on
+# branch protection and this file becomes an enforced control.
+
+# Default owner — catch-all so every PR has someone CCed.
+*                          @fhneurogan
+
+# Regulated paths — called out explicitly so the intent is visible in the repo,
+# even though the * rule above would match them anyway.
+
+# Schema: tables, columns, enums, drizzle-zod insert/select shapes.
+/shared/schema.ts          @fhneurogan
+
+# Storage layer: business rules, state transitions, audit-wrapped writes.
+/server/db-storage.ts      @fhneurogan
+/server/storage.ts         @fhneurogan
+/server/storage/**         @fhneurogan
+
+# Auth, sessions, password policy, signature ceremony (lands in F-02 / F-04).
+/server/auth/**            @fhneurogan
+
+# Audit trail infrastructure (lands in F-03).
+/server/audit/**           @fhneurogan
+
+# Regulated state machines (lands in F-05).
+/server/state/**           @fhneurogan
+
+# Migration SQL — every migration is hand-reviewed per AGENTS.md §5.2.
+/migrations/**             @fhneurogan
+/drizzle.config.ts         @fhneurogan
+
+# The working-rules document itself.
+/AGENTS.md                 @fhneurogan
+/FDA/AGENTS.md             @fhneurogan
+
+# CI + CODEOWNERS meta.
+/.github/workflows/**      @fhneurogan
+/.github/CODEOWNERS        @fhneurogan

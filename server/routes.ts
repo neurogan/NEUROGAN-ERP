@@ -1,6 +1,7 @@
 import type { Express } from "express";
 import { type Server } from "http";
 import { storage } from "./storage";
+import { versionInfo } from "./version";
 import {
   insertProductSchema,
   insertLotSchema,
@@ -30,6 +31,21 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+
+  // ─── Health / IQ traceability ──────────────────────────
+  //
+  // Exposes the running code's identity (version, commit SHA, environment,
+  // Node runtime, boot time) for GAMP 5 IQ records. Required per
+  // first-session.md §3 bullet 6 and the platform validation package.
+  // Public (no auth) so monitoring tools and the FDA audit workflow can
+  // poll it without credentials — it returns no user data and no record
+  // data, only the server's own metadata.
+  app.get("/api/health", (_req, res) => {
+    res.status(200).json({
+      status: "ok",
+      ...versionInfo,
+    });
+  });
 
   // ─── Products ───────────────────────────────────────────
 

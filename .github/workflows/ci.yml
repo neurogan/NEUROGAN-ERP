@@ -1,0 +1,116 @@
+name: CI
+
+# CI jobs per AGENTS.md §3 and first-session.md §3:
+#   lint        — ESLint. Stubbed until F-00-e installs eslint config + fixes
+#                 pre-existing debt. Keeps the slot so branch protection can
+#                 reference 'lint' as a required check after F-00-e lands.
+#   typecheck   — tsc --noEmit.
+#   unit        — vitest run (shared/**, server/**, client/**, excl. server/__tests__).
+#   integration — vitest run --config vitest.integration.config.ts against a
+#                 disposable Postgres service.
+#   build       — client (vite) + server (esbuild) bundle succeeds.
+
+on:
+  pull_request:
+    branches:
+      - main
+      - FDA-EQMS-feature-package
+  push:
+    branches:
+      - main
+      - FDA-EQMS-feature-package
+
+env:
+  NODE_VERSION: "20"
+  PNPM_VERSION: "10.33.0"
+
+jobs:
+  lint:
+    name: lint (stubbed until F-00-e)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lint stub
+        run: |
+          echo "::warning::ESLint is not yet installed. F-00-e will install eslint + prettier and fix pre-existing debt (47 unused-vars + 29 no-explicit-any at F-00 time)."
+          exit 0
+
+  typecheck:
+    name: typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+
+  unit:
+    name: unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+
+  integration:
+    name: integration tests
+    runs-on: ubuntu-latest
+
+    # Disposable Postgres per run, per AGENTS.md §5.6.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: neurogan_erp_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgres://test:test@localhost:5432/neurogan_erp_test
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test:integration
+
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build

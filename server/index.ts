@@ -60,13 +60,11 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  // Auto-create database tables on first boot
-  try {
-    const { runMigrations } = await import("./migrate");
-    await runMigrations();
-  } catch (err) {
-    console.error("[startup] Migration failed, continuing anyway:", (err as Error).message);
-  }
+  // Migrations do not run on boot. Per FDA/AGENTS.md §5.2 and D-09 of
+  // FDA/neurogan-erp-build-spec.md, self-mutating schemas are incompatible
+  // with a validated regulated system. Schema changes are applied through
+  // the explicit CI/deploy step `pnpm migrate:up` (drizzle-kit migrate)
+  // which runs only against migrations hand-reviewed into the repo.
 
   await registerRoutes(httpServer, app);
 
