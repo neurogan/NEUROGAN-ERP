@@ -306,14 +306,31 @@ export interface IStorage {
 // it had no persistence, no audit trail, and no attribution, which makes it
 // fundamentally incompatible with 21 CFR §111.180 records retention and every
 // Part 11 control (see FDA/AGENTS.md §4.4 and FDA/erp-gap-analysis-and-roadmap.md §4.1).
-if (!process.env.DATABASE_URL) {
-  throw new Error(
-    "DATABASE_URL is required. For local dev, see AGENTS.md §2 (cp .env.example .env.local, " +
-    "then fill in DATABASE_URL). For Railway deploys, ensure the Postgres service is linked " +
-    "to this environment (both staging and production have it — check railway.json)."
-  );
-}
+//
+// The check is deferred to first storage-method access via a Proxy so that
+// vitest can import this module (and anything that depends on it) without
+// booting against a real DB. The spec D-09 "no-migrations-on-boot" rule
+// implies booting the server should be side-effect-light; this matches.
 
 import { DatabaseStorage } from "./db-storage";
 
-export const storage: IStorage = new DatabaseStorage();
+let _instance: IStorage | null = null;
+function getStorage(): IStorage {
+  if (_instance) return _instance;
+  if (!process.env.DATABASE_URL) {
+    throw new Error(
+      "DATABASE_URL is required. For local dev, see AGENTS.md §2 " +
+        "(cp .env.example .env.local, then fill in DATABASE_URL). For Railway " +
+        "deploys, ensure the Postgres service is linked to this environment " +
+        "(both staging and production have it — check railway.json).",
+    );
+  }
+  _instance = new DatabaseStorage();
+  return _instance;
+}
+
+export const storage: IStorage = new Proxy({} as IStorage, {
+  get(_target, prop) {
+    return Reflect.get(getStorage(), prop);
+  },
+});

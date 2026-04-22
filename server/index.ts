@@ -1,7 +1,8 @@
-import express, { type Request, Response, NextFunction } from "express";
+import express from "express";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
+import { errorMiddleware } from "./error-middleware";
 
 const app = express();
 const httpServer = createServer(app);
@@ -68,19 +69,7 @@ app.use((req, res, next) => {
 
   await registerRoutes(httpServer, app);
 
-  app.use((err: unknown, _req: Request, res: Response, next: NextFunction) => {
-    const e = err as { status?: number; statusCode?: number; message?: string } | undefined;
-    const status = e?.status ?? e?.statusCode ?? 500;
-    const message = e?.message ?? "Internal Server Error";
-
-    console.error("Internal Server Error:", err);
-
-    if (res.headersSent) {
-      return next(err);
-    }
-
-    return res.status(status).json({ message });
-  });
+  app.use(errorMiddleware);
 
   // importantly only setup vite in development and after
   // setting up all the other routes so the catch-all route

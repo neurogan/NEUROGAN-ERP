@@ -18,8 +18,15 @@ import {
   insertBprSchema,
   insertBprStepSchema,
   insertBprDeviationSchema,
+  userRoleEnum,
+  userStatusEnum,
+  type UserResponse,
+  type UserRole,
 } from "@shared/schema";
-import { ZodError } from "zod";
+import { z, ZodError } from "zod";
+import { requireAuth, requireRole, requireRoleOrSelf } from "./auth/middleware";
+import { hashPassword, generateTemporaryPassword } from "./auth/password";
+import { errors } from "./errors";
 
 function formatZodError(error: ZodError): string {
   return error.errors.map(e => `${e.path.join(".")}: ${e.message}`).join(", ");
@@ -44,6 +51,182 @@ export async function registerRoutes(
       ...versionInfo,
     });
   });
+
+  // ─── Users & Roles (F-01) ──────────────────────────────
+  //
+  // Admin-only user management. Identity comes from req.user.id (set by F-02's
+  // session deserialisation), NEVER from the request body. The middleware
+  // stack below blocks unauthenticated requests (401) and wrong roles (403)
+  // before the handler runs. Audit-trail rows on every regulated write are
+  // added in F-03 when the audit_trail table lands.
+
+  // Redact admin-only fields (password rotation reference, lockout state,
+  // failed-login counter) for non-ADMIN viewers.
+  type PublicUserView = Omit<
+    UserResponse,
+    "passwordChangedAt" | "lockedUntil" | "failedLoginCount"
+  >;
+
+  function projectUserForViewer(
+    user: UserResponse,
+    viewerRoles: readonly UserRole[],
+  ): UserResponse | PublicUserView {
+    if (viewerRoles.includes("ADMIN")) return user;
+    const {
+      passwordChangedAt: _passwordChangedAt,
+      lockedUntil: _lockedUntil,
+      failedLoginCount: _failedLoginCount,
+      ...rest
+    } = user;
+    void _passwordChangedAt;
+    void _lockedUntil;
+    void _failedLoginCount;
+    return rest;
+  }
+
+  // POST /api/users — ADMIN only. Creates a user + role rows atomically and
+  // returns the UserResponse along with a one-time temporaryPassword the
+  // admin shows to the new user. F-02 forces rotation of this temp password
+  // on first login.
+  const createUserBody = z.object({
+    email: z.string().email().trim().toLowerCase(),
+    fullName: z.string().min(1).trim(),
+    title: z.string().trim().nullish(),
+    roles: z.array(userRoleEnum).min(1, "At least one role is required"),
+  });
+
+  app.post("/api/users", requireAuth, requireRole("ADMIN"), async (req, res, next) => {
+    try {
+      const body = createUserBody.parse(req.body);
+      const tempPassword = generateTemporaryPassword();
+      const passwordHash = await hashPassword(tempPassword);
+      const user = await storage.createUser({
+        email: body.email,
+        fullName: body.fullName,
+        title: body.title ?? null,
+        passwordHash,
+        roles: body.roles,
+        createdByUserId: req.user!.id,
+        grantedByUserId: req.user!.id,
+      });
+      return res.status(201).json({ user, temporaryPassword: tempPassword });
+    } catch (err) {
+      // Postgres UNIQUE violation on email → 409 DUPLICATE_EMAIL
+      const pgErr = err as { code?: string } | undefined;
+      if (pgErr?.code === "23505") {
+        const email = (req.body as { email?: string } | undefined)?.email ?? "";
+        return next(errors.duplicateEmail(email));
+      }
+      return next(err);
+    }
+  });
+
+  // GET /api/users — ADMIN, QA. Lists all users. Admin-only fields are
+  // stripped for QA viewers.
+  app.get("/api/users", requireAuth, requireRole("ADMIN", "QA"), async (req, res, next) => {
+    try {
+      const users = await storage.listUsers();
+      const viewerRoles = req.user!.roles;
+      return res.json(users.map((u) => projectUserForViewer(u, viewerRoles)));
+    } catch (err) {
+      return next(err);
+    }
+  });
+
+  // GET /api/users/:id — ADMIN, QA, or the subject user themselves.
+  app.get<{ id: string }>(
+    "/api/users/:id",
+    requireAuth,
+    requireRoleOrSelf((req) => (req.params as { id?: string }).id, "ADMIN", "QA"),
+    async (req, res, next) => {
+      try {
+        const user = await storage.getUserById(req.params.id);
+        if (!user) return next(errors.notFound("User"));
+        const viewerRoles = req.user!.roles;
+        return res.json(projectUserForViewer(user, viewerRoles));
+      } catch (err) {
+        return next(err);
+      }
+    },
+  );
+
+  // PATCH /api/users/:id/roles — ADMIN only. Takes { add?, remove? } and
+  // computes next = (current ∖ remove) ∪ add. Blocked if the change would
+  // remove the ADMIN role from the last active administrator.
+  const patchRolesBody = z
+    .object({
+      add: z.array(userRoleEnum).optional(),
+      remove: z.array(userRoleEnum).optional(),
+    })
+    .refine((b) => (b.add?.length ?? 0) + (b.remove?.length ?? 0) > 0, {
+      message: "At least one of 'add' or 'remove' must be non-empty",
+    });
+
+  app.patch<{ id: string }>(
+    "/api/users/:id/roles",
+    requireAuth,
+    requireRole("ADMIN"),
+    async (req, res, next) => {
+      try {
+        const body = patchRolesBody.parse(req.body);
+        const current = await storage.getUserById(req.params.id);
+        if (!current) return next(errors.notFound("User"));
+
+        const removeSet = new Set<UserRole>(body.remove ?? []);
+        const addSet = new Set<UserRole>(body.add ?? []);
+        const nextRoles = [
+          ...new Set([...current.roles.filter((r) => !removeSet.has(r)), ...addSet]),
+        ].sort() as UserRole[];
+
+        // Last-admin guard: if the change removes ADMIN from this user and no
+        // other ACTIVE admin exists, refuse with 409 LAST_ADMIN.
+        const willRemoveAdmin = current.roles.includes("ADMIN") && !nextRoles.includes("ADMIN");
+        if (willRemoveAdmin && (await storage.isLastActiveAdmin(req.params.id))) {
+          return next(errors.lastAdmin());
+        }
+
+        const updated = await storage.setUserRoles(req.params.id, nextRoles, req.user!.id);
+        if (!updated) return next(errors.notFound("User"));
+        return res.json(projectUserForViewer(updated, req.user!.roles));
+      } catch (err) {
+        return next(err);
+      }
+    },
+  );
+
+  // PATCH /api/users/:id/status — ADMIN only. Transitions between ACTIVE and
+  // DISABLED. You cannot disable yourself, and you cannot disable the last
+  // active administrator (both surface as 409).
+  const patchStatusBody = z.object({
+    status: userStatusEnum,
+  });
+
+  app.patch<{ id: string }>(
+    "/api/users/:id/status",
+    requireAuth,
+    requireRole("ADMIN"),
+    async (req, res, next) => {
+      try {
+        const body = patchStatusBody.parse(req.body);
+        if (req.params.id === req.user!.id) {
+          return next(errors.selfDisable());
+        }
+        // If disabling, guard against removing the last active admin.
+        if (body.status === "DISABLED") {
+          const current = await storage.getUserById(req.params.id);
+          if (!current) return next(errors.notFound("User"));
+          if (current.roles.includes("ADMIN") && (await storage.isLastActiveAdmin(req.params.id))) {
+            return next(errors.lastAdmin());
+          }
+        }
+        const updated = await storage.updateUserStatus(req.params.id, body.status);
+        if (!updated) return next(errors.notFound("User"));
+        return res.json(projectUserForViewer(updated, req.user!.roles));
+      } catch (err) {
+        return next(err);
+      }
+    },
+  );
 
   // ─── Products ───────────────────────────────────────────
 
