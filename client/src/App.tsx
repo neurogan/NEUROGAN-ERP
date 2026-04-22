@@ -1,4 +1,4 @@
-import { Switch, Route, Router, Link, useLocation } from "wouter";
+import { Switch, Route, Router, Link, useLocation, Redirect } from "wouter";
 import { useHashLocationWithParams } from "@/lib/useHashLocationWithParams";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -22,6 +22,9 @@ import Profile from "@/pages/profile";
 import SupplyChain from "@/pages/supply-chain";
 import BatchPrint from "@/pages/batch-print";
 import SkuManager from "@/pages/sku-manager";
+import Login from "@/pages/login";
+import { useAuth } from "@/lib/auth";
+import { InactivityWarning } from "@/components/InactivityWarning";
 
 const navItems = [
   { href: "/", label: "Dashboard" },
@@ -126,6 +129,7 @@ function AppLayout() {
           <Route path="/sku-manager" component={SkuManager} />
           <Route path="/settings/users" component={SettingsUsers} />
           <Route path="/settings" component={Settings} />
+          <Route path="/profile/rotate-password" component={Profile} />
           <Route path="/profile" component={Profile} />
           <Route component={NotFound} />
         </Switch>
@@ -137,6 +141,26 @@ function AppLayout() {
   );
 }
 
+function AuthGate({ children }: { children: React.ReactNode }) {
+  const { isAuthenticated, isLoading, mustRotatePassword } = useAuth();
+  const [location] = useLocation();
+
+  if (isLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <div className="text-sm text-muted-foreground">Loading…</div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) return <Redirect to="/login" />;
+  if (mustRotatePassword && location !== "/profile/rotate-password") {
+    return <Redirect to="/profile/rotate-password" />;
+  }
+
+  return <>{children}</>;
+}
+
 function App() {
   return (
     <ThemeProvider>
@@ -146,15 +170,24 @@ function App() {
           <Router hook={useHashLocationWithParams}>
             <Switch>
               <Route path="/production/print/:id" component={BatchPrint} />
+              <Route path="/login" component={Login} />
               <Route>
-                <AppLayout />
+                <AuthGate>
+                  <AppLayout />
+                </AuthGate>
               </Route>
             </Switch>
+            <AuthGateInactivity />
           </Router>
         </TooltipProvider>
       </QueryClientProvider>
     </ThemeProvider>
   );
+}
+
+function AuthGateInactivity() {
+  const { isAuthenticated } = useAuth();
+  return <InactivityWarning isAuthenticated={isAuthenticated} />;
 }
 
 export default App;

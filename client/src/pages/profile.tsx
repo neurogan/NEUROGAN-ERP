@@ -1,14 +1,13 @@
-import { useQuery } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/queryClient";
+import { useState } from "react";
+import { useLocation } from "wouter";
 import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
-import { KeyRound, ShieldAlert, LogOut } from "lucide-react";
-
-// F-01 profile skeleton. Password rotation form + "force logout all sessions"
-// button are F-02 scope (requires auth context). For now this page just shows
-// the current user's info as fetched from GET /api/auth/me (F-02) or falls
-// back to a placeholder shell when unauthenticated.
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { KeyRound, LogOut, CheckCircle } from "lucide-react";
+import { useAuth, useRotatePassword, useLogout } from "@/lib/auth";
+import { useQuery } from "@tanstack/react-query";
 
 interface ProfileData {
   id: string;
@@ -21,109 +20,217 @@ interface ProfileData {
 }
 
 export default function Profile() {
-  // /api/auth/me is defined in F-02. Until it exists, this query 404s and we
-  // render the placeholder. The hook is stable so F-02 lands without UI churn.
-  const { data, isLoading, isError } = useQuery<ProfileData>({
+  const [location, navigate] = useLocation();
+  const { user, mustRotatePassword } = useAuth();
+  const showRotateForm = location === "/profile/rotate-password" || mustRotatePassword;
+
+  const { data: fullProfile } = useQuery<{ user: ProfileData }>({
     queryKey: ["/api/auth/me"],
     queryFn: async () => {
-      const res = await apiRequest("GET", "/api/auth/me");
-      return res.json();
+      const res = await fetch("/api/auth/me", { credentials: "include" });
+      if (!res.ok) throw new Error("Not authenticated");
+      return res.json() as Promise<{ user: ProfileData }>;
     },
-    retry: false,
+    enabled: !!user,
   });
 
-  if (isError) {
-    return (
-      <div className="p-6 max-w-2xl mx-auto">
-        <div className="flex items-center gap-2 mb-4">
-          <ShieldAlert className="h-5 w-5 text-muted-foreground" />
-          <h1 className="text-xl font-semibold">Profile</h1>
-        </div>
-        <div className="rounded-md border border-border p-6 bg-muted/40">
-          <p className="text-sm font-medium">Sign-in required</p>
-          <p className="text-xs text-muted-foreground mt-1">
-            The profile page requires authentication. The login flow and password-rotation form
-            ship with ticket F-02.
-          </p>
-        </div>
-      </div>
-    );
-  }
+  const profile = fullProfile?.user;
 
   return (
-    <div className="p-6 max-w-2xl mx-auto">
-      <h1 className="text-xl font-semibold mb-6">Your profile</h1>
+    <div className="p-6 max-w-2xl mx-auto space-y-6">
+      <h1 className="text-xl font-semibold">Your profile</h1>
 
-      <div className="space-y-4 rounded-md border border-border bg-card p-4">
-        {isLoading ? (
-          <>
-            <Skeleton className="h-4 w-1/3" />
-            <Skeleton className="h-4 w-2/3" />
-            <Skeleton className="h-4 w-1/2" />
-          </>
-        ) : data ? (
-          <>
-            <ProfileField label="Full name" value={data.fullName} />
-            <ProfileField label="Email" value={data.email} />
-            <ProfileField label="Title" value={data.title ?? "—"} />
+      {/* User info */}
+      {profile && (
+        <div className="space-y-4 rounded-md border border-border bg-card p-4">
+          <ProfileField label="Full name" value={profile.fullName} />
+          <ProfileField label="Email" value={profile.email} />
+          <ProfileField label="Title" value={profile.title ?? "—"} />
+          <ProfileField
+            label="Roles"
+            value={
+              <div className="flex flex-wrap gap-1">
+                {profile.roles.length === 0 ? (
+                  <span className="text-xs text-muted-foreground">—</span>
+                ) : (
+                  profile.roles.map((r) => (
+                    <Badge key={r} variant={r === "ADMIN" ? "default" : "secondary"}>
+                      {r}
+                    </Badge>
+                  ))
+                )}
+              </div>
+            }
+          />
+          {profile.passwordChangedAt && (
             <ProfileField
-              label="Roles"
-              value={
-                <div className="flex flex-wrap gap-1">
-                  {data.roles.length === 0 ? (
-                    <span className="text-xs text-muted-foreground">—</span>
-                  ) : (
-                    data.roles.map((r) => (
-                      <Badge key={r} variant={r === "ADMIN" ? "default" : "secondary"}>
-                        {r}
-                      </Badge>
-                    ))
-                  )}
-                </div>
-              }
+              label="Password last changed"
+              value={new Date(profile.passwordChangedAt).toLocaleString("en-US", { timeZone: "America/Los_Angeles" })}
             />
-            <ProfileField label="Status" value={<Badge variant="default">{data.status}</Badge>} />
-            {data.passwordChangedAt && (
-              <ProfileField
-                label="Password last changed"
-                value={new Date(data.passwordChangedAt).toLocaleString()}
-              />
+          )}
+        </div>
+      )}
+
+      {/* Password rotation */}
+      {showRotateForm ? (
+        <RotatePasswordForm
+          mustRotate={mustRotatePassword}
+          onSuccess={() => navigate("/profile")}
+        />
+      ) : (
+        <div className="flex items-center justify-between rounded-md border border-border p-4 bg-card">
+          <div className="flex items-center gap-2">
+            <KeyRound className="h-4 w-4 text-muted-foreground" />
+            <div>
+              <p className="text-sm font-medium">Password</p>
+              <p className="text-xs text-muted-foreground">Rotate every 90 days per Part 11 policy</p>
+            </div>
+          </div>
+          <Button size="sm" variant="outline" onClick={() => navigate("/profile/rotate-password")}>
+            Rotate password
+          </Button>
+        </div>
+      )}
+
+      {/* Logout */}
+      {!showRotateForm && <LogoutSection />}
+    </div>
+  );
+}
+
+function RotatePasswordForm({ mustRotate, onSuccess }: { mustRotate: boolean; onSuccess: () => void }) {
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+  const rotatePassword = useRotatePassword();
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    if (newPassword !== confirmPassword) {
+      setError("New passwords do not match.");
+      return;
+    }
+    try {
+      await rotatePassword.mutateAsync({ currentPassword, newPassword });
+      setSuccess(true);
+      setTimeout(onSuccess, 1500);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to rotate password.");
+    }
+  };
+
+  return (
+    <div className="rounded-md border border-border bg-card p-4">
+      <div className="flex items-center gap-2 mb-4">
+        <KeyRound className="h-4 w-4 text-muted-foreground" />
+        <div>
+          <p className="text-sm font-semibold">
+            {mustRotate ? "Password rotation required" : "Rotate password"}
+          </p>
+          {mustRotate && (
+            <p className="text-xs text-amber-600 mt-0.5">
+              Your password has expired. Please set a new password to continue.
+            </p>
+          )}
+        </div>
+      </div>
+
+      {success ? (
+        <div className="flex items-center gap-2 text-sm text-green-600">
+          <CheckCircle className="h-4 w-4" />
+          Password updated successfully.
+        </div>
+      ) : (
+        <form onSubmit={(e) => { void handleSubmit(e); }} className="space-y-3">
+          {error && (
+            <Alert variant="destructive">
+              <AlertDescription className="text-sm">{error}</AlertDescription>
+            </Alert>
+          )}
+          <div className="space-y-1.5">
+            <Label htmlFor="currentPw">Current password</Label>
+            <Input
+              id="currentPw"
+              type="password"
+              value={currentPassword}
+              onChange={(e) => setCurrentPassword(e.target.value)}
+              required
+              autoComplete="current-password"
+              disabled={rotatePassword.isPending}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="newPw">New password</Label>
+            <Input
+              id="newPw"
+              type="password"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              required
+              autoComplete="new-password"
+              disabled={rotatePassword.isPending}
+            />
+            <p className="text-xs text-muted-foreground">
+              12+ chars, uppercase, lowercase, digit, symbol
+            </p>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="confirmPw">Confirm new password</Label>
+            <Input
+              id="confirmPw"
+              type="password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              required
+              autoComplete="new-password"
+              disabled={rotatePassword.isPending}
+            />
+          </div>
+          <div className="flex gap-2">
+            <Button type="submit" disabled={rotatePassword.isPending}>
+              {rotatePassword.isPending ? "Updating…" : "Update password"}
+            </Button>
+            {!mustRotate && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={onSuccess}
+                disabled={rotatePassword.isPending}
+              >
+                Cancel
+              </Button>
             )}
-          </>
-        ) : null}
-      </div>
-
-      <div className="mt-6 space-y-3 rounded-md border border-dashed border-border p-4 bg-muted/30">
-        <div className="flex items-start gap-2">
-          <KeyRound className="h-4 w-4 text-muted-foreground mt-0.5" />
-          <div>
-            <p className="text-sm font-medium">Rotate password</p>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              The password rotation form lands with ticket F-02 (authentication). You will be able
-              to verify your current password and set a new one that meets the policy (12+ chars,
-              complexity, 90-day cycle per spec D-02).
-            </p>
           </div>
-        </div>
-        <Button size="sm" variant="outline" disabled data-testid="button-rotate-password">
-          <KeyRound className="h-3.5 w-3.5 mr-1.5" /> Rotate password (F-02)
-        </Button>
-      </div>
+        </form>
+      )}
+    </div>
+  );
+}
 
-      <div className="mt-4 space-y-3 rounded-md border border-dashed border-border p-4 bg-muted/30">
-        <div className="flex items-start gap-2">
-          <LogOut className="h-4 w-4 text-muted-foreground mt-0.5" />
-          <div>
-            <p className="text-sm font-medium">Force logout all sessions</p>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Available after F-02 mounts express-session + connect-pg-simple.
-            </p>
-          </div>
+function LogoutSection() {
+  const logout = useLogout();
+  const [, navigate] = useLocation();
+
+  const handleLogout = async () => {
+    await logout.mutateAsync();
+    navigate("/login");
+  };
+
+  return (
+    <div className="flex items-center justify-between rounded-md border border-border p-4 bg-card">
+      <div className="flex items-center gap-2">
+        <LogOut className="h-4 w-4 text-muted-foreground" />
+        <div>
+          <p className="text-sm font-medium">Sign out</p>
+          <p className="text-xs text-muted-foreground">End your current session</p>
         </div>
-        <Button size="sm" variant="outline" disabled data-testid="button-logout-all">
-          <LogOut className="h-3.5 w-3.5 mr-1.5" /> Force logout (F-02)
-        </Button>
       </div>
+      <Button size="sm" variant="outline" onClick={() => { void handleLogout(); }} disabled={logout.isPending}>
+        {logout.isPending ? "Signing out…" : "Sign out"}
+      </Button>
     </div>
   );
 }
