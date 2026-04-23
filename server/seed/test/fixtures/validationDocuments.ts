@@ -243,7 +243,6 @@ All 8 platform URS items (URS-F-01-01 through URS-F-08-01) are covered by FRS an
 
 | # | Protocol | Description | Disposition | Change-control ref |
 |---|---|---|---|---|
-| 1 | n/a | Password minimum 8 chars vs spec 12 chars | Remediation scheduled post-sign-off | CC-002 |
 
 ## 6. Residual risks and mitigations
 
@@ -251,7 +250,6 @@ All 8 platform URS items (URS-F-01-01 through URS-F-08-01) are covered by FRS an
 |---|---|---|
 | Railway 7-day snapshot gap vs 1-year retention requirement | Weekly pg_dump to off-site storage per DR plan | Low |
 | Solo developer - no peer PR review | CI gates + F-04 signature ceremony as separation-of-duties | Low |
-| Password minimum 8 chars vs spec 12 chars | Scheduled fix in next ticket | Low |
 
 ## 7. Training status
 

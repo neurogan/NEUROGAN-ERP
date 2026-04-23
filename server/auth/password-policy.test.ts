@@ -6,7 +6,7 @@ describe("validatePasswordComplexity", () => {
     expect(validatePasswordComplexity("Str0ng!Pass#word").valid).toBe(true);
   });
 
-  it("rejects passwords shorter than 8 chars", () => {
+  it("rejects passwords shorter than 12 chars", () => {
     const result = validatePasswordComplexity("Sh0rt!");
     expect(result.valid).toBe(false);
     expect(result.violations.some((v) => v.code === "TOO_SHORT")).toBe(true);
@@ -38,8 +38,8 @@ describe("validatePasswordComplexity", () => {
     expect(result.violations.length).toBeGreaterThanOrEqual(3);
   });
 
-  it("accepts exactly 8 chars meeting all rules", () => {
-    expect(validatePasswordComplexity("Abcd1!gh").valid).toBe(true);
+  it("accepts exactly 12 chars meeting all rules", () => {
+    expect(validatePasswordComplexity("Abcd1!ghijkl").valid).toBe(true);
   });
 });
 

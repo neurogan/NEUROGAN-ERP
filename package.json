@@ -27,6 +27,7 @@
     "seed:test": "tsx scripts/seed-test.ts",
     "seed:users": "tsx scripts/seed-users.ts",
     "seed:validation": "tsx scripts/seed-validation.ts",
+    "reset:validation-docs": "tsx scripts/reset-validation-docs.ts",
     "restore:check": "tsx scripts/restore-check.ts"
   },
   "pnpm": {
