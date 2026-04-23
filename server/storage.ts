@@ -28,7 +28,9 @@ import {
   type BatchProductionRecord, type InsertBpr, type BprStep, type InsertBprStep,
   type BprDeviation, type InsertBprDeviation, type BprWithDetails,
   type User, type UserResponse, type UserRole, type UserStatus,
+  type AuditRow,
 } from "@shared/schema";
+import type { Tx } from "./db";
 
 // F-01: createUser takes the server-generated passwordHash (see
 // server/auth/password.ts) and the initial role list atomically. The caller
@@ -289,12 +291,13 @@ export interface IStorage {
   listUsers(): Promise<UserResponse[]>;
   getUserById(id: string): Promise<UserResponse | undefined>;
   getUserByEmail(email: string): Promise<User | undefined>;
-  createUser(data: CreateUserInput): Promise<UserResponse>;
-  updateUserStatus(id: string, status: UserStatus): Promise<UserResponse | undefined>;
+  createUser(data: CreateUserInput, tx?: Tx): Promise<UserResponse>;
+  updateUserStatus(id: string, status: UserStatus, tx?: Tx): Promise<UserResponse | undefined>;
   setUserRoles(
     userId: string,
     nextRoles: readonly UserRole[],
     grantedByUserId: string,
+    tx?: Tx,
   ): Promise<UserResponse | undefined>;
   // True iff `userId` holds the ADMIN role, their status is ACTIVE, and no
   // OTHER user currently has an active ADMIN role. Route layer checks this
@@ -314,11 +317,23 @@ export interface IStorage {
   // rotatePassword replaces passwordHash + resets passwordChangedAt to now +
   // failedLoginCount to 0 + clears lockedUntil. The old hash is appended to
   // password history before the update.
-  rotatePassword(userId: string, newHash: string): Promise<UserResponse | undefined>;
+  rotatePassword(userId: string, newHash: string, tx?: Tx): Promise<UserResponse | undefined>;
 
   // Returns up to `limit` previous password hashes for the user, newest first,
   // for reuse checking. Includes the current passwordHash from erp_users.
   getPasswordHistory(userId: string, limit: number): Promise<string[]>;
+
+  // ─── Audit trail (F-03) ───────────────────────────────────
+  listAuditRows(filters: AuditFilters, cursor?: string, limit?: number): Promise<{ rows: AuditRow[]; nextCursor: string | null }>;
+}
+
+export interface AuditFilters {
+  entityType?: string;
+  entityId?: string;
+  userId?: string;
+  action?: string;
+  from?: Date;
+  to?: Date;
 }
 
 // DATABASE_URL is required. The legacy MemStorage fallback was removed —

@@ -18,6 +18,7 @@ import Receiving from "@/pages/receiving";
 import CoaLibrary from "@/pages/coa-library";
 import Settings from "@/pages/settings";
 import SettingsUsers from "@/pages/settings-users";
+import AuditTrail from "@/pages/audit";
 import Profile from "@/pages/profile";
 import SupplyChain from "@/pages/supply-chain";
 import BatchPrint from "@/pages/batch-print";
@@ -52,6 +53,8 @@ function ThemeToggle() {
 
 function TopNav() {
   const [location] = useLocation();
+  const { user } = useAuth();
+  const canViewAudit = user?.roles?.some((r) => r === "ADMIN" || r === "QA") ?? false;
 
   return (
     <header className="shrink-0 border-b border-border bg-card">
@@ -65,6 +68,20 @@ function TopNav() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {canViewAudit && (
+            <Link href="/audit">
+              <button
+                className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs transition-colors hover:bg-muted ${
+                  location.startsWith("/audit")
+                    ? "bg-muted text-foreground"
+                    : "text-muted-foreground"
+                }`}
+                data-testid="nav-audit"
+              >
+                <span>Audit Trail</span>
+              </button>
+            </Link>
+          )}
           <Link href="/settings">
             <button
               className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs transition-colors hover:bg-muted ${
@@ -127,6 +144,7 @@ function AppLayout() {
           <Route path="/production" component={Production} />
           <Route path="/transactions" component={Transactions} />
           <Route path="/sku-manager" component={SkuManager} />
+          <Route path="/audit" component={AuditTrail} />
           <Route path="/settings/users" component={SettingsUsers} />
           <Route path="/settings" component={Settings} />
           <Route path="/profile/rotate-password" component={Profile} />

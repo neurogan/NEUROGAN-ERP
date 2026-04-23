@@ -8,6 +8,7 @@ import {
   uuid,
   integer,
   primaryKey,
+  jsonb,
 } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -706,3 +707,47 @@ export const passwordHistory = pgTable("erp_password_history", {
 });
 
 export type PasswordHistoryRow = typeof passwordHistory.$inferSelect;
+
+// ─── Audit trail (F-03) ────────────────────────────────────────────────────
+//
+// Append-only record of every regulated write. The database role that the
+// application uses is granted INSERT only — UPDATE and DELETE are revoked
+// (see migration 0003 and server/db.ts boot check). Part 11 §11.10(e).
+
+export const auditActionEnum = z.enum([
+  "CREATE",
+  "UPDATE",
+  "DELETE_BLOCKED",
+  "TRANSITION",
+  "SIGN",
+  "LOGIN",
+  "LOGIN_FAILED",
+  "LOGOUT",
+  "ROLE_GRANT",
+  "ROLE_REVOKE",
+  "PASSWORD_ROTATE",
+]);
+export type AuditAction = z.infer<typeof auditActionEnum>;
+
+export const auditTrail = pgTable("erp_audit_trail", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
+  userId: uuid("user_id").notNull().references(() => users.id),
+  action: text("action").$type<AuditAction>().notNull(),
+  entityType: text("entity_type").notNull(),
+  entityId: text("entity_id"),
+  before: jsonb("before"),
+  after: jsonb("after"),
+  route: text("route"),
+  requestId: text("request_id"),
+  meta: jsonb("meta"),
+});
+
+export type AuditRow = typeof auditTrail.$inferSelect;
+
+export const insertAuditSchema = createInsertSchema(auditTrail, {
+  action: auditActionEnum,
+}).omit({
+  id: true,
+  occurredAt: true,
+});

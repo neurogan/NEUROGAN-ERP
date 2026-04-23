@@ -5,6 +5,7 @@ import { hashPassword, verifyPassword } from "./password";
 import { validatePasswordComplexity, isPasswordExpired } from "./password-policy";
 import { errors } from "../errors";
 import { requireAuth } from "./middleware";
+import { writeAuditRow, withAudit } from "../audit/audit";
 import { z } from "zod";
 
 const router = Router();
@@ -25,10 +26,18 @@ router.post("/login", async (req, res, next) => {
     });
 
     if (!user) {
-      // Increment failed counter if the email is known. Never reveal existence.
       const dbUser = await storage.getUserByEmail(emailRaw).catch(() => null);
       if (dbUser) {
         const { lockedUntil } = await storage.recordFailedLogin(dbUser.id);
+        await writeAuditRow({
+          userId: dbUser.id,
+          action: "LOGIN_FAILED",
+          entityType: "user",
+          entityId: dbUser.id,
+          route: `${req.method} ${req.path}`,
+          requestId: req.requestId,
+          meta: { email: emailRaw, ip: req.ip, ua: req.headers["user-agent"] ?? null },
+        }).catch(() => { /* best-effort — never block the response */ });
         if (lockedUntil && lockedUntil > new Date()) {
           return res.status(423).json({
             error: {
@@ -70,6 +79,16 @@ router.post("/login", async (req, res, next) => {
       req.login(user, (err) => (err ? reject(err) : resolve()));
     });
 
+    await writeAuditRow({
+      userId: fullUser.id,
+      action: "LOGIN",
+      entityType: "user",
+      entityId: fullUser.id,
+      route: `${req.method} ${req.path}`,
+      requestId: req.requestId,
+      meta: { ip: req.ip, ua: req.headers["user-agent"] ?? null },
+    }).catch(() => { /* best-effort */ });
+
     const response = await storage.getUserById(fullUser.id);
     if (!response) return next(new Error("Failed to load user after login"));
     return res.status(200).json({ user: { ...response, mustRotatePassword } });
@@ -80,11 +99,24 @@ router.post("/login", async (req, res, next) => {
 
 // POST /api/auth/logout
 router.post("/logout", (req, res, next) => {
+  const userId = req.user?.id;
+  const requestId = req.requestId;
+  const route = `${req.method} ${req.path}`;
   req.logout((err) => {
     if (err) return next(err);
     req.session.destroy((destroyErr) => {
       if (destroyErr) return next(destroyErr);
       res.clearCookie("connect.sid");
+      if (userId) {
+        writeAuditRow({
+          userId,
+          action: "LOGOUT",
+          entityType: "user",
+          entityId: userId,
+          route,
+          requestId,
+        }).catch(() => { /* best-effort */ });
+      }
       return res.status(204).send();
     });
   });
@@ -150,7 +182,18 @@ router.post("/rotate-password", requireAuth, async (req, res, next) => {
     }
 
     const newHash = await hashPassword(body.newPassword);
-    const updated = await storage.rotatePassword(userId, newHash);
+    const updated = await withAudit(
+      {
+        userId,
+        action: "PASSWORD_ROTATE",
+        entityType: "user",
+        entityId: userId,
+        before: null,
+        route: `${req.method} ${req.path}`,
+        requestId: req.requestId,
+      },
+      (tx) => storage.rotatePassword(userId, newHash, tx),
+    );
     if (!updated) return next(errors.notFound("User"));
 
     return res.status(204).send();

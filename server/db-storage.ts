@@ -1,5 +1,5 @@
 import { eq, ne, desc, asc, and, sql, gte, lte, inArray, type SQL } from "drizzle-orm";
-import { db } from "./db";
+import { db, type Tx } from "./db";
 import * as schema from "@shared/schema";
 import {
   type Product, type InsertProduct,
@@ -44,6 +44,7 @@ import type {
   OpenPODetail,
   LowStockItem,
   CreateUserInput,
+  AuditFilters,
 } from "./storage";
 import { computeRoleDelta } from "./storage/users";
 
@@ -1712,11 +1713,13 @@ export class DatabaseStorage implements IStorage {
     return row;
   }
 
-  async createUser(data: CreateUserInput): Promise<UserResponse> {
+  async createUser(data: CreateUserInput, outerTx?: Tx): Promise<UserResponse> {
     // One transaction: insert user, insert role rows, return the user with
     // roles attached. Duplicate email surfaces as a Postgres UNIQUE violation
     // (error code 23505) which the route layer maps to errors.duplicateEmail.
-    return db.transaction(async (tx) => {
+    // When outerTx is provided (by withAudit) we reuse it directly so the
+    // audit row and the data write share a single transaction.
+    const run = async (tx: Tx) => {
       // Set passwordChangedAt to epoch so the 90-day rotation gate fires
       // immediately — all new accounts start with a temp password (F-01
       // generateTemporaryPassword) and must rotate on first login (F-02).
@@ -1748,11 +1751,13 @@ export class DatabaseStorage implements IStorage {
       }
 
       return DatabaseStorage.toUserResponse(user, data.roles);
-    });
+    };
+    return outerTx ? run(outerTx) : db.transaction(run);
   }
 
-  async updateUserStatus(id: string, status: UserStatus): Promise<UserResponse | undefined> {
-    const [updated] = await db
+  async updateUserStatus(id: string, status: UserStatus, outerTx?: Tx): Promise<UserResponse | undefined> {
+    const runner = outerTx ?? db;
+    const [updated] = await runner
       .update(schema.users)
       .set({ status })
       .where(eq(schema.users.id, id))
@@ -1766,8 +1771,9 @@ export class DatabaseStorage implements IStorage {
     userId: string,
     nextRoles: readonly UserRole[],
     grantedByUserId: string,
+    outerTx?: Tx,
   ): Promise<UserResponse | undefined> {
-    return db.transaction(async (tx) => {
+    const run = async (tx: Tx) => {
       const [user] = await tx.select().from(schema.users).where(eq(schema.users.id, userId));
       if (!user) return undefined;
 
@@ -1794,10 +1800,10 @@ export class DatabaseStorage implements IStorage {
         );
       }
 
-      // De-duplicate and sort so the response is deterministic.
       const finalRoles = [...new Set(nextRoles)].sort();
       return DatabaseStorage.toUserResponse(user, finalRoles);
-    });
+    };
+    return outerTx ? run(outerTx) : db.transaction(run);
   }
 
   // ─── Auth helpers (F-02) ──────────────────────────────────
@@ -1834,9 +1840,8 @@ export class DatabaseStorage implements IStorage {
       .where(eq(schema.users.id, userId));
   }
 
-  async rotatePassword(userId: string, newHash: string): Promise<UserResponse | undefined> {
-    return db.transaction(async (tx) => {
-      // Archive the current hash before overwriting.
+  async rotatePassword(userId: string, newHash: string, outerTx?: Tx): Promise<UserResponse | undefined> {
+    const run = async (tx: Tx) => {
       const [current] = await tx
         .select({ passwordHash: schema.users.passwordHash })
         .from(schema.users)
@@ -1863,7 +1868,8 @@ export class DatabaseStorage implements IStorage {
       if (!updated) return undefined;
       const roleMap = await this.fetchRolesByUserIds([userId]);
       return DatabaseStorage.toUserResponse(updated, roleMap.get(userId) ?? []);
-    });
+    };
+    return outerTx ? run(outerTx) : db.transaction(run);
   }
 
   async getPasswordHistory(userId: string, limit: number): Promise<string[]> {
@@ -1923,5 +1929,51 @@ export class DatabaseStorage implements IStorage {
       );
     const otherActiveAdmins = rows[0]?.count ?? 0;
     return otherActiveAdmins === 0;
+  }
+
+  // ─── Audit trail (F-03) ───────────────────────────────────
+
+  async listAuditRows(
+    filters: AuditFilters,
+    cursor?: string,
+    limit = 50,
+  ): Promise<{ rows: schema.AuditRow[]; nextCursor: string | null }> {
+    const PAGE = Math.min(limit, 200);
+    const conditions: SQL[] = [];
+
+    if (filters.entityType) conditions.push(eq(schema.auditTrail.entityType, filters.entityType));
+    if (filters.entityId) conditions.push(eq(schema.auditTrail.entityId, filters.entityId));
+    if (filters.userId) conditions.push(eq(schema.auditTrail.userId, filters.userId));
+    if (filters.action) conditions.push(eq(schema.auditTrail.action, filters.action as schema.AuditAction));
+    if (filters.from) conditions.push(gte(schema.auditTrail.occurredAt, filters.from));
+    if (filters.to) conditions.push(lte(schema.auditTrail.occurredAt, filters.to));
+
+    // Keyset pagination on (occurredAt DESC, id DESC)
+    if (cursor) {
+      const [tsStr, cursorId] = cursor.split("__");
+      if (tsStr && cursorId) {
+        const ts = new Date(tsStr);
+        conditions.push(
+          sql`(${schema.auditTrail.occurredAt}, ${schema.auditTrail.id}) < (${ts.toISOString()}::timestamptz, ${cursorId}::uuid)`,
+        );
+      }
+    }
+
+    const rows = await db
+      .select()
+      .from(schema.auditTrail)
+      .where(conditions.length ? and(...conditions) : undefined)
+      .orderBy(desc(schema.auditTrail.occurredAt), desc(schema.auditTrail.id))
+      .limit(PAGE + 1);
+
+    const hasMore = rows.length > PAGE;
+    const page = hasMore ? rows.slice(0, PAGE) : rows;
+    const last = page[page.length - 1];
+    const nextCursor =
+      hasMore && last
+        ? `${last.occurredAt.toISOString()}__${last.id}`
+        : null;
+
+    return { rows: page, nextCursor };
   }
 }

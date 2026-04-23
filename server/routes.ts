@@ -27,6 +27,8 @@ import { z, ZodError } from "zod";
 import { requireAuth, requireRole, requireRoleOrSelf } from "./auth/middleware";
 import { hashPassword, generateTemporaryPassword } from "./auth/password";
 import { errors } from "./errors";
+import { withAudit } from "./audit/audit";
+import { auditRouter } from "./audit/audit-routes";
 
 function formatZodError(error: ZodError): string {
   return error.errors.map(e => `${e.path.join(".")}: ${e.message}`).join(", ");
@@ -36,6 +38,9 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+
+  // ─── Audit trail (F-03) ────────────────────────────────
+  app.use("/api/audit", requireAuth, auditRouter);
 
   // ─── Health / IQ traceability ──────────────────────────
   //
@@ -100,18 +105,28 @@ export async function registerRoutes(
       const body = createUserBody.parse(req.body);
       const tempPassword = generateTemporaryPassword();
       const passwordHash = await hashPassword(tempPassword);
-      const user = await storage.createUser({
-        email: body.email,
-        fullName: body.fullName,
-        title: body.title ?? null,
-        passwordHash,
-        roles: body.roles,
-        createdByUserId: req.user!.id,
-        grantedByUserId: req.user!.id,
-      });
+      const user = await withAudit(
+        {
+          userId: req.user!.id,
+          action: "CREATE",
+          entityType: "user",
+          entityId: (result) => (result as { id: string }).id,
+          before: null,
+          route: `${req.method} ${req.path}`,
+          requestId: req.requestId,
+        },
+        (tx) => storage.createUser({
+          email: body.email,
+          fullName: body.fullName,
+          title: body.title ?? null,
+          passwordHash,
+          roles: body.roles,
+          createdByUserId: req.user!.id,
+          grantedByUserId: req.user!.id,
+        }, tx),
+      );
       return res.status(201).json({ user, temporaryPassword: tempPassword });
     } catch (err) {
-      // Postgres UNIQUE violation on email → 409 DUPLICATE_EMAIL
       const pgErr = err as { code?: string } | undefined;
       if (pgErr?.code === "23505") {
         const email = (req.body as { email?: string } | undefined)?.email ?? "";
@@ -185,7 +200,19 @@ export async function registerRoutes(
           return next(errors.lastAdmin());
         }
 
-        const updated = await storage.setUserRoles(req.params.id, nextRoles, req.user!.id);
+        const updated = await withAudit(
+          {
+            userId: req.user!.id,
+            action: "UPDATE",
+            entityType: "user",
+            entityId: req.params.id,
+            before: current,
+            route: `${req.method} ${req.path}`,
+            requestId: req.requestId,
+            meta: { rolesAdded: [...(body.add ?? [])], rolesRemoved: [...(body.remove ?? [])] },
+          },
+          (tx) => storage.setUserRoles(req.params.id, nextRoles, req.user!.id, tx),
+        );
         if (!updated) return next(errors.notFound("User"));
         return res.json(projectUserForViewer(updated, req.user!.roles));
       } catch (err) {
@@ -219,7 +246,20 @@ export async function registerRoutes(
             return next(errors.lastAdmin());
           }
         }
-        const updated = await storage.updateUserStatus(req.params.id, body.status);
+        const beforeStatus = await storage.getUserById(req.params.id);
+        const updated = await withAudit(
+          {
+            userId: req.user!.id,
+            action: "UPDATE",
+            entityType: "user",
+            entityId: req.params.id,
+            before: beforeStatus ?? null,
+            route: `${req.method} ${req.path}`,
+            requestId: req.requestId,
+            meta: { statusChange: body.status },
+          },
+          (tx) => storage.updateUserStatus(req.params.id, body.status, tx),
+        );
         if (!updated) return next(errors.notFound("User"));
         return res.json(projectUserForViewer(updated, req.user!.roles));
       } catch (err) {

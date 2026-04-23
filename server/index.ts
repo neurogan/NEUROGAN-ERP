@@ -1,6 +1,7 @@
 import express from "express";
 import session from "express-session";
 import ConnectPgSimple from "connect-pg-simple";
+import { randomUUID } from "crypto";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
@@ -8,7 +9,7 @@ import { errorMiddleware } from "./error-middleware";
 import { passport } from "./auth/passport";
 import { requireAuth } from "./auth/middleware";
 import { authRouter } from "./auth/auth-routes";
-import { getPool } from "./db";
+import { getPool, checkAuditTrailImmutability } from "./db";
 
 const app = express();
 const httpServer = createServer(app);
@@ -59,6 +60,13 @@ app.use(
 
 app.use(passport.initialize());
 app.use(passport.session());
+
+// F-03: Attach a unique request ID to every inbound request so audit rows
+// written during the same HTTP call can be correlated in the audit log.
+app.use((req, _res, next) => {
+  req.requestId = randomUUID();
+  next();
+});
 
 // Auth routes are public (no requireAuth wrapper).
 app.use("/api/auth", authRouter);
@@ -112,6 +120,9 @@ app.use((req, res, next) => {
   // with a validated regulated system. Schema changes are applied through
   // the explicit CI/deploy step `pnpm migrate:up` (drizzle-kit migrate)
   // which runs only against migrations hand-reviewed into the repo.
+
+  // F-03: Verify the erp_app role cannot UPDATE audit_trail (D-07).
+  await checkAuditTrailImmutability();
 
   await registerRoutes(httpServer, app);
 

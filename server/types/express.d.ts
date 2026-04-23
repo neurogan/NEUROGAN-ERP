@@ -17,6 +17,11 @@ declare global {
       roles: UserRole[];
       status: UserStatus;
     }
+    // F-03: UUID generated per-request by the requestId middleware in server/index.ts.
+    // Propagated into every audit row so related log lines can be correlated.
+    interface Request {
+      requestId: string;
+    }
   }
 }
 
