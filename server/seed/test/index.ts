@@ -13,12 +13,12 @@
 // After seeding, wrap each test in withRollback() from helpers/tx.ts so
 // mutations don't bleed between tests.
 
-import { seedUsers }               from "./fixtures/users";
-import { seedLocations }           from "./fixtures/locations";
-import { seedSuppliers }           from "./fixtures/suppliers";
-import { seedProducts }            from "./fixtures/products";
-import { seedLots }                from "./fixtures/lots";
-import { seedRecipes }             from "./fixtures/recipes";
+import { seedUsers }     from "./fixtures/users";
+import { seedLocations } from "./fixtures/locations";
+import { seedSuppliers } from "./fixtures/suppliers";
+import { seedProducts }  from "./fixtures/products";
+import { seedLots }      from "./fixtures/lots";
+import { seedRecipes }   from "./fixtures/recipes";
 import { seedValidationDocuments } from "./fixtures/validationDocuments";
 
 let seeded = false;
@@ -35,7 +35,7 @@ export async function seed(): Promise<void> {
   await seedLocations();
   await seedSuppliers();
   await seedProducts();
-  await seedLots();                    // depends on products, suppliers, locations
-  await seedRecipes();                 // depends on products
+  await seedLots();      // depends on products, suppliers, locations
+  await seedRecipes();   // depends on products
   await seedValidationDocuments();
 }
