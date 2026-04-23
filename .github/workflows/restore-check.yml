@@ -1,0 +1,59 @@
+name: Monthly Restore Check
+
+# F-08: Runs on the first Monday of every month at 09:00 UTC.
+# A human (QA reviewer) must archive and sign the output per docs/dr.md §3.
+#
+# Manual trigger: Actions tab → "Monthly Restore Check" → Run workflow.
+# Required secret: RESTORE_CHECK_DATABASE_URL — set this to the DATABASE_URL
+# of the Railway Postgres service that was restored from the latest snapshot
+# before triggering. See docs/dr.md §3 for the full monthly procedure.
+
+on:
+  schedule:
+    # 09:00 UTC on the 1st of each month (closest practical "monthly" cron).
+    - cron: "0 9 1 * *"
+  workflow_dispatch:
+    inputs:
+      restore_db_url:
+        description: "DATABASE_URL of the restored Postgres (leave blank to use secret)"
+        required: false
+
+env:
+  NODE_VERSION: "20"
+  PNPM_VERSION: "10.33.0"
+
+jobs:
+  restore-check:
+    name: Restore Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Run restore check
+        env:
+          RESTORE_CHECK_DATABASE_URL: ${{ inputs.restore_db_url || secrets.RESTORE_CHECK_DATABASE_URL }}
+        run: pnpm restore:check
+
+      - name: Archive result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: restore-check-${{ github.run_id }}
+          path: /dev/null
+          # The check output is in the job log above. Download the log from
+          # Actions → this run → restore-check job → Download log archive,
+          # then save as FDA/validation/restore-check-YYYY-MM.txt and obtain
+          # QA signature per docs/dr.md §3.
+          retention-days: 90

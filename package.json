@@ -25,7 +25,7 @@
     "migrate:down": "node -e \"console.error('[stub] drizzle-kit has no native down migrations. Write an explicit reverse SQL file per AGENTS.md §5.2.'); process.exit(1)\"",
     "migrate:status": "node -e \"console.error('[stub] migrate:status: drizzle-kit does not expose status natively. Inspect the __drizzle_migrations table or parse drizzle/meta/_journal.json.'); process.exit(1)\"",
     "seed:test": "node -e \"console.error('[stub] seed:test — deterministic fixtures land in ticket F-09. See FDA/seed-fixtures-plan.md.'); process.exit(0)\"",
-    "restore:check": "node -e \"console.error('[stub] restore:check — Railway snapshot restore smoke-test lands post-F-10 platform validation.'); process.exit(0)\""
+    "restore:check": "tsx scripts/restore-check.ts"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
