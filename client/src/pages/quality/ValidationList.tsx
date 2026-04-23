@@ -16,6 +16,7 @@ interface ValidationDocumentSummary {
   createdAt: string;
   updatedAt: string;
   signedBy: string | null;
+  signedAt: string | null;
 }
 
 async function fetchValidationDocuments(): Promise<ValidationDocumentSummary[]> {
@@ -26,12 +27,13 @@ async function fetchValidationDocuments(): Promise<ValidationDocumentSummary[]> 
 
 export default function ValidationList() {
   const [, navigate] = useLocation();
-  const { data: docs = [], isLoading } = useQuery({
+  const { data: docs = [], isLoading, isError } = useQuery({
     queryKey: ["validation-documents"],
     queryFn: fetchValidationDocuments,
   });
 
   if (isLoading) return <div className="p-6 text-muted-foreground">Loading…</div>;
+  if (isError) return <div className="p-6 text-destructive text-sm">Failed to load validation documents.</div>;
 
   return (
     <div className="p-6">
@@ -67,10 +69,10 @@ export default function ValidationList() {
                 )}
               </TableCell>
               <TableCell className="text-muted-foreground text-sm">
-                {doc.status === "SIGNED" ? (
+                {doc.status === "SIGNED" && doc.signedAt ? (
                   <span>
                     {doc.signedBy ?? "—"} ·{" "}
-                    {new Date(doc.updatedAt).toLocaleDateString("en-US", {
+                    {new Date(doc.signedAt).toLocaleDateString("en-US", {
                       year: "numeric", month: "short", day: "numeric",
                     })}
                   </span>

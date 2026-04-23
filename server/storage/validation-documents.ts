@@ -16,6 +16,7 @@ import { performSignature, type SignatureContext } from "../signatures/signature
 
 export type ValidationDocumentSummary = Omit<SelectValidationDocument, "content"> & {
   signedBy: string | null;
+  signedAt: Date | null;
 };
 
 export type ValidationDocumentDetail = SelectValidationDocument & {
@@ -40,6 +41,7 @@ export async function listValidationDocuments(): Promise<ValidationDocumentSumma
       createdAt:   schema.validationDocuments.createdAt,
       updatedAt:   schema.validationDocuments.updatedAt,
       signedBy:    schema.electronicSignatures.fullNameAtSigning,
+      signedAt:    schema.electronicSignatures.signedAt,
     })
     .from(schema.validationDocuments)
     .leftJoin(
