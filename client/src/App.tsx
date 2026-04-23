@@ -24,10 +24,18 @@ import SupplyChain from "@/pages/supply-chain";
 import BatchPrint from "@/pages/batch-print";
 import SkuManager from "@/pages/sku-manager";
 import Login from "@/pages/login";
+import ValidationList from "@/pages/quality/ValidationList";
+import ValidationDetail from "@/pages/quality/ValidationDetail";
 import { useAuth } from "@/lib/auth";
 import { InactivityWarning } from "@/components/InactivityWarning";
 
-const navItems = [
+interface NavItem {
+  href: string;
+  label: string;
+  requiredRoles?: string[];
+}
+
+const navItems: NavItem[] = [
   { href: "/", label: "Dashboard" },
   { href: "/inventory", label: "Inventory" },
   { href: "/supply-chain", label: "Supply Chain" },
@@ -35,6 +43,7 @@ const navItems = [
   { href: "/receiving", label: "Receiving" },
   { href: "/production", label: "Production" },
   { href: "/transactions", label: "Transactions" },
+  { href: "/quality", label: "Quality", requiredRoles: ["QA", "ADMIN"] },
 ];
 
 function ThemeToggle() {
@@ -55,6 +64,10 @@ function TopNav() {
   const [location] = useLocation();
   const { user } = useAuth();
   const canViewAudit = user?.roles?.some((r) => r === "ADMIN" || r === "QA") ?? false;
+  const userRoles: string[] = user?.roles ?? [];
+  const visibleNavItems = navItems.filter(
+    (item) => !item.requiredRoles || item.requiredRoles.some((r) => userRoles.includes(r)),
+  );
 
   return (
     <header className="shrink-0 border-b border-border bg-card">
@@ -101,7 +114,7 @@ function TopNav() {
 
       {/* Navigation tabs */}
       <nav className="flex items-center gap-0 px-5" data-testid="nav-tabs">
-        {navItems.map((item) => {
+        {visibleNavItems.map((item) => {
           const isActive =
             item.href === "/"
               ? location === "/"
@@ -145,6 +158,9 @@ function AppLayout() {
           <Route path="/transactions" component={Transactions} />
           <Route path="/sku-manager" component={SkuManager} />
           <Route path="/audit" component={AuditTrail} />
+          <Route path="/quality/validation/:id" component={ValidationDetail} />
+          <Route path="/quality/validation" component={ValidationList} />
+          <Route path="/quality" component={ValidationList} />
           <Route path="/settings/users" component={SettingsUsers} />
           <Route path="/settings" component={Settings} />
           <Route path="/profile/rotate-password" component={Profile} />
