@@ -904,7 +904,6 @@ function CompleteBatchDialog({
   const [outputLocationId, setOutputLocationId] = useState("");
   const [endDate, setEndDate] = useState(new Date().toISOString().slice(0, 10));
   const [disposition, setDisposition] = useState("");
-  const [reviewedBy, setReviewedBy] = useState("");
   const [qcNotes, setQcNotes] = useState("");
   const [pendingDisposition, setPendingDisposition] = useState<string | null>(null);
   const [showDispositionConfirm, setShowDispositionConfirm] = useState(false);
@@ -928,7 +927,6 @@ function CompleteBatchDialog({
       setOutputLocationId("");
       setEndDate(new Date().toISOString().slice(0, 10));
       setDisposition("");
-      setReviewedBy("");
       setQcNotes("");
     }
   }, [batch?.id, nextLotData?.lotNumber]);
@@ -968,7 +966,6 @@ function CompleteBatchDialog({
           qcNotes: qcNotes || null,
           endDate: endDate || undefined,
           qcDisposition: disposition,
-          qcReviewedBy: reviewedBy,
           yieldPercentage: yieldPct > 0 ? String(Math.round(yieldPct * 100) / 100) : null,
         });
         return res.json();
@@ -1000,7 +997,7 @@ function CompleteBatchDialog({
     },
   });
 
-  const canSubmit = !!actualQuantity && !!outputLotNumber && !!outputLocationId && !!disposition && !!reviewedBy;
+  const canSubmit = !!actualQuantity && !!outputLotNumber && !!outputLocationId && !!disposition;
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -1111,16 +1108,6 @@ function CompleteBatchDialog({
                   <SelectItem value="REPROCESS">Reprocess</SelectItem>
                 </SelectContent>
               </Select>
-            </div>
-            <div>
-              <Label htmlFor="reviewed-by">Reviewed By</Label>
-              <Input
-                id="reviewed-by"
-                value={reviewedBy}
-                onChange={e => setReviewedBy(e.target.value)}
-                placeholder="Reviewer name"
-                data-testid="input-reviewed-by"
-              />
             </div>
             <div>
               <Label htmlFor="qc-notes">QC Notes (optional)</Label>

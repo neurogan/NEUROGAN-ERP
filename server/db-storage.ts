@@ -1407,24 +1407,29 @@ export class DatabaseStorage implements IStorage {
     return row;
   }
 
-  async qcReviewReceivingRecord(id: string, disposition: string, reviewedBy: string, notes?: string): Promise<ReceivingRecord | undefined> {
-    const [existing] = await db.select().from(schema.receivingRecords).where(eq(schema.receivingRecords.id, id));
-    if (!existing) return undefined;
+  async qcReviewReceivingRecord(id: string, disposition: string, reviewedByUserId: string, notes?: string, outerTx?: Tx): Promise<ReceivingRecord | undefined> {
+    const run = async (tx: Tx) => {
+      const [existing] = await tx.select().from(schema.receivingRecords).where(eq(schema.receivingRecords.id, id));
+      if (!existing) return undefined;
 
-    const newStatus = disposition === "APPROVED" || disposition === "APPROVED_WITH_CONDITIONS" ? "APPROVED" : "REJECTED";
-    const [updated] = await db.update(schema.receivingRecords).set({
-      status: newStatus,
-      qcDisposition: disposition,
-      qcReviewedBy: reviewedBy,
-      qcReviewedAt: new Date(),
-      qcNotes: notes ?? existing.qcNotes,
-      updatedAt: new Date(),
-    }).where(eq(schema.receivingRecords.id, id)).returning();
+      const reviewer = await tx.select({ fullName: schema.users.fullName }).from(schema.users).where(eq(schema.users.id, reviewedByUserId));
+      const reviewerName = reviewer[0]?.fullName ?? reviewedByUserId;
 
-    // Update the lot's quarantine status
-    await db.update(schema.lots).set({ quarantineStatus: newStatus }).where(eq(schema.lots.id, existing.lotId));
+      const newStatus = disposition === "APPROVED" || disposition === "APPROVED_WITH_CONDITIONS" ? "APPROVED" : "REJECTED";
+      const [updated] = await tx.update(schema.receivingRecords).set({
+        status: newStatus,
+        qcDisposition: disposition,
+        qcReviewedBy: reviewerName,
+        qcReviewedAt: new Date(),
+        qcNotes: notes ?? existing.qcNotes,
+        updatedAt: new Date(),
+      }).where(eq(schema.receivingRecords.id, id)).returning();
 
-    return updated;
+      await tx.update(schema.lots).set({ quarantineStatus: newStatus }).where(eq(schema.lots.id, existing.lotId));
+
+      return updated;
+    };
+    return outerTx ? run(outerTx) : db.transaction(run);
   }
 
   async getNextReceivingIdentifier(): Promise<string> {
@@ -1482,17 +1487,24 @@ export class DatabaseStorage implements IStorage {
     return row;
   }
 
-  async qcReviewCoa(id: string, accepted: boolean, reviewedBy: string, notes?: string): Promise<CoaDocument | undefined> {
-    const [existing] = await db.select().from(schema.coaDocuments).where(eq(schema.coaDocuments.id, id));
-    if (!existing) return undefined;
-    const [updated] = await db.update(schema.coaDocuments).set({
-      qcReviewedBy: reviewedBy,
-      qcReviewedAt: new Date(),
-      qcAccepted: accepted ? "true" : "false",
-      qcNotes: notes ?? existing.qcNotes,
-      updatedAt: new Date(),
-    }).where(eq(schema.coaDocuments.id, id)).returning();
-    return updated;
+  async qcReviewCoa(id: string, accepted: boolean, reviewedByUserId: string, notes?: string, outerTx?: Tx): Promise<CoaDocument | undefined> {
+    const run = async (tx: Tx) => {
+      const [existing] = await tx.select().from(schema.coaDocuments).where(eq(schema.coaDocuments.id, id));
+      if (!existing) return undefined;
+
+      const reviewer = await tx.select({ fullName: schema.users.fullName }).from(schema.users).where(eq(schema.users.id, reviewedByUserId));
+      const reviewerName = reviewer[0]?.fullName ?? reviewedByUserId;
+
+      const [updated] = await tx.update(schema.coaDocuments).set({
+        qcReviewedBy: reviewerName,
+        qcReviewedAt: new Date(),
+        qcAccepted: accepted ? "true" : "false",
+        qcNotes: notes ?? existing.qcNotes,
+        updatedAt: new Date(),
+      }).where(eq(schema.coaDocuments.id, id)).returning();
+      return updated;
+    };
+    return outerTx ? run(outerTx) : db.transaction(run);
   }
 
   async getCoasByLot(lotId: string): Promise<CoaDocumentWithDetails[]> {
@@ -1591,23 +1603,30 @@ export class DatabaseStorage implements IStorage {
     return row;
   }
 
-  async qcReviewBpr(id: string, disposition: string, reviewedBy: string, notes?: string): Promise<BatchProductionRecord | undefined> {
-    const [existing] = await db.select().from(schema.batchProductionRecords).where(eq(schema.batchProductionRecords.id, id));
-    if (!existing) return undefined;
-    if (existing.status !== "PENDING_QC_REVIEW") {
-      throw new Error("BPR must be in PENDING_QC_REVIEW status for QC review");
-    }
-    const isApproved = disposition === "APPROVED_FOR_DISTRIBUTION" || disposition === "APPROVED";
-    const [row] = await db.update(schema.batchProductionRecords).set({
-      qcReviewedBy: reviewedBy,
-      qcReviewedAt: new Date(),
-      qcDisposition: disposition,
-      qcNotes: notes ?? existing.qcNotes,
-      status: isApproved ? "APPROVED" : "REJECTED",
-      completedAt: isApproved ? new Date() : existing.completedAt,
-      updatedAt: new Date(),
-    }).where(eq(schema.batchProductionRecords.id, id)).returning();
-    return row;
+  async qcReviewBpr(id: string, disposition: string, reviewedByUserId: string, notes?: string, outerTx?: Tx): Promise<BatchProductionRecord | undefined> {
+    const run = async (tx: Tx) => {
+      const [existing] = await tx.select().from(schema.batchProductionRecords).where(eq(schema.batchProductionRecords.id, id));
+      if (!existing) return undefined;
+      if (existing.status !== "PENDING_QC_REVIEW") {
+        throw new Error("BPR must be in PENDING_QC_REVIEW status for QC review");
+      }
+
+      const reviewer = await tx.select({ fullName: schema.users.fullName }).from(schema.users).where(eq(schema.users.id, reviewedByUserId));
+      const reviewerName = reviewer[0]?.fullName ?? reviewedByUserId;
+
+      const isApproved = disposition === "APPROVED_FOR_DISTRIBUTION" || disposition === "APPROVED";
+      const [row] = await tx.update(schema.batchProductionRecords).set({
+        qcReviewedBy: reviewerName,
+        qcReviewedAt: new Date(),
+        qcDisposition: disposition,
+        qcNotes: notes ?? existing.qcNotes,
+        status: isApproved ? "APPROVED" : "REJECTED",
+        completedAt: isApproved ? new Date() : existing.completedAt,
+        updatedAt: new Date(),
+      }).where(eq(schema.batchProductionRecords.id, id)).returning();
+      return row;
+    };
+    return outerTx ? run(outerTx) : db.transaction(run);
   }
 
   // ─── BPR Steps ───────────────────────────────────────

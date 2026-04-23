@@ -24,7 +24,8 @@ import {
   type UserRole,
 } from "@shared/schema";
 import { z, ZodError } from "zod";
-import { requireAuth, requireRole, requireRoleOrSelf } from "./auth/middleware";
+import { requireAuth, requireRole, requireRoleOrSelf, rejectIdentityInBody } from "./auth/middleware";
+import { performSignature } from "./signatures/signatures";
 import { hashPassword, generateTemporaryPassword } from "./auth/password";
 import { errors } from "./errors";
 import { withAudit } from "./audit/audit";
@@ -489,9 +490,9 @@ export async function registerRoutes(
   });
 
   // Combo endpoint: create lot + transaction in one call (for PO Receipt)
-  app.post("/api/transactions/po-receipt", async (req, res) => {
+  app.post("/api/transactions/po-receipt", requireAuth, rejectIdentityInBody(["performedBy"]), async (req, res) => {
     try {
-      const { lotNumber, supplierName, productId, locationId, quantity, uom, notes, performedBy } = req.body;
+      const { lotNumber, supplierName, productId, locationId, quantity, uom, notes } = req.body;
       if (!lotNumber || !productId || !locationId || !quantity || !uom) {
         return res.status(400).json({ message: "Missing required fields" });
       }
@@ -509,7 +510,7 @@ export async function registerRoutes(
         quantity: String(Math.abs(parseFloat(quantity))),
         uom,
         notes: notes || null,
-        performedBy: performedBy || "admin",
+        performedBy: req.user!.id,
       });
       res.status(201).json({ lot, transaction });
     } catch (err) {
@@ -776,9 +777,9 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/production-batches/:id/complete", async (req, res) => {
+  app.post<{ id: string }>("/api/production-batches/:id/complete", requireAuth, rejectIdentityInBody(["qcReviewedBy"]), async (req, res) => {
     try {
-      const { actualQuantity, outputLotNumber, outputExpirationDate, locationId, qcStatus, qcNotes, endDate, qcDisposition, qcReviewedBy, yieldPercentage } = req.body;
+      const { actualQuantity, outputLotNumber, outputExpirationDate, locationId, qcStatus, qcNotes, endDate, qcDisposition, yieldPercentage } = req.body;
       if (!actualQuantity || !outputLotNumber || !locationId) {
         return res.status(400).json({ message: "Missing required fields: actualQuantity, outputLotNumber, locationId" });
       }
@@ -792,7 +793,7 @@ export async function registerRoutes(
         qcNotes,
         endDate,
         qcDisposition,
-        qcReviewedBy,
+        req.user!.id,
         yieldPercentage,
       );
       res.json(batch);
@@ -1146,17 +1147,37 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/receiving/:id/qc-review", async (req, res) => {
-    try {
-      const { disposition, reviewedBy, notes } = req.body;
-      if (!disposition || !reviewedBy) return res.status(400).json({ message: "disposition and reviewedBy required" });
-      const record = await storage.qcReviewReceivingRecord(req.params.id, disposition, reviewedBy, notes);
-      if (!record) return res.status(404).json({ message: "Not found" });
-      res.json(record);
-    } catch (err) {
-      res.status(500).json({ message: "Failed to review receiving record" });
-    }
-  });
+  app.post<{ id: string }>(
+    "/api/receiving/:id/qc-review",
+    requireAuth, requireRole("QA", "ADMIN"), rejectIdentityInBody(["reviewedBy"]),
+    async (req, res, next) => {
+      try {
+        const { disposition, notes, password, commentary } = req.body as {
+          disposition?: string; notes?: string; password?: string; commentary?: string;
+        };
+        if (!disposition) return res.status(400).json({ message: "disposition required" });
+        if (!password) return res.status(400).json({ message: "password required for electronic signature" });
+        const record = await performSignature(
+          {
+            userId: req.user!.id,
+            password,
+            meaning: "QC_DISPOSITION",
+            entityType: "receiving_record",
+            entityId: req.params.id,
+            commentary: commentary ?? null,
+            recordSnapshot: { disposition, notes },
+            route: `${req.method} ${req.path}`,
+            requestId: req.requestId,
+          },
+          (tx) => storage.qcReviewReceivingRecord(req.params.id, disposition, req.user!.id, notes, tx),
+        );
+        if (!record) return res.status(404).json({ message: "Not found" });
+        res.json(record);
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
 
   // ─── COA Documents ────────────────────────────────────
 
@@ -1221,19 +1242,39 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/coa/:id/qc-review", async (req, res) => {
-    try {
-      const { accepted, reviewedBy, notes } = req.body;
-      if (typeof accepted !== "boolean" || !reviewedBy) {
-        return res.status(400).json({ message: "accepted (boolean) and reviewedBy (string) are required" });
+  app.post<{ id: string }>(
+    "/api/coa/:id/qc-review",
+    requireAuth, requireRole("QA", "ADMIN"), rejectIdentityInBody(["reviewedBy"]),
+    async (req, res, next) => {
+      try {
+        const { accepted, notes, password, commentary } = req.body as {
+          accepted?: unknown; notes?: string; password?: string; commentary?: string;
+        };
+        if (typeof accepted !== "boolean") {
+          return res.status(400).json({ message: "accepted (boolean) is required" });
+        }
+        if (!password) return res.status(400).json({ message: "password required for electronic signature" });
+        const doc = await performSignature(
+          {
+            userId: req.user!.id,
+            password,
+            meaning: "QC_DISPOSITION",
+            entityType: "coa_document",
+            entityId: req.params.id,
+            commentary: commentary ?? null,
+            recordSnapshot: { accepted, notes },
+            route: `${req.method} ${req.path}`,
+            requestId: req.requestId,
+          },
+          (tx) => storage.qcReviewCoa(req.params.id, accepted, req.user!.id, notes, tx),
+        );
+        if (!doc) return res.status(404).json({ message: "COA document not found" });
+        res.json(doc);
+      } catch (err) {
+        next(err);
       }
-      const doc = await storage.qcReviewCoa(req.params.id, accepted, reviewedBy, notes);
-      if (!doc) return res.status(404).json({ message: "COA document not found" });
-      res.json(doc);
-    } catch (err) {
-      res.status(500).json({ message: "Failed to review COA document" });
-    }
-  });
+    },
+  );
 
   // ─── Supplier Qualifications ──────────────────────────
 
@@ -1361,22 +1402,39 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/batch-production-records/:id/qc-review", async (req, res) => {
-    try {
-      const { disposition, reviewedBy, notes } = req.body;
-      if (!disposition || !reviewedBy) {
-        return res.status(400).json({ message: "disposition and reviewedBy are required" });
+  app.post<{ id: string }>(
+    "/api/batch-production-records/:id/qc-review",
+    requireAuth, requireRole("QA", "ADMIN"), rejectIdentityInBody(["reviewedBy"]),
+    async (req, res, next) => {
+      try {
+        const { disposition, notes, password, commentary } = req.body as {
+          disposition?: string; notes?: string; password?: string; commentary?: string;
+        };
+        if (!disposition) return res.status(400).json({ message: "disposition is required" });
+        if (!password) return res.status(400).json({ message: "password required for electronic signature" });
+        const bpr = await performSignature(
+          {
+            userId: req.user!.id,
+            password,
+            meaning: "QC_DISPOSITION",
+            entityType: "batch_production_record",
+            entityId: req.params.id,
+            commentary: commentary ?? null,
+            recordSnapshot: { disposition, notes },
+            route: `${req.method} ${req.path}`,
+            requestId: req.requestId,
+          },
+          (tx) => storage.qcReviewBpr(req.params.id, disposition, req.user!.id, notes, tx),
+        );
+        if (!bpr) return res.status(404).json({ message: "BPR not found" });
+        res.json(bpr);
+      } catch (err) {
+        next(err);
       }
-      const bpr = await storage.qcReviewBpr(req.params.id, disposition, reviewedBy, notes);
-      if (!bpr) return res.status(404).json({ message: "BPR not found" });
-      res.json(bpr);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Failed to QC review BPR";
-      res.status(400).json({ message: msg });
-    }
-  });
+    },
+  );
 
-  app.post("/api/batch-production-records/:id/steps", async (req, res) => {
+  app.post<{ id: string }>("/api/batch-production-records/:id/steps", requireAuth, async (req, res) => {
     try {
       const data = insertBprStepSchema.parse(req.body);
       const step = await storage.addBprStep(req.params.id, data);
@@ -1388,7 +1446,7 @@ export async function registerRoutes(
     }
   });
 
-  app.put("/api/batch-production-records/:id/steps/:stepId", async (req, res) => {
+  app.put<{ id: string; stepId: string }>("/api/batch-production-records/:id/steps/:stepId", requireAuth, async (req, res) => {
     try {
       const data = insertBprStepSchema.partial().parse(req.body);
       const step = await storage.updateBprStep(req.params.id, req.params.stepId, data);
@@ -1401,7 +1459,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/batch-production-records/:id/deviations", async (req, res) => {
+  app.post<{ id: string }>("/api/batch-production-records/:id/deviations", requireAuth, async (req, res) => {
     try {
       const data = insertBprDeviationSchema.parse(req.body);
       const deviation = await storage.addBprDeviation(req.params.id, data);

@@ -2,6 +2,7 @@ import { useState, useMemo, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { formatDateTime } from "@/lib/formatDate";
+import { SignatureCeremony } from "@/components/SignatureCeremony";
 import { DateInput } from "@/components/ui/date-input";
 import { useToast } from "@/hooks/use-toast";
 import { Link } from "wouter";
@@ -207,25 +208,27 @@ function CoaDetail({
   const tests = useMemo(() => parseTests(coa.testsPerformed), [coa.testsPerformed]);
 
   // QC Review form
-  const [reviewerName, setReviewerName] = useState("");
   const [reviewNotes, setReviewNotes] = useState("");
+  const [sigOpen, setSigOpen] = useState(false);
+  const [pendingAccepted, setPendingAccepted] = useState<boolean | null>(null);
 
   const coaId = coa.id;
   useMemo(() => {
-    setReviewerName("");
     setReviewNotes("");
   }, [coaId]);
 
   const submitQcReview = useMutation({
-    mutationFn: async (accepted: boolean) => {
+    mutationFn: async ({ accepted, password, commentary }: { accepted: boolean; password: string; commentary: string }) => {
       const res = await apiRequest("POST", `/api/coa/${coa.id}/qc-review`, {
         accepted,
-        reviewedBy: reviewerName,
         notes: reviewNotes || undefined,
+        password,
+        commentary: commentary || undefined,
       });
       return res.json();
     },
     onSuccess: () => {
+      setSigOpen(false);
       toast({ title: "QC review submitted" });
       queryClient.invalidateQueries({ queryKey: ["/api/coa"] });
       onUpdated();
@@ -455,16 +458,6 @@ function CoaDetail({
         ) : (
           <div className="space-y-3">
             <div className="space-y-1.5">
-              <Label className="text-sm">Reviewer Name</Label>
-              <Input
-                placeholder="Enter your name"
-                value={reviewerName}
-                onChange={(e) => setReviewerName(e.target.value)}
-                className="text-sm"
-                data-testid="input-coa-qc-reviewer"
-              />
-            </div>
-            <div className="space-y-1.5">
               <Label className="text-sm">Notes</Label>
               <Textarea
                 placeholder="Optional review notes…"
@@ -477,32 +470,33 @@ function CoaDetail({
             <div className="flex gap-2">
               <Button
                 size="sm"
-                onClick={() => submitQcReview.mutate(true)}
-                disabled={submitQcReview.isPending || !reviewerName.trim()}
+                onClick={() => { setPendingAccepted(true); setSigOpen(true); }}
                 data-testid="button-coa-qc-accept"
               >
-                {submitQcReview.isPending ? (
-                  <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
-                ) : (
-                  <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />
-                )}
+                <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />
                 Accept
               </Button>
               <Button
                 size="sm"
                 variant="destructive"
-                onClick={() => submitQcReview.mutate(false)}
-                disabled={submitQcReview.isPending || !reviewerName.trim()}
+                onClick={() => { setPendingAccepted(false); setSigOpen(true); }}
                 data-testid="button-coa-qc-reject"
               >
-                {submitQcReview.isPending ? (
-                  <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
-                ) : (
-                  <XCircle className="h-3.5 w-3.5 mr-1.5" />
-                )}
+                <XCircle className="h-3.5 w-3.5 mr-1.5" />
                 Reject
               </Button>
             </div>
+            <SignatureCeremony
+              open={sigOpen}
+              onOpenChange={setSigOpen}
+              entityDescription={`COA document`}
+              meaning="QC_DISPOSITION"
+              isPending={submitQcReview.isPending}
+              onSign={async (password, commentary) => {
+                if (pendingAccepted === null) return;
+                await submitQcReview.mutateAsync({ accepted: pendingAccepted, password, commentary });
+              }}
+            />
           </div>
         )}
       </div>
