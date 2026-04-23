@@ -47,6 +47,7 @@ import type {
   AuditFilters,
 } from "./storage";
 import { computeRoleDelta } from "./storage/users";
+import { assertNotLocked, assertValidTransition } from "./state/transitions";
 
 export class DatabaseStorage implements IStorage {
 
@@ -1412,10 +1413,13 @@ export class DatabaseStorage implements IStorage {
       const [existing] = await tx.select().from(schema.receivingRecords).where(eq(schema.receivingRecords.id, id));
       if (!existing) return undefined;
 
+      assertNotLocked("receiving_record", existing.status);
+
       const reviewer = await tx.select({ fullName: schema.users.fullName }).from(schema.users).where(eq(schema.users.id, reviewedByUserId));
       const reviewerName = reviewer[0]?.fullName ?? reviewedByUserId;
 
       const newStatus = disposition === "APPROVED" || disposition === "APPROVED_WITH_CONDITIONS" ? "APPROVED" : "REJECTED";
+      assertValidTransition("receiving_record", existing.status, newStatus);
       const [updated] = await tx.update(schema.receivingRecords).set({
         status: newStatus,
         qcDisposition: disposition,
@@ -1586,6 +1590,7 @@ export class DatabaseStorage implements IStorage {
   async updateBpr(id: string, data: Partial<InsertBpr>): Promise<BatchProductionRecord | undefined> {
     const [existing] = await db.select().from(schema.batchProductionRecords).where(eq(schema.batchProductionRecords.id, id));
     if (!existing) return undefined;
+    assertNotLocked("batch_production_record", existing.status);
     if (existing.status !== "IN_PROGRESS") {
       throw new Error("BPR can only be updated while IN_PROGRESS");
     }
@@ -1596,9 +1601,8 @@ export class DatabaseStorage implements IStorage {
   async submitBprForReview(id: string): Promise<BatchProductionRecord | undefined> {
     const [existing] = await db.select().from(schema.batchProductionRecords).where(eq(schema.batchProductionRecords.id, id));
     if (!existing) return undefined;
-    if (existing.status !== "IN_PROGRESS") {
-      throw new Error("BPR can only be submitted for review while IN_PROGRESS");
-    }
+    assertNotLocked("batch_production_record", existing.status);
+    assertValidTransition("batch_production_record", existing.status, "PENDING_QC_REVIEW");
     const [row] = await db.update(schema.batchProductionRecords).set({ status: "PENDING_QC_REVIEW", updatedAt: new Date() }).where(eq(schema.batchProductionRecords.id, id)).returning();
     return row;
   }
@@ -1607,21 +1611,22 @@ export class DatabaseStorage implements IStorage {
     const run = async (tx: Tx) => {
       const [existing] = await tx.select().from(schema.batchProductionRecords).where(eq(schema.batchProductionRecords.id, id));
       if (!existing) return undefined;
-      if (existing.status !== "PENDING_QC_REVIEW") {
-        throw new Error("BPR must be in PENDING_QC_REVIEW status for QC review");
-      }
+
+      assertNotLocked("batch_production_record", existing.status);
+      const isApprovedDisposition = disposition === "APPROVED_FOR_DISTRIBUTION" || disposition === "APPROVED";
+      const newStatus = isApprovedDisposition ? "APPROVED" : "REJECTED";
+      assertValidTransition("batch_production_record", existing.status, newStatus);
 
       const reviewer = await tx.select({ fullName: schema.users.fullName }).from(schema.users).where(eq(schema.users.id, reviewedByUserId));
       const reviewerName = reviewer[0]?.fullName ?? reviewedByUserId;
 
-      const isApproved = disposition === "APPROVED_FOR_DISTRIBUTION" || disposition === "APPROVED";
       const [row] = await tx.update(schema.batchProductionRecords).set({
         qcReviewedBy: reviewerName,
         qcReviewedAt: new Date(),
         qcDisposition: disposition,
         qcNotes: notes ?? existing.qcNotes,
-        status: isApproved ? "APPROVED" : "REJECTED",
-        completedAt: isApproved ? new Date() : existing.completedAt,
+        status: newStatus,
+        completedAt: isApprovedDisposition ? new Date() : existing.completedAt,
         updatedAt: new Date(),
       }).where(eq(schema.batchProductionRecords.id, id)).returning();
       return row;

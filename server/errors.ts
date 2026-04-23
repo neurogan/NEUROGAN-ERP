@@ -85,4 +85,20 @@ export const errors = {
       400,
       { fields },
     ),
+
+  illegalTransition: (entityType: string, from: string, to: string) =>
+    new AppError(
+      "ILLEGAL_TRANSITION",
+      `Cannot transition ${entityType} from ${from} to ${to}.`,
+      409,
+      { entityType, from, to },
+    ),
+
+  recordLocked: (entityType: string, currentStatus: string) =>
+    new AppError(
+      "RECORD_LOCKED",
+      `${entityType} is in a terminal state (${currentStatus}) and cannot be modified.`,
+      423,
+      { entityType, currentStatus },
+    ),
 };
