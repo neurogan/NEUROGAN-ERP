@@ -29,6 +29,7 @@ import { hashPassword, generateTemporaryPassword } from "./auth/password";
 import { errors } from "./errors";
 import { withAudit } from "./audit/audit";
 import { auditRouter } from "./audit/audit-routes";
+import { signatureRouter } from "./signatures/signature-routes";
 
 function formatZodError(error: ZodError): string {
   return error.errors.map(e => `${e.path.join(".")}: ${e.message}`).join(", ");
@@ -41,6 +42,9 @@ export async function registerRoutes(
 
   // ─── Audit trail (F-03) ────────────────────────────────
   app.use("/api/audit", requireAuth, auditRouter);
+
+  // ─── Electronic signatures (F-04) ──────────────────────
+  app.use("/api/signatures", requireAuth, signatureRouter);
 
   // ─── Health / IQ traceability ──────────────────────────
   //

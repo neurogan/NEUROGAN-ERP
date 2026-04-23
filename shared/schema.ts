@@ -751,3 +751,50 @@ export const insertAuditSchema = createInsertSchema(auditTrail, {
   id: true,
   occurredAt: true,
 });
+
+// ─── Electronic signatures (F-04) ─────────────────────────────────────────
+//
+// Part 11 §11.50 / §11.70 / §11.100 / §11.200 / §11.300.
+// Each regulated state transition must be accompanied by an e-signature that
+// captures the signer's identity snapshot, meaning, and a printable
+// manifestation — all in the same DB transaction as the state change.
+
+export const signatureMeaningEnum = z.enum([
+  "AUTHORED",
+  "REVIEWED",
+  "APPROVED",
+  "REJECTED",
+  "QC_DISPOSITION",
+  "QA_RELEASE",
+  "DEVIATION_DISPOSITION",
+  "RETURN_DISPOSITION",
+  "COMPLAINT_REVIEW",
+  "SAER_SUBMIT",
+  "MMR_APPROVAL",
+  "SPEC_APPROVAL",
+  "LAB_APPROVAL",
+]);
+export type SignatureMeaning = z.infer<typeof signatureMeaningEnum>;
+
+export const electronicSignatures = pgTable("erp_electronic_signatures", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  signedAt: timestamp("signed_at", { withTimezone: true }).notNull().defaultNow(),
+  userId: uuid("user_id").notNull().references(() => users.id),
+  meaning: text("meaning").$type<SignatureMeaning>().notNull(),
+  entityType: text("entity_type").notNull(),
+  entityId: text("entity_id").notNull(),
+  commentary: text("commentary"),
+  fullNameAtSigning: text("full_name_at_signing").notNull(),
+  titleAtSigning: text("title_at_signing"),
+  requestId: text("request_id").notNull(),
+  manifestationJson: jsonb("manifestation_json").notNull(),
+});
+
+export type SignatureRow = typeof electronicSignatures.$inferSelect;
+
+export const insertSignatureSchema = createInsertSchema(electronicSignatures, {
+  meaning: signatureMeaningEnum,
+}).omit({
+  id: true,
+  signedAt: true,
+});

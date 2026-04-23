@@ -4,6 +4,7 @@ export interface AuthUser {
   id: string;
   email: string;
   fullName: string;
+  title?: string | null;
   roles: string[];
   status: "ACTIVE" | "DISABLED";
   mustRotatePassword: boolean;

@@ -29,6 +29,7 @@ import {
   type BprDeviation, type InsertBprDeviation, type BprWithDetails,
   type User, type UserResponse, type UserRole, type UserStatus,
   type AuditRow,
+  type SignatureRow,
 } from "@shared/schema";
 import type { Tx } from "./db";
 
@@ -325,6 +326,9 @@ export interface IStorage {
 
   // ─── Audit trail (F-03) ───────────────────────────────────
   listAuditRows(filters: AuditFilters, cursor?: string, limit?: number): Promise<{ rows: AuditRow[]; nextCursor: string | null }>;
+
+  // ─── Electronic signatures (F-04) ─────────────────────────
+  listSignatures(entityType: string, entityId: string): Promise<SignatureRow[]>;
 }
 
 export interface AuditFilters {

@@ -1976,4 +1976,19 @@ export class DatabaseStorage implements IStorage {
 
     return { rows: page, nextCursor };
   }
+
+  // ─── Electronic signatures (F-04) ───────────────────────────────────────
+
+  async listSignatures(entityType: string, entityId: string): Promise<schema.SignatureRow[]> {
+    return db
+      .select()
+      .from(schema.electronicSignatures)
+      .where(
+        and(
+          eq(schema.electronicSignatures.entityType, entityType),
+          eq(schema.electronicSignatures.entityId, entityId),
+        ),
+      )
+      .orderBy(schema.electronicSignatures.signedAt);
+  }
 }
