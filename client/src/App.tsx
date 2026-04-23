@@ -5,7 +5,6 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider, useTheme } from "@/components/theme-provider";
-import { PerplexityAttribution } from "@/components/PerplexityAttribution";
 import { Settings as SettingsIcon, Sun, Moon, LogOut } from "lucide-react";
 import neuroganLogo from "@/assets/neurogan-logo.jpg";
 import NotFound from "@/pages/not-found";
@@ -187,9 +186,6 @@ function AppLayout() {
           <Route component={NotFound} />
         </Switch>
       </main>
-      <footer className="shrink-0 border-t border-border px-5 py-2">
-        <PerplexityAttribution />
-      </footer>
     </div>
   );
 }
