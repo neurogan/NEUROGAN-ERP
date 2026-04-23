@@ -30,8 +30,8 @@ const QA_USER_ID   = seedIds.users.carrieTreat;   // roles: QA + ADMIN
 const PROD_USER_ID = seedIds.users.prod;           // role: PRODUCTION only
 
 // Seeded passwords (from server/seed/test/fixtures/users.ts)
-const QA_PASSWORD   = "CarrieSeed!2026";
-const PROD_PASSWORD = "ProdSeed!2026";            // not used for signing (403 before password check)
+const QA_PASSWORD   = "Change_Me_Now!4";          // carrieHash slot
+const PROD_PASSWORD = "Change_Me_Now!5";          // prodHash slot — not used for signing (403 before password check)
 
 // The VSR document is used for all sign tests; the other 3 stay in DRAFT.
 const DOC_ID      = seedIds.validationDocuments.vsrPlatform;

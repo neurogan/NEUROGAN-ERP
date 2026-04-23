@@ -1,4 +1,4 @@
-import { eq, ne, desc, asc, and, sql, gte, lte, inArray, type SQL } from "drizzle-orm";
+import { eq, ne, desc, asc, and, sql, gte, lte, inArray, getTableColumns, type SQL } from "drizzle-orm";
 import { db, type Tx } from "./db";
 import * as schema from "@shared/schema";
 import {
@@ -1961,7 +1961,7 @@ export class DatabaseStorage implements IStorage {
     filters: AuditFilters,
     cursor?: string,
     limit = 50,
-  ): Promise<{ rows: schema.AuditRow[]; nextCursor: string | null }> {
+  ): Promise<{ rows: (schema.AuditRow & { actorName: string | null; actorEmail: string | null })[]; nextCursor: string | null }> {
     const PAGE = Math.min(limit, 200);
     const conditions: SQL[] = [];
 
@@ -1984,8 +1984,13 @@ export class DatabaseStorage implements IStorage {
     }
 
     const rows = await db
-      .select()
+      .select({
+        ...getTableColumns(schema.auditTrail),
+        actorName: schema.users.fullName,
+        actorEmail: schema.users.email,
+      })
       .from(schema.auditTrail)
+      .leftJoin(schema.users, eq(schema.auditTrail.userId, schema.users.id))
       .where(conditions.length ? and(...conditions) : undefined)
       .orderBy(desc(schema.auditTrail.occurredAt), desc(schema.auditTrail.id))
       .limit(PAGE + 1);

@@ -1,0 +1,61 @@
+{
+  "planPath": "docs/superpowers/plans/2026-04-23-f10-platform-validation-package.md",
+  "tasks": [
+    {
+      "id": 13,
+      "subject": "Task 1: Schema + migration for erp_validation_documents",
+      "status": "pending",
+      "description": "**Goal:** Add the `erp_validation_documents` table to shared/schema.ts and create migration 0005.\n\n**Files:**\n- Modify: `shared/schema.ts`\n- Create: `migrations/0005_f10_validation_documents.sql`\n\n**Verify:** `pnpm typecheck` → no errors\n\n```json:metadata\n{\"files\": [\"shared/schema.ts\", \"migrations/0005_f10_validation_documents.sql\"], \"verifyCommand\": \"pnpm typecheck\", \"acceptanceCriteria\": [\"table defined in schema\", \"migration SQL correct\", \"typecheck passes\"]}\n```"
+    },
+    {
+      "id": 14,
+      "subject": "Task 2: Seed IDs + validation document fixtures",
+      "status": "pending",
+      "blockedBy": [13],
+      "description": "**Goal:** Add 4 stable validation document seed IDs and a fixture that seeds IQ/OQ/PQ/VSR content.\n\n**Files:**\n- Modify: `server/seed/ids.ts`\n- Create: `server/seed/test/fixtures/validationDocuments.ts`\n- Modify: `server/seed/test/index.ts`\n- Create: `scripts/seed-validation.ts`\n- Modify: `package.json`\n\n**Verify:** `pnpm typecheck` → no errors\n\n```json:metadata\n{\"files\": [\"server/seed/ids.ts\", \"server/seed/test/fixtures/validationDocuments.ts\", \"server/seed/test/index.ts\", \"scripts/seed-validation.ts\", \"package.json\"], \"verifyCommand\": \"pnpm typecheck\", \"acceptanceCriteria\": [\"4 stable UUIDs\", \"fixture inserts 4 docs\", \"seed:validation script works\"]}\n```"
+    },
+    {
+      "id": 15,
+      "subject": "Task 3: Storage layer for validation documents",
+      "status": "pending",
+      "blockedBy": [13],
+      "description": "**Goal:** Create server/storage/validation-documents.ts with list, get, and sign functions.\n\n**Files:**\n- Create: `server/storage/validation-documents.ts`\n\n**Verify:** `pnpm typecheck` → no errors\n\n```json:metadata\n{\"files\": [\"server/storage/validation-documents.ts\"], \"verifyCommand\": \"pnpm typecheck\", \"acceptanceCriteria\": [\"list/get/sign functions implemented\", \"sign is atomic with performSignature\", \"409 on re-sign\"]}\n```"
+    },
+    {
+      "id": 16,
+      "subject": "Task 4: API routes for validation documents",
+      "status": "pending",
+      "blockedBy": [15],
+      "description": "**Goal:** Create server/validation/validation-routes.ts with 4 endpoints and mount in routes.ts.\n\n**Files:**\n- Create: `server/validation/validation-routes.ts`\n- Modify: `server/routes.ts`\n\n**Verify:** `pnpm typecheck && pnpm lint` → no errors\n\n```json:metadata\n{\"files\": [\"server/validation/validation-routes.ts\", \"server/routes.ts\"], \"verifyCommand\": \"pnpm typecheck && pnpm lint\", \"acceptanceCriteria\": [\"4 endpoints implemented\", \"403 on PRODUCTION role\", \"lint+typecheck clean\"]}\n```"
+    },
+    {
+      "id": 17,
+      "subject": "Task 5: Quality tab + ValidationList page",
+      "status": "completed",
+      "blockedBy": [16],
+      "description": "**Goal:** Add a Quality tab to the nav and build the /quality/validation list page.\n\n**Files:**\n- Modify: `client/src/App.tsx`\n- Create: `client/src/pages/quality/ValidationList.tsx`\n\n**Verify:** `pnpm typecheck` → no errors\n\n```json:metadata\n{\"files\": [\"client/src/App.tsx\", \"client/src/pages/quality/ValidationList.tsx\"], \"verifyCommand\": \"pnpm typecheck\", \"acceptanceCriteria\": [\"Quality tab visible to QA+ADMIN only\", \"list renders correctly\", \"row click navigates to detail\"]}\n```"
+    },
+    {
+      "id": 18,
+      "subject": "Task 6: ValidationDetail page with signature ceremony",
+      "status": "completed",
+      "blockedBy": [17],
+      "description": "**Goal:** Build the /quality/validation/:id detail page where Carrie reads and signs a document.\n\n**Files:**\n- Create: `client/src/pages/quality/ValidationDetail.tsx`\n\n**Verify:** `pnpm typecheck` → no errors\n\n```json:metadata\n{\"files\": [\"client/src/pages/quality/ValidationDetail.tsx\"], \"verifyCommand\": \"pnpm typecheck\", \"acceptanceCriteria\": [\"markdown rendered\", \"sign ceremony wired up\", \"signed state shows locked block\", \"sign button hidden when signed\"]}\n```"
+    },
+    {
+      "id": 19,
+      "subject": "Task 7: Integration tests for validation document endpoints",
+      "status": "completed",
+      "blockedBy": [16, 14],
+      "description": "**Goal:** Write the full 6-case integration test suite.\n\n**Files:**\n- Create: `server/__tests__/f10-validation-documents.test.ts`\n\n**Verify:** `pnpm test:integration` → all f10 tests pass\n\n```json:metadata\n{\"files\": [\"server/__tests__/f10-validation-documents.test.ts\"], \"verifyCommand\": \"pnpm test:integration\", \"acceptanceCriteria\": [\"6-case suite passes\", \"sign atomicity verified\", \"403/401/409/404 all covered\"]}\n```"
+    },
+    {
+      "id": 20,
+      "subject": "Task 8: Update validation scaffold + whats-built.md",
+      "status": "completed",
+      "blockedBy": [19],
+      "description": "**Goal:** Add F-10 URS/FRS/DS/OQ entries to the validation scaffold and update the plain-language progress doc.\n\n**Files:**\n- Modify: `FDA/validation-scaffold.md`\n- Modify: `docs/whats-built.md`\n\n**Verify:** `pnpm lint` → no errors\n\n```json:metadata\n{\"files\": [\"FDA/validation-scaffold.md\", \"docs/whats-built.md\"], \"verifyCommand\": \"pnpm lint\", \"acceptanceCriteria\": [\"F-10 scaffold entries present\", \"traceability row added\", \"whats-built updated\"]}\n```"
+    }
+  ],
+  "lastUpdated": "2026-04-23T00:00:00Z"
+}

@@ -325,7 +325,7 @@ export interface IStorage {
   getPasswordHistory(userId: string, limit: number): Promise<string[]>;
 
   // ─── Audit trail (F-03) ───────────────────────────────────
-  listAuditRows(filters: AuditFilters, cursor?: string, limit?: number): Promise<{ rows: AuditRow[]; nextCursor: string | null }>;
+  listAuditRows(filters: AuditFilters, cursor?: string, limit?: number): Promise<{ rows: (AuditRow & { actorName: string | null; actorEmail: string | null })[]; nextCursor: string | null }>;
 
   // ─── Electronic signatures (F-04) ─────────────────────────
   listSignatures(entityType: string, entityId: string): Promise<SignatureRow[]>;

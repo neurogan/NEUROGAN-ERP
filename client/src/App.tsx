@@ -5,8 +5,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider, useTheme } from "@/components/theme-provider";
-import { PerplexityAttribution } from "@/components/PerplexityAttribution";
-import { Settings as SettingsIcon, Sun, Moon } from "lucide-react";
+import { Settings as SettingsIcon, Sun, Moon, LogOut } from "lucide-react";
 import neuroganLogo from "@/assets/neurogan-logo.jpg";
 import NotFound from "@/pages/not-found";
 import Dashboard from "@/pages/dashboard";
@@ -26,7 +25,7 @@ import SkuManager from "@/pages/sku-manager";
 import Login from "@/pages/login";
 import ValidationList from "@/pages/quality/ValidationList";
 import ValidationDetail from "@/pages/quality/ValidationDetail";
-import { useAuth } from "@/lib/auth";
+import { useAuth, useLogout } from "@/lib/auth";
 import { InactivityWarning } from "@/components/InactivityWarning";
 
 interface NavItem {
@@ -63,6 +62,7 @@ function ThemeToggle() {
 function TopNav() {
   const [location] = useLocation();
   const { user } = useAuth();
+  const logout = useLogout();
   const canViewAudit = user?.roles?.some((r) => r === "ADMIN" || r === "QA") ?? false;
   const userRoles: string[] = user?.roles ?? [];
   const visibleNavItems = navItems.filter(
@@ -109,6 +109,24 @@ function TopNav() {
             </button>
           </Link>
           <ThemeToggle />
+          {user && (
+            <div className="flex items-center gap-2 pl-2 border-l border-border">
+              <Link href="/profile">
+                <span className="text-xs text-muted-foreground hover:text-foreground cursor-pointer transition-colors">
+                  {user.fullName}
+                </span>
+              </Link>
+              <button
+                onClick={() => logout.mutate()}
+                disabled={logout.isPending}
+                className="flex items-center justify-center h-8 w-8 rounded-full border border-border text-muted-foreground hover:text-destructive hover:border-destructive transition-colors"
+                title="Sign out"
+                data-testid="nav-logout"
+              >
+                <LogOut className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -168,9 +186,6 @@ function AppLayout() {
           <Route component={NotFound} />
         </Switch>
       </main>
-      <footer className="shrink-0 border-t border-border px-5 py-2">
-        <PerplexityAttribution />
-      </footer>
     </div>
   );
 }
