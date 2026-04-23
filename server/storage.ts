@@ -250,7 +250,7 @@ export interface IStorage {
   getReceivingRecord(id: string): Promise<ReceivingRecordWithDetails | undefined>;
   createReceivingRecord(data: InsertReceivingRecord): Promise<ReceivingRecord>;
   updateReceivingRecord(id: string, data: Partial<InsertReceivingRecord>): Promise<ReceivingRecord | undefined>;
-  qcReviewReceivingRecord(id: string, disposition: string, reviewedBy: string, notes?: string): Promise<ReceivingRecord | undefined>;
+  qcReviewReceivingRecord(id: string, disposition: string, reviewedByUserId: string, notes?: string, tx?: Tx): Promise<ReceivingRecord | undefined>;
   getNextReceivingIdentifier(): Promise<string>;
   getQuarantinedLots(): Promise<ReceivingRecordWithDetails[]>;
 
@@ -259,7 +259,7 @@ export interface IStorage {
   getCoaDocument(id: string): Promise<CoaDocumentWithDetails | undefined>;
   createCoaDocument(data: InsertCoaDocument): Promise<CoaDocument>;
   updateCoaDocument(id: string, data: Partial<InsertCoaDocument>): Promise<CoaDocument | undefined>;
-  qcReviewCoa(id: string, accepted: boolean, reviewedBy: string, notes?: string): Promise<CoaDocument | undefined>;
+  qcReviewCoa(id: string, accepted: boolean, reviewedByUserId: string, notes?: string, tx?: Tx): Promise<CoaDocument | undefined>;
   getCoasByLot(lotId: string): Promise<CoaDocumentWithDetails[]>;
 
   // Supplier Qualifications
@@ -275,7 +275,7 @@ export interface IStorage {
   createBpr(data: InsertBpr): Promise<BatchProductionRecord>;
   updateBpr(id: string, data: Partial<InsertBpr>): Promise<BatchProductionRecord | undefined>;
   submitBprForReview(id: string): Promise<BatchProductionRecord | undefined>;
-  qcReviewBpr(id: string, disposition: string, reviewedBy: string, notes?: string): Promise<BatchProductionRecord | undefined>;
+  qcReviewBpr(id: string, disposition: string, reviewedByUserId: string, notes?: string, tx?: Tx): Promise<BatchProductionRecord | undefined>;
 
   // BPR Steps
   addBprStep(bprId: string, data: InsertBprStep): Promise<BprStep>;

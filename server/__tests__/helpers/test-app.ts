@@ -1,5 +1,6 @@
 import express, { type Express } from "express";
 import { createServer } from "http";
+import { randomUUID } from "crypto";
 import { registerRoutes } from "../../routes";
 import { errorMiddleware } from "../../error-middleware";
 import { storage } from "../../storage";
@@ -15,6 +16,14 @@ import { storage } from "../../storage";
 export async function buildTestApp(): Promise<Express> {
   const app = express();
   app.use(express.json());
+
+  // Mirror the requestId middleware from server/index.ts so that req.requestId
+  // is always a valid UUID. Without this, performSignature fails in tests because
+  // erp_electronic_signatures.request_id has a NOT NULL constraint.
+  app.use((req, _res, next) => {
+    req.requestId = randomUUID();
+    next();
+  });
 
   app.use(async (req, _res, next) => {
     try {

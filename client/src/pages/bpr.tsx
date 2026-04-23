@@ -46,6 +46,7 @@ import {
   User,
 } from "lucide-react";
 import type { BprWithDetails, BprStep, BprDeviation } from "@shared/schema";
+import { SignatureCeremony } from "@/components/SignatureCeremony";
 
 // ── Status helpers ──
 
@@ -1081,21 +1082,23 @@ function QcReview({
 }) {
   const { toast } = useToast();
   const [disposition, setDisposition] = useState("");
-  const [reviewedBy, setReviewedBy] = useState("");
   const [notes, setNotes] = useState("");
+  const [sigOpen, setSigOpen] = useState(false);
 
   const isReviewable = bpr.status === "PENDING_QC_REVIEW";
   const isReviewed = bpr.status === "APPROVED" || bpr.status === "REJECTED";
 
   const submitMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async ({ password, commentary }: { password: string; commentary: string }) => {
       await apiRequest("POST", `/api/batch-production-records/${bpr.id}/qc-review`, {
         disposition,
-        reviewedBy,
         notes: notes || undefined,
+        password,
+        commentary: commentary || undefined,
       });
     },
     onSuccess: () => {
+      setSigOpen(false);
       queryClient.invalidateQueries({ queryKey: ["/api/batch-production-records", bpr.id] });
       toast({ title: "QC review submitted" });
     },
@@ -1177,19 +1180,6 @@ function QcReview({
                 </SelectContent>
               </Select>
             </div>
-            <div className="max-w-xs">
-              <Label htmlFor="qc-reviewed-by" className="text-sm">
-                Reviewed By <span className="text-red-500">*</span>
-              </Label>
-              <Input
-                id="qc-reviewed-by"
-                value={reviewedBy}
-                onChange={(e) => setReviewedBy(e.target.value)}
-                className="mt-1"
-                placeholder="Reviewer name"
-                data-testid="input-qc-reviewed-by"
-              />
-            </div>
             <div>
               <Label htmlFor="qc-notes" className="text-sm">Notes</Label>
               <Textarea
@@ -1203,13 +1193,23 @@ function QcReview({
               />
             </div>
             <Button
-              onClick={() => submitMutation.mutate()}
-              disabled={submitMutation.isPending || !disposition || !reviewedBy.trim()}
+              onClick={() => setSigOpen(true)}
+              disabled={!disposition}
               data-testid="button-submit-qc-review"
             >
               <ClipboardCheck className="h-3.5 w-3.5 mr-1.5" />
-              {submitMutation.isPending ? "Submitting..." : "Submit QC Review"}
+              Submit QC Review
             </Button>
+            <SignatureCeremony
+              open={sigOpen}
+              onOpenChange={setSigOpen}
+              entityDescription={`BPR ${bpr.batchNumber}`}
+              meaning="QC_DISPOSITION"
+              isPending={submitMutation.isPending}
+              onSign={async (password, commentary) => {
+                await submitMutation.mutateAsync({ password, commentary });
+              }}
+            />
           </div>
         )}
       </CardContent>

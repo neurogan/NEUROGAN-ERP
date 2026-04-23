@@ -36,6 +36,7 @@ import {
 } from "lucide-react";
 import { formatQty } from "@/lib/formatQty";
 import { formatDate, formatDateTime } from "@/lib/formatDate";
+import { SignatureCeremony } from "@/components/SignatureCeremony";
 import type {
   ReceivingRecordWithDetails,
   CoaDocumentWithDetails,
@@ -483,8 +484,8 @@ function ReceivingDetail({
 
   // QC review form state
   const [qcDisposition, setQcDisposition] = useState<string>("");
-  const [qcReviewedBy, setQcReviewedBy] = useState("");
   const [qcNotes, setQcNotes] = useState("");
+  const [sigOpen, setSigOpen] = useState(false);
 
   // Reset form when record changes
   const recordId = record.id;
@@ -496,7 +497,6 @@ function ReceivingDetail({
     setExamNotes(record.visualExamNotes ?? "");
     setExamBy(record.visualExamBy ?? "");
     setQcDisposition("");
-    setQcReviewedBy("");
     setQcNotes("");
   }, [recordId]);
 
@@ -549,15 +549,17 @@ function ReceivingDetail({
 
   // QC review mutation
   const submitQcReview = useMutation({
-    mutationFn: async () => {
+    mutationFn: async ({ password, commentary }: { password: string; commentary: string }) => {
       const res = await apiRequest("POST", `/api/receiving/${record.id}/qc-review`, {
         disposition: qcDisposition,
-        reviewedBy: qcReviewedBy,
         notes: qcNotes || undefined,
+        password,
+        commentary: commentary || undefined,
       });
       return res.json();
     },
     onSuccess: () => {
+      setSigOpen(false);
       toast({ title: "QC review submitted" });
       queryClient.invalidateQueries({ queryKey: ["/api/receiving"] });
       onUpdated();
@@ -805,16 +807,6 @@ function ReceivingDetail({
                   </Select>
                 </div>
                 <div className="space-y-1.5">
-                  <Label className="text-sm">QC Reviewed By</Label>
-                  <Input
-                    placeholder="Reviewer name"
-                    value={qcReviewedBy}
-                    onChange={(e) => setQcReviewedBy(e.target.value)}
-                    className="text-sm"
-                    data-testid="input-qc-reviewed-by"
-                  />
-                </div>
-                <div className="space-y-1.5">
                   <Label className="text-sm">QC Notes</Label>
                   <Textarea
                     placeholder="Optional notes…"
@@ -826,17 +818,23 @@ function ReceivingDetail({
                 </div>
                 <Button
                   size="sm"
-                  onClick={() => submitQcReview.mutate()}
-                  disabled={submitQcReview.isPending || !qcDisposition || !qcReviewedBy.trim()}
+                  onClick={() => setSigOpen(true)}
+                  disabled={!qcDisposition}
                   data-testid="button-submit-qc-review"
                 >
-                  {submitQcReview.isPending ? (
-                    <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
-                  ) : (
-                    <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />
-                  )}
+                  <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />
                   Submit QC Review
                 </Button>
+                <SignatureCeremony
+                  open={sigOpen}
+                  onOpenChange={setSigOpen}
+                  entityDescription={`receiving record ${record.uniqueIdentifier}`}
+                  meaning="QC_DISPOSITION"
+                  isPending={submitQcReview.isPending}
+                  onSign={async (password, commentary) => {
+                    await submitQcReview.mutateAsync({ password, commentary });
+                  }}
+                />
               </div>
             )}
           </div>
