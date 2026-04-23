@@ -5,14 +5,16 @@ import { seedIds } from "../../ids";
 import { randomBytes } from "crypto";
 
 export async function seedUsers() {
-  const adminHash     = await hashPassword("AdminSeed!2026");
-  const frederikHash  = await hashPassword("FredSeed!2026");
-  const stevenHash    = await hashPassword("StevenSeed!2026");
-  const carrieHash    = await hashPassword("CarrieSeed!2026");
-  const prodHash      = await hashPassword("ProdSeed!2026");
-  const prod2Hash     = await hashPassword("Prod2Seed!2026");
-  const recvHash      = await hashPassword("RecvSeed!2026");
-  const viewerHash    = await hashPassword("ViewSeed!2026");
+  // Seed passwords are temporary credentials — users must rotate on first login.
+  // These are intentionally generic; real passwords must never be committed.
+  const adminHash     = await hashPassword("Change_Me_Now!1");
+  const frederikHash  = await hashPassword("Change_Me_Now!2");
+  const stevenHash    = await hashPassword("Change_Me_Now!3");
+  const carrieHash    = await hashPassword("Change_Me_Now!4");
+  const prodHash      = await hashPassword("Change_Me_Now!5");
+  const prod2Hash     = await hashPassword("Change_Me_Now!6");
+  const recvHash      = await hashPassword("Change_Me_Now!7");
+  const viewerHash    = await hashPassword("Change_Me_Now!8");
   const disabledHash  = await hashPassword(randomBytes(32).toString("hex")); // untouchable
 
   const rows = [

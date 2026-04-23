@@ -33,6 +33,9 @@ async function seedAdmin(email: string) {
 }
 
 async function cleanDb() {
+  // Null out signatureId FK before deleting signatures, then clear users.
+  await db.update(schema.validationDocuments).set({ signatureId: null });
+  await db.delete(schema.electronicSignatures);
   await db.delete(schema.auditTrail);
   await db.delete(schema.passwordHistory);
   await db.delete(schema.userRoles);
