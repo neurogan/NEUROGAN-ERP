@@ -95,13 +95,13 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(schema.lots).where(eq(schema.lots.productId, productId));
   }
 
-  async createLot(data: InsertLot): Promise<Lot> {
-    const [row] = await db.insert(schema.lots).values(data).returning();
+  async createLot(data: InsertLot, tx?: Tx): Promise<Lot> {
+    const [row] = await (tx ?? db).insert(schema.lots).values(data).returning();
     return row;
   }
 
-  async updateLot(id: string, data: Partial<InsertLot>): Promise<Lot | undefined> {
-    const [row] = await db.update(schema.lots).set(data).where(eq(schema.lots.id, id)).returning();
+  async updateLot(id: string, data: Partial<InsertLot>, tx?: Tx): Promise<Lot | undefined> {
+    const [row] = await (tx ?? db).update(schema.lots).set(data).where(eq(schema.lots.id, id)).returning();
     return row;
   }
 
@@ -183,8 +183,8 @@ export class DatabaseStorage implements IStorage {
     return result;
   }
 
-  async createTransaction(data: InsertTransaction): Promise<Transaction> {
-    const [row] = await db.insert(schema.transactions).values(data).returning();
+  async createTransaction(data: InsertTransaction, tx?: Tx): Promise<Transaction> {
+    const [row] = await (tx ?? db).insert(schema.transactions).values(data).returning();
     return row;
   }
 
@@ -1392,19 +1392,19 @@ export class DatabaseStorage implements IStorage {
     return this.enrichReceivingRecord(r);
   }
 
-  async createReceivingRecord(data: InsertReceivingRecord): Promise<ReceivingRecord> {
-    const [record] = await db.insert(schema.receivingRecords).values(data).returning();
-
-    // Update the lot's quarantine status
-    if (data.status) {
-      await db.update(schema.lots).set({ quarantineStatus: data.status }).where(eq(schema.lots.id, data.lotId));
-    }
-
-    return record;
+  async createReceivingRecord(data: InsertReceivingRecord, outerTx?: Tx): Promise<ReceivingRecord> {
+    const run = async (tx: Tx) => {
+      const [record] = await tx.insert(schema.receivingRecords).values(data).returning();
+      if (data.status) {
+        await tx.update(schema.lots).set({ quarantineStatus: data.status }).where(eq(schema.lots.id, data.lotId));
+      }
+      return record;
+    };
+    return outerTx ? run(outerTx) : db.transaction(run);
   }
 
-  async updateReceivingRecord(id: string, data: Partial<InsertReceivingRecord>): Promise<ReceivingRecord | undefined> {
-    const [row] = await db.update(schema.receivingRecords).set({ ...data, updatedAt: new Date() }).where(eq(schema.receivingRecords.id, id)).returning();
+  async updateReceivingRecord(id: string, data: Partial<InsertReceivingRecord>, tx?: Tx): Promise<ReceivingRecord | undefined> {
+    const [row] = await (tx ?? db).update(schema.receivingRecords).set({ ...data, updatedAt: new Date() }).where(eq(schema.receivingRecords.id, id)).returning();
     return row;
   }
 
@@ -1481,13 +1481,13 @@ export class DatabaseStorage implements IStorage {
     return this.enrichCoaDocument(doc);
   }
 
-  async createCoaDocument(data: InsertCoaDocument): Promise<CoaDocument> {
-    const [row] = await db.insert(schema.coaDocuments).values(data).returning();
+  async createCoaDocument(data: InsertCoaDocument, tx?: Tx): Promise<CoaDocument> {
+    const [row] = await (tx ?? db).insert(schema.coaDocuments).values(data).returning();
     return row;
   }
 
-  async updateCoaDocument(id: string, data: Partial<InsertCoaDocument>): Promise<CoaDocument | undefined> {
-    const [row] = await db.update(schema.coaDocuments).set({ ...data, updatedAt: new Date() }).where(eq(schema.coaDocuments.id, id)).returning();
+  async updateCoaDocument(id: string, data: Partial<InsertCoaDocument>, tx?: Tx): Promise<CoaDocument | undefined> {
+    const [row] = await (tx ?? db).update(schema.coaDocuments).set({ ...data, updatedAt: new Date() }).where(eq(schema.coaDocuments.id, id)).returning();
     return row;
   }
 
@@ -1582,28 +1582,28 @@ export class DatabaseStorage implements IStorage {
     return this.enrichBpr(bpr);
   }
 
-  async createBpr(data: InsertBpr): Promise<BatchProductionRecord> {
-    const [row] = await db.insert(schema.batchProductionRecords).values(data).returning();
+  async createBpr(data: InsertBpr, tx?: Tx): Promise<BatchProductionRecord> {
+    const [row] = await (tx ?? db).insert(schema.batchProductionRecords).values(data).returning();
     return row;
   }
 
-  async updateBpr(id: string, data: Partial<InsertBpr>): Promise<BatchProductionRecord | undefined> {
-    const [existing] = await db.select().from(schema.batchProductionRecords).where(eq(schema.batchProductionRecords.id, id));
+  async updateBpr(id: string, data: Partial<InsertBpr>, tx?: Tx): Promise<BatchProductionRecord | undefined> {
+    const [existing] = await (tx ?? db).select().from(schema.batchProductionRecords).where(eq(schema.batchProductionRecords.id, id));
     if (!existing) return undefined;
     assertNotLocked("batch_production_record", existing.status);
     if (existing.status !== "IN_PROGRESS") {
       throw new Error("BPR can only be updated while IN_PROGRESS");
     }
-    const [row] = await db.update(schema.batchProductionRecords).set({ ...data, updatedAt: new Date() }).where(eq(schema.batchProductionRecords.id, id)).returning();
+    const [row] = await (tx ?? db).update(schema.batchProductionRecords).set({ ...data, updatedAt: new Date() }).where(eq(schema.batchProductionRecords.id, id)).returning();
     return row;
   }
 
-  async submitBprForReview(id: string): Promise<BatchProductionRecord | undefined> {
-    const [existing] = await db.select().from(schema.batchProductionRecords).where(eq(schema.batchProductionRecords.id, id));
+  async submitBprForReview(id: string, tx?: Tx): Promise<BatchProductionRecord | undefined> {
+    const [existing] = await (tx ?? db).select().from(schema.batchProductionRecords).where(eq(schema.batchProductionRecords.id, id));
     if (!existing) return undefined;
     assertNotLocked("batch_production_record", existing.status);
     assertValidTransition("batch_production_record", existing.status, "PENDING_QC_REVIEW");
-    const [row] = await db.update(schema.batchProductionRecords).set({ status: "PENDING_QC_REVIEW", updatedAt: new Date() }).where(eq(schema.batchProductionRecords.id, id)).returning();
+    const [row] = await (tx ?? db).update(schema.batchProductionRecords).set({ status: "PENDING_QC_REVIEW", updatedAt: new Date() }).where(eq(schema.batchProductionRecords.id, id)).returning();
     return row;
   }
 
