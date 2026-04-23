@@ -13,6 +13,7 @@ import {
   insertRecipeSchema,
   insertProductCategorySchema,
   insertProductionNoteSchema,
+  insertReceivingRecordSchema,
   insertCoaDocumentSchema,
   insertSupplierQualificationSchema,
   insertBprSchema,
@@ -296,54 +297,29 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/products", async (req, res) => {
+  app.post("/api/products", requireAuth, requireRole("ADMIN", "QA"), async (req, res, next) => {
     try {
       const data = insertProductSchema.parse(req.body);
       const product = await storage.createProduct(data);
       res.status(201).json(product);
-    } catch (err) {
-      if (err instanceof ZodError) {
-        return res.status(400).json({ message: formatZodError(err) });
-      }
-      // PostgreSQL unique constraint violation (duplicate SKU)
-      const pgErr = err as { code?: string; detail?: string } | undefined;
-      if (pgErr?.code === "23505") {
-        const detail = pgErr.detail ?? "";
-        if (detail.includes("sku")) {
-          return res.status(409).json({ message: `A product with SKU "${req.body.sku}" already exists.` });
-        }
-        return res.status(409).json({ message: "A product with that value already exists." });
-      }
-      res.status(500).json({ message: "Failed to create product" });
-    }
+    } catch (err) { next(err); }
   });
 
-  app.patch("/api/products/:id", async (req, res) => {
+  app.patch<{ id: string }>("/api/products/:id", requireAuth, requireRole("ADMIN", "QA"), async (req, res, next) => {
     try {
       const data = insertProductSchema.partial().parse(req.body);
       const product = await storage.updateProduct(req.params.id, data);
-      if (!product) {
-        return res.status(404).json({ message: "Product not found" });
-      }
+      if (!product) return res.status(404).json({ message: "Product not found" });
       res.json(product);
-    } catch (err) {
-      if (err instanceof ZodError) {
-        return res.status(400).json({ message: formatZodError(err) });
-      }
-      res.status(500).json({ message: "Failed to update product" });
-    }
+    } catch (err) { next(err); }
   });
 
-  app.delete("/api/products/:id", async (req, res) => {
+  app.delete<{ id: string }>("/api/products/:id", requireAuth, requireRole("ADMIN"), async (req, res, next) => {
     try {
       const deleted = await storage.deleteProduct(req.params.id);
-      if (!deleted) {
-        return res.status(404).json({ message: "Product not found" });
-      }
+      if (!deleted) return res.status(404).json({ message: "Product not found" });
       res.status(204).send();
-    } catch (err) {
-      res.status(500).json({ message: "Failed to delete product" });
-    }
+    } catch (err) { next(err); }
   });
 
   // ─── Lots ──────────────────────────────────────────────
@@ -370,33 +346,32 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/lots", async (req, res) => {
+  app.post("/api/lots", requireAuth, requireRole("RECEIVING", "QA", "ADMIN"), async (req, res, next) => {
     try {
       const data = insertLotSchema.parse(req.body);
-      const lot = await storage.createLot(data);
+      const lot = await withAudit(
+        { userId: req.user!.id, action: "CREATE", entityType: "lot",
+          entityId: (r) => (r as { id: string }).id, before: null,
+          route: `${req.method} ${req.path}`, requestId: req.requestId },
+        (tx) => storage.createLot(data, tx),
+      );
       res.status(201).json(lot);
-    } catch (err) {
-      if (err instanceof ZodError) {
-        return res.status(400).json({ message: formatZodError(err) });
-      }
-      res.status(500).json({ message: "Failed to create lot" });
-    }
+    } catch (err) { next(err); }
   });
 
-  app.patch("/api/lots/:id", async (req, res) => {
+  app.patch<{ id: string }>("/api/lots/:id", requireAuth, requireRole("RECEIVING", "QA", "ADMIN"), async (req, res, next) => {
     try {
       const data = insertLotSchema.partial().parse(req.body);
-      const lot = await storage.updateLot(req.params.id, data);
-      if (!lot) {
-        return res.status(404).json({ message: "Lot not found" });
-      }
+      const before = await storage.getLot(req.params.id);
+      if (!before) return res.status(404).json({ message: "Lot not found" });
+      const lot = await withAudit(
+        { userId: req.user!.id, action: "UPDATE", entityType: "lot",
+          entityId: req.params.id, before,
+          route: `${req.method} ${req.path}`, requestId: req.requestId },
+        (tx) => storage.updateLot(req.params.id, data, tx),
+      );
       res.json(lot);
-    } catch (err) {
-      if (err instanceof ZodError) {
-        return res.status(400).json({ message: formatZodError(err) });
-      }
-      res.status(500).json({ message: "Failed to update lot" });
-    }
+    } catch (err) { next(err); }
   });
 
   // ─── Locations ─────────────────────────────────────────
@@ -410,45 +385,29 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/locations", async (req, res) => {
+  app.post("/api/locations", requireAuth, requireRole("ADMIN", "QA", "PRODUCTION"), async (req, res, next) => {
     try {
       const data = insertLocationSchema.parse(req.body);
       const location = await storage.createLocation(data);
       res.status(201).json(location);
-    } catch (err) {
-      if (err instanceof ZodError) {
-        return res.status(400).json({ message: formatZodError(err) });
-      }
-      res.status(500).json({ message: "Failed to create location" });
-    }
+    } catch (err) { next(err); }
   });
 
-  app.patch("/api/locations/:id", async (req, res) => {
+  app.patch<{ id: string }>("/api/locations/:id", requireAuth, requireRole("ADMIN", "QA", "PRODUCTION"), async (req, res, next) => {
     try {
       const data = insertLocationSchema.partial().parse(req.body);
       const location = await storage.updateLocation(req.params.id, data);
-      if (!location) {
-        return res.status(404).json({ message: "Location not found" });
-      }
+      if (!location) return res.status(404).json({ message: "Location not found" });
       res.json(location);
-    } catch (err) {
-      if (err instanceof ZodError) {
-        return res.status(400).json({ message: formatZodError(err) });
-      }
-      res.status(500).json({ message: "Failed to update location" });
-    }
+    } catch (err) { next(err); }
   });
 
-  app.delete("/api/locations/:id", async (req, res) => {
+  app.delete<{ id: string }>("/api/locations/:id", requireAuth, requireRole("ADMIN"), async (req, res, next) => {
     try {
       const deleted = await storage.deleteLocation(req.params.id);
-      if (!deleted) {
-        return res.status(404).json({ message: "Location not found" });
-      }
+      if (!deleted) return res.status(404).json({ message: "Location not found" });
       res.status(204).send();
-    } catch (err) {
-      res.status(500).json({ message: "Failed to delete location" });
-    }
+    } catch (err) { next(err); }
   });
 
   // ─── Transactions ──────────────────────────────────────
@@ -476,49 +435,43 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/transactions", async (req, res) => {
+  app.post("/api/transactions", requireAuth, requireRole("ADMIN", "QA", "PRODUCTION", "RECEIVING"), async (req, res, next) => {
     try {
       const data = insertTransactionSchema.parse(req.body);
-      const transaction = await storage.createTransaction(data);
+      const transaction = await withAudit(
+        { userId: req.user!.id, action: "CREATE", entityType: "transaction",
+          entityId: (r) => (r as { id: string }).id, before: null,
+          route: `${req.method} ${req.path}`, requestId: req.requestId },
+        (tx) => storage.createTransaction(data, tx),
+      );
       res.status(201).json(transaction);
-    } catch (err) {
-      if (err instanceof ZodError) {
-        return res.status(400).json({ message: formatZodError(err) });
-      }
-      res.status(500).json({ message: "Failed to create transaction" });
-    }
+    } catch (err) { next(err); }
   });
 
-  // Combo endpoint: create lot + transaction in one call (for PO Receipt)
-  app.post("/api/transactions/po-receipt", requireAuth, rejectIdentityInBody(["performedBy"]), async (req, res) => {
+  // Combo endpoint: create lot + transaction atomically (for PO Receipt)
+  app.post("/api/transactions/po-receipt", requireAuth, requireRole("RECEIVING", "QA", "ADMIN"), rejectIdentityInBody(["performedBy"]), async (req, res, next) => {
     try {
       const { lotNumber, supplierName, productId, locationId, quantity, uom, notes } = req.body;
       if (!lotNumber || !productId || !locationId || !quantity || !uom) {
         return res.status(400).json({ message: "Missing required fields" });
       }
-      // Create the lot first
-      const lot = await storage.createLot({
-        productId,
-        lotNumber,
-        supplierName: supplierName || null,
-      });
-      // Then create the transaction
-      const transaction = await storage.createTransaction({
-        lotId: lot.id,
-        locationId,
-        type: "PO_RECEIPT",
-        quantity: String(Math.abs(parseFloat(quantity))),
-        uom,
-        notes: notes || null,
-        performedBy: req.user!.id,
-      });
-      res.status(201).json({ lot, transaction });
-    } catch (err) {
-      if (err instanceof ZodError) {
-        return res.status(400).json({ message: formatZodError(err) });
-      }
-      res.status(500).json({ message: "Failed to create PO receipt" });
-    }
+      const result = await withAudit(
+        { userId: req.user!.id, action: "CREATE", entityType: "transaction",
+          entityId: (r) => (r as { transaction: { id: string } }).transaction.id, before: null,
+          route: `${req.method} ${req.path}`, requestId: req.requestId,
+          meta: { subtype: "PO_RECEIPT" } },
+        async (tx) => {
+          const lot = await storage.createLot({ productId, lotNumber, supplierName: supplierName || null }, tx);
+          const transaction = await storage.createTransaction({
+            lotId: lot.id, locationId, type: "PO_RECEIPT",
+            quantity: String(Math.abs(parseFloat(quantity))),
+            uom, notes: notes || null, performedBy: req.user!.id,
+          }, tx);
+          return { lot, transaction };
+        },
+      );
+      res.status(201).json(result);
+    } catch (err) { next(err); }
   });
 
   // ─── Suppliers ───────────────────────────────────────
@@ -542,37 +495,29 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/suppliers", async (req, res) => {
+  app.post("/api/suppliers", requireAuth, requireRole("ADMIN", "QA", "RECEIVING"), async (req, res, next) => {
     try {
       const data = insertSupplierSchema.parse(req.body);
       const supplier = await storage.createSupplier(data);
       res.status(201).json(supplier);
-    } catch (err) {
-      if (err instanceof ZodError) return res.status(400).json({ message: formatZodError(err) });
-      res.status(500).json({ message: "Failed to create supplier" });
-    }
+    } catch (err) { next(err); }
   });
 
-  app.patch("/api/suppliers/:id", async (req, res) => {
+  app.patch<{ id: string }>("/api/suppliers/:id", requireAuth, requireRole("ADMIN", "QA", "RECEIVING"), async (req, res, next) => {
     try {
       const data = insertSupplierSchema.partial().parse(req.body);
       const supplier = await storage.updateSupplier(req.params.id, data);
       if (!supplier) return res.status(404).json({ message: "Supplier not found" });
       res.json(supplier);
-    } catch (err) {
-      if (err instanceof ZodError) return res.status(400).json({ message: formatZodError(err) });
-      res.status(500).json({ message: "Failed to update supplier" });
-    }
+    } catch (err) { next(err); }
   });
 
-  app.delete("/api/suppliers/:id", async (req, res) => {
+  app.delete<{ id: string }>("/api/suppliers/:id", requireAuth, requireRole("ADMIN"), async (req, res, next) => {
     try {
       const deleted = await storage.deleteSupplier(req.params.id);
       if (!deleted) return res.status(404).json({ message: "Supplier not found" });
       res.status(204).send();
-    } catch (err) {
-      res.status(500).json({ message: "Failed to delete supplier" });
-    }
+    } catch (err) { next(err); }
   });
 
   // ─── Purchase Orders ────────────────────────────────────
@@ -605,7 +550,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/purchase-orders", async (req, res) => {
+  app.post("/api/purchase-orders", requireAuth, requireRole("ADMIN", "QA", "RECEIVING"), async (req, res, next) => {
     try {
       const { lineItems, ...poData } = req.body;
       const data = insertPurchaseOrderSchema.parse(poData);
@@ -614,45 +559,36 @@ export async function registerRoutes(
       }
       const po = await storage.createPurchaseOrder(data, lineItems);
       res.status(201).json(po);
-    } catch (err) {
-      if (err instanceof ZodError) return res.status(400).json({ message: formatZodError(err) });
-      res.status(500).json({ message: "Failed to create purchase order" });
-    }
+    } catch (err) { next(err); }
   });
 
-  app.patch("/api/purchase-orders/:id", async (req, res) => {
+  app.patch<{ id: string }>("/api/purchase-orders/:id", requireAuth, requireRole("ADMIN", "QA", "RECEIVING"), async (req, res, next) => {
     try {
       const po = await storage.updatePurchaseOrder(req.params.id, req.body);
       if (!po) return res.status(404).json({ message: "Purchase order not found" });
       res.json(po);
-    } catch (err) {
-      res.status(500).json({ message: "Failed to update purchase order" });
-    }
+    } catch (err) { next(err); }
   });
 
-  app.post("/api/purchase-orders/:id/submit", async (req, res) => {
+  app.post<{ id: string }>("/api/purchase-orders/:id/submit", requireAuth, requireRole("ADMIN", "QA", "RECEIVING"), async (req, res, next) => {
     try {
       const po = await storage.updatePurchaseOrderStatus(req.params.id, "SUBMITTED");
       if (!po) return res.status(404).json({ message: "Purchase order not found" });
       res.json(po);
-    } catch (err) {
-      res.status(500).json({ message: "Failed to submit purchase order" });
-    }
+    } catch (err) { next(err); }
   });
 
-  app.post("/api/purchase-orders/:id/cancel", async (req, res) => {
+  app.post<{ id: string }>("/api/purchase-orders/:id/cancel", requireAuth, requireRole("ADMIN", "QA", "RECEIVING"), async (req, res, next) => {
     try {
       const po = await storage.updatePurchaseOrderStatus(req.params.id, "CANCELLED");
       if (!po) return res.status(404).json({ message: "Purchase order not found" });
       res.json(po);
-    } catch (err) {
-      res.status(500).json({ message: "Failed to cancel purchase order" });
-    }
+    } catch (err) { next(err); }
   });
 
   // ─── PO Receiving ──────────────────────────────────────
 
-  app.post("/api/purchase-orders/receive", async (req, res) => {
+  app.post("/api/purchase-orders/receive", requireAuth, requireRole("RECEIVING", "QA", "ADMIN"), async (req, res) => {
     try {
       const { lineItemId, quantity, lotNumber, locationId, supplierName, expirationDate, receivedDate } = req.body;
       if (!lineItemId || !quantity || !locationId) {
@@ -725,43 +661,45 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/production-batches", async (req, res) => {
+  app.post("/api/production-batches", requireAuth, requireRole("PRODUCTION", "QA", "ADMIN"), async (req, res, next) => {
     try {
       const { inputs, ...batchData } = req.body;
       const data = insertProductionBatchSchema.parse(batchData);
       if (!inputs || !Array.isArray(inputs) || inputs.length === 0) {
         return res.status(400).json({ message: "At least one input material is required" });
       }
-      const batch = await storage.createProductionBatch(data, inputs);
+      const batch = await withAudit(
+        { userId: req.user!.id, action: "CREATE", entityType: "production_batch",
+          entityId: (r) => (r as { id: string }).id, before: null,
+          route: `${req.method} ${req.path}`, requestId: req.requestId },
+        (_tx) => storage.createProductionBatch(data, inputs),
+      );
       res.status(201).json(batch);
-    } catch (err) {
-      if (err instanceof ZodError) return res.status(400).json({ message: formatZodError(err) });
-      if (err instanceof Error) return res.status(400).json({ message: err.message });
-      res.status(500).json({ message: "Failed to create production batch" });
-    }
+    } catch (err) { next(err); }
   });
 
-  app.patch("/api/production-batches/:id", async (req, res) => {
+  app.patch<{ id: string }>("/api/production-batches/:id", requireAuth, requireRole("PRODUCTION", "QA", "ADMIN"), async (req, res, next) => {
     try {
       const { inputs, ...batchData } = req.body;
-      const batch = await storage.updateProductionBatch(req.params.id, batchData, inputs);
+      const before = await storage.getProductionBatch(req.params.id);
+      if (!before) return res.status(404).json({ message: "Production batch not found" });
+      const batch = await withAudit(
+        { userId: req.user!.id, action: "UPDATE", entityType: "production_batch",
+          entityId: req.params.id, before,
+          route: `${req.method} ${req.path}`, requestId: req.requestId },
+        (_tx) => storage.updateProductionBatch(req.params.id, batchData, inputs),
+      );
       if (!batch) return res.status(404).json({ message: "Production batch not found" });
-      // Return the enriched batch
       const enriched = await storage.getProductionBatch(req.params.id);
       res.json(enriched ?? batch);
-    } catch (err) {
-      if (err instanceof Error) return res.status(400).json({ message: err.message });
-      res.status(500).json({ message: "Failed to update production batch" });
-    }
+    } catch (err) { next(err); }
   });
 
-  app.delete("/api/production-batches/:id", async (req, res) => {
+  app.delete<{ id: string }>("/api/production-batches/:id", requireAuth, requireRole("ADMIN"), async (req, res, next) => {
     try {
       const batch = await storage.getProductionBatch(req.params.id);
       if (!batch) return res.status(404).json({ message: "Production batch not found" });
-
       if (batch.status === "COMPLETED") {
-        // Delete completed batch with full transaction reversal
         const deleted = await storage.deleteCompletedBatch(req.params.id);
         if (!deleted) return res.status(500).json({ message: "Failed to delete completed batch" });
         res.status(204).send();
@@ -772,37 +710,30 @@ export async function registerRoutes(
       } else {
         return res.status(400).json({ message: "Only DRAFT and COMPLETED batches can be deleted" });
       }
-    } catch (err) {
-      res.status(500).json({ message: "Failed to delete production batch" });
-    }
+    } catch (err) { next(err); }
   });
 
-  app.post<{ id: string }>("/api/production-batches/:id/complete", requireAuth, rejectIdentityInBody(["qcReviewedBy"]), async (req, res) => {
+  app.post<{ id: string }>("/api/production-batches/:id/complete", requireAuth, requireRole("PRODUCTION", "QA", "ADMIN"), rejectIdentityInBody(["qcReviewedBy"]), async (req, res, next) => {
     try {
       const { actualQuantity, outputLotNumber, outputExpirationDate, locationId, qcStatus, qcNotes, endDate, qcDisposition, yieldPercentage } = req.body;
       if (!actualQuantity || !outputLotNumber || !locationId) {
         return res.status(400).json({ message: "Missing required fields: actualQuantity, outputLotNumber, locationId" });
       }
-      const batch = await storage.completeProductionBatch(
-        req.params.id,
-        parseFloat(actualQuantity),
-        outputLotNumber,
-        outputExpirationDate || null,
-        locationId,
-        qcStatus,
-        qcNotes,
-        endDate,
-        qcDisposition,
-        req.user!.id,
-        yieldPercentage,
+      const before = await storage.getProductionBatch(req.params.id);
+      if (!before) return res.status(404).json({ message: "Production batch not found" });
+      const batch = await withAudit(
+        { userId: req.user!.id, action: "UPDATE", entityType: "production_batch",
+          entityId: req.params.id, before,
+          route: `${req.method} ${req.path}`, requestId: req.requestId,
+          meta: { subtype: "COMPLETE" } },
+        (_tx) => storage.completeProductionBatch(
+          req.params.id, parseFloat(actualQuantity), outputLotNumber,
+          outputExpirationDate || null, locationId, qcStatus, qcNotes,
+          endDate, qcDisposition, req.user!.id, yieldPercentage,
+        ),
       );
       res.json(batch);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Failed to complete production batch";
-      // Return 409 for stock validation errors so the frontend can show a clear message
-      const status = msg.includes("Insufficient stock") ? 409 : 500;
-      res.status(status).json({ message: msg });
-    }
+    } catch (err) { next(err); }
   });
 
   // ─── Stock Availability & FIFO ──────────────────────────────
@@ -870,7 +801,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/recipes", async (req, res) => {
+  app.post("/api/recipes", requireAuth, requireRole("ADMIN", "QA", "PRODUCTION"), async (req, res, next) => {
     try {
       const { lines, ...recipeData } = req.body;
       const data = insertRecipeSchema.parse(recipeData);
@@ -879,32 +810,24 @@ export async function registerRoutes(
       }
       const recipe = await storage.createRecipe(data, lines);
       res.status(201).json(recipe);
-    } catch (err) {
-      if (err instanceof ZodError) return res.status(400).json({ message: formatZodError(err) });
-      res.status(500).json({ message: "Failed to create recipe" });
-    }
+    } catch (err) { next(err); }
   });
 
-  app.patch("/api/recipes/:id", async (req, res) => {
+  app.patch<{ id: string }>("/api/recipes/:id", requireAuth, requireRole("ADMIN", "QA", "PRODUCTION"), async (req, res, next) => {
     try {
       const { lines, ...recipeData } = req.body;
       const recipe = await storage.updateRecipe(req.params.id, recipeData, lines);
       if (!recipe) return res.status(404).json({ message: "Recipe not found" });
       res.json(recipe);
-    } catch (err) {
-      if (err instanceof ZodError) return res.status(400).json({ message: formatZodError(err) });
-      res.status(500).json({ message: "Failed to update recipe" });
-    }
+    } catch (err) { next(err); }
   });
 
-  app.delete("/api/recipes/:id", async (req, res) => {
+  app.delete<{ id: string }>("/api/recipes/:id", requireAuth, requireRole("ADMIN"), async (req, res, next) => {
     try {
       const deleted = await storage.deleteRecipe(req.params.id);
       if (!deleted) return res.status(404).json({ message: "Recipe not found" });
       res.status(204).send();
-    } catch (err) {
-      res.status(500).json({ message: "Failed to delete recipe" });
-    }
+    } catch (err) { next(err); }
   });
 
   // ─── Inventory ─────────────────────────────────────────
@@ -929,13 +852,11 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/settings", async (req, res) => {
+  app.patch("/api/settings", requireAuth, requireRole("ADMIN"), async (req, res, next) => {
     try {
       const settings = await storage.updateSettings(req.body);
       res.json(settings);
-    } catch (err) {
-      res.status(500).json({ message: "Failed to update settings" });
-    }
+    } catch (err) { next(err); }
   });
 
   // ─── Product Categories ────────────────────────────────
@@ -949,25 +870,20 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/product-categories", async (req, res) => {
+  app.post("/api/product-categories", requireAuth, requireRole("ADMIN"), async (req, res, next) => {
     try {
       const data = insertProductCategorySchema.parse(req.body);
       const category = await storage.createProductCategory(data);
       res.status(201).json(category);
-    } catch (err) {
-      if (err instanceof ZodError) return res.status(400).json({ message: formatZodError(err) });
-      res.status(500).json({ message: "Failed to create product category" });
-    }
+    } catch (err) { next(err); }
   });
 
-  app.delete("/api/product-categories/:id", async (req, res) => {
+  app.delete<{ id: string }>("/api/product-categories/:id", requireAuth, requireRole("ADMIN"), async (req, res, next) => {
     try {
       const deleted = await storage.deleteProductCategory(req.params.id);
       if (!deleted) return res.status(404).json({ message: "Category not found" });
       res.json({ message: "Deleted" });
-    } catch (err) {
-      res.status(500).json({ message: "Failed to delete product category" });
-    }
+    } catch (err) { next(err); }
   });
 
   // Category assignments
@@ -981,26 +897,23 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/product-category-assignments", async (req, res) => {
+  app.post("/api/product-category-assignments", requireAuth, requireRole("ADMIN"), async (req, res, next) => {
     try {
       const { productId, categoryId } = req.body;
       if (!productId || !categoryId) return res.status(400).json({ message: "productId and categoryId required" });
       const assignment = await storage.assignProductCategory(productId, categoryId);
       res.status(201).json(assignment);
-    } catch (err) {
-      res.status(500).json({ message: "Failed to assign category" });
-    }
+    } catch (err) { next(err); }
   });
 
-  app.delete("/api/product-category-assignments", async (req, res) => {
+  app.delete("/api/product-category-assignments", requireAuth, requireRole("ADMIN"), async (req, res, next) => {
     try {
       const { productId, categoryId } = req.body;
       if (!productId || !categoryId) return res.status(400).json({ message: "productId and categoryId required" });
       const deleted = await storage.unassignProductCategory(productId, categoryId);
       if (!deleted) return res.status(404).json({ message: "Assignment not found" });
       res.json({ message: "Unassigned" });
-    } catch (err) {
-      res.status(500).json({ message: "Failed to unassign category" });
+    } catch (err) { next(err);
     }
   });
 
@@ -1036,15 +949,12 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/production-batches/:id/notes", async (req, res) => {
+  app.post("/api/production-batches/:id/notes", requireAuth, async (req, res, next) => {
     try {
       const data = insertProductionNoteSchema.parse({ ...req.body, batchId: req.params.id });
       const note = await storage.createProductionNote(data);
       res.status(201).json(note);
-    } catch (err) {
-      if (err instanceof ZodError) return res.status(400).json({ message: formatZodError(err) });
-      res.status(500).json({ message: "Failed to create note" });
-    }
+    } catch (err) { next(err); }
   });
 
   // ─── Supplier Documents ─────────────────────────────
@@ -1058,14 +968,12 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/suppliers/:id/documents", async (req, res) => {
+  app.post("/api/suppliers/:id/documents", requireAuth, requireRole("ADMIN", "QA", "RECEIVING"), async (req, res, next) => {
     try {
       const data = { ...req.body, supplierId: req.params.id };
       const doc = await storage.createSupplierDocument(data);
       res.status(201).json(doc);
-    } catch (err) {
-      res.status(500).json({ message: "Failed to upload document" });
-    }
+    } catch (err) { next(err); }
   });
 
   app.get("/api/suppliers/:supplierId/documents/:docId", async (req, res) => {
@@ -1078,14 +986,12 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/suppliers/:supplierId/documents/:docId", async (req, res) => {
+  app.delete<{ supplierId: string; docId: string }>("/api/suppliers/:supplierId/documents/:docId", requireAuth, requireRole("ADMIN", "QA"), async (req, res, next) => {
     try {
       const deleted = await storage.deleteSupplierDocument(req.params.docId);
       if (!deleted) return res.status(404).json({ message: "Document not found" });
       res.json({ message: "Deleted" });
-    } catch (err) {
-      res.status(500).json({ message: "Failed to delete document" });
-    }
+    } catch (err) { next(err); }
   });
 
   // ─── Receiving & Quarantine ────────────────────────────
@@ -1128,23 +1034,32 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/receiving", async (req, res) => {
+  app.post("/api/receiving", requireAuth, requireRole("RECEIVING", "QA", "ADMIN"), async (req, res, next) => {
     try {
-      const record = await storage.createReceivingRecord(req.body);
+      const data = insertReceivingRecordSchema.parse(req.body);
+      const record = await withAudit(
+        { userId: req.user!.id, action: "CREATE", entityType: "receiving_record",
+          entityId: (r) => (r as { id: string }).id, before: null,
+          route: `${req.method} ${req.path}`, requestId: req.requestId },
+        (tx) => storage.createReceivingRecord(data, tx),
+      );
       res.status(201).json(record);
-    } catch (err) {
-      res.status(500).json({ message: "Failed to create receiving record" });
-    }
+    } catch (err) { next(err); }
   });
 
-  app.put("/api/receiving/:id", async (req, res) => {
+  app.put<{ id: string }>("/api/receiving/:id", requireAuth, requireRole("RECEIVING", "QA", "ADMIN"), async (req, res, next) => {
     try {
-      const record = await storage.updateReceivingRecord(req.params.id, req.body);
-      if (!record) return res.status(404).json({ message: "Not found" });
+      const data = insertReceivingRecordSchema.partial().parse(req.body);
+      const before = await storage.getReceivingRecord(req.params.id);
+      if (!before) return res.status(404).json({ message: "Not found" });
+      const record = await withAudit(
+        { userId: req.user!.id, action: "UPDATE", entityType: "receiving_record",
+          entityId: req.params.id, before,
+          route: `${req.method} ${req.path}`, requestId: req.requestId },
+        (tx) => storage.updateReceivingRecord(req.params.id, data, tx),
+      );
       res.json(record);
-    } catch (err) {
-      res.status(500).json({ message: "Failed to update receiving record" });
-    }
+    } catch (err) { next(err); }
   });
 
   app.post<{ id: string }>(
@@ -1181,17 +1096,17 @@ export async function registerRoutes(
 
   // ─── COA Documents ────────────────────────────────────
 
-  app.post("/api/coa", async (req, res) => {
+  app.post("/api/coa", requireAuth, requireRole("RECEIVING", "QA", "ADMIN"), async (req, res, next) => {
     try {
       const data = insertCoaDocumentSchema.parse(req.body);
-      const doc = await storage.createCoaDocument(data);
+      const doc = await withAudit(
+        { userId: req.user!.id, action: "CREATE", entityType: "coa_document",
+          entityId: (r) => (r as { id: string }).id, before: null,
+          route: `${req.method} ${req.path}`, requestId: req.requestId },
+        (tx) => storage.createCoaDocument(data, tx),
+      );
       res.status(201).json(doc);
-    } catch (err) {
-      if (err instanceof ZodError) {
-        return res.status(400).json({ message: formatZodError(err) });
-      }
-      res.status(500).json({ message: "Failed to create COA document" });
-    }
+    } catch (err) { next(err); }
   });
 
   app.get("/api/coa/by-lot/:lotId", async (req, res) => {
@@ -1228,18 +1143,19 @@ export async function registerRoutes(
     }
   });
 
-  app.put("/api/coa/:id", async (req, res) => {
+  app.put<{ id: string }>("/api/coa/:id", requireAuth, requireRole("RECEIVING", "QA", "ADMIN"), async (req, res, next) => {
     try {
       const data = insertCoaDocumentSchema.partial().parse(req.body);
-      const doc = await storage.updateCoaDocument(req.params.id, data);
-      if (!doc) return res.status(404).json({ message: "COA document not found" });
+      const before = await storage.getCoaDocument(req.params.id);
+      if (!before) return res.status(404).json({ message: "COA document not found" });
+      const doc = await withAudit(
+        { userId: req.user!.id, action: "UPDATE", entityType: "coa_document",
+          entityId: req.params.id, before,
+          route: `${req.method} ${req.path}`, requestId: req.requestId },
+        (tx) => storage.updateCoaDocument(req.params.id, data, tx),
+      );
       res.json(doc);
-    } catch (err) {
-      if (err instanceof ZodError) {
-        return res.status(400).json({ message: formatZodError(err) });
-      }
-      res.status(500).json({ message: "Failed to update COA document" });
-    }
+    } catch (err) { next(err); }
   });
 
   app.post<{ id: string }>(
@@ -1278,17 +1194,12 @@ export async function registerRoutes(
 
   // ─── Supplier Qualifications ──────────────────────────
 
-  app.post("/api/supplier-qualifications", async (req, res) => {
+  app.post("/api/supplier-qualifications", requireAuth, requireRole("ADMIN", "QA"), async (req, res, next) => {
     try {
       const data = insertSupplierQualificationSchema.parse(req.body);
       const sq = await storage.createSupplierQualification(data);
       res.status(201).json(sq);
-    } catch (err) {
-      if (err instanceof ZodError) {
-        return res.status(400).json({ message: formatZodError(err) });
-      }
-      res.status(500).json({ message: "Failed to create supplier qualification" });
-    }
+    } catch (err) { next(err); }
   });
 
   app.get("/api/supplier-qualifications", async (req, res) => {
@@ -1311,32 +1222,28 @@ export async function registerRoutes(
     }
   });
 
-  app.put("/api/supplier-qualifications/:id", async (req, res) => {
+  app.put<{ id: string }>("/api/supplier-qualifications/:id", requireAuth, requireRole("ADMIN", "QA"), async (req, res, next) => {
     try {
       const data = insertSupplierQualificationSchema.partial().parse(req.body);
       const sq = await storage.updateSupplierQualification(req.params.id, data);
       if (!sq) return res.status(404).json({ message: "Supplier qualification not found" });
       res.json(sq);
-    } catch (err) {
-      if (err instanceof ZodError) {
-        return res.status(400).json({ message: formatZodError(err) });
-      }
-      res.status(500).json({ message: "Failed to update supplier qualification" });
-    }
+    } catch (err) { next(err); }
   });
 
   // ─── Batch Production Records ────────────────────────────
 
-  app.post("/api/batch-production-records", async (req, res) => {
+  app.post("/api/batch-production-records", requireAuth, requireRole("PRODUCTION", "QA", "ADMIN"), async (req, res, next) => {
     try {
       const data = insertBprSchema.parse(req.body);
-      const bpr = await storage.createBpr(data);
+      const bpr = await withAudit(
+        { userId: req.user!.id, action: "CREATE", entityType: "batch_production_record",
+          entityId: (r) => (r as { id: string }).id, before: null,
+          route: `${req.method} ${req.path}`, requestId: req.requestId },
+        (tx) => storage.createBpr(data, tx),
+      );
       res.status(201).json(bpr);
-    } catch (err) {
-      if (err instanceof ZodError) return res.status(400).json({ message: formatZodError(err) });
-      const msg = err instanceof Error ? err.message : "Failed to create BPR";
-      res.status(400).json({ message: msg });
-    }
+    } catch (err) { next(err); }
   });
 
   app.get("/api/batch-production-records", async (req, res) => {
@@ -1378,28 +1285,34 @@ export async function registerRoutes(
     }
   });
 
-  app.put("/api/batch-production-records/:id", async (req, res) => {
+  app.put<{ id: string }>("/api/batch-production-records/:id", requireAuth, requireRole("PRODUCTION", "QA", "ADMIN"), async (req, res, next) => {
     try {
       const data = insertBprSchema.partial().parse(req.body);
-      const bpr = await storage.updateBpr(req.params.id, data);
-      if (!bpr) return res.status(404).json({ message: "BPR not found" });
+      const before = await storage.getBpr(req.params.id);
+      if (!before) return res.status(404).json({ message: "BPR not found" });
+      const bpr = await withAudit(
+        { userId: req.user!.id, action: "UPDATE", entityType: "batch_production_record",
+          entityId: req.params.id, before,
+          route: `${req.method} ${req.path}`, requestId: req.requestId },
+        (tx) => storage.updateBpr(req.params.id, data, tx),
+      );
       res.json(bpr);
-    } catch (err) {
-      if (err instanceof ZodError) return res.status(400).json({ message: formatZodError(err) });
-      const msg = err instanceof Error ? err.message : "Failed to update BPR";
-      res.status(400).json({ message: msg });
-    }
+    } catch (err) { next(err); }
   });
 
-  app.post("/api/batch-production-records/:id/submit-for-review", async (req, res) => {
+  app.post<{ id: string }>("/api/batch-production-records/:id/submit-for-review", requireAuth, requireRole("PRODUCTION", "QA", "ADMIN"), async (req, res, next) => {
     try {
-      const bpr = await storage.submitBprForReview(req.params.id);
-      if (!bpr) return res.status(404).json({ message: "BPR not found" });
+      const before = await storage.getBpr(req.params.id);
+      if (!before) return res.status(404).json({ message: "BPR not found" });
+      const bpr = await withAudit(
+        { userId: req.user!.id, action: "UPDATE", entityType: "batch_production_record",
+          entityId: req.params.id, before,
+          route: `${req.method} ${req.path}`, requestId: req.requestId,
+          meta: { subtype: "SUBMIT_FOR_REVIEW" } },
+        (tx) => storage.submitBprForReview(req.params.id, tx),
+      );
       res.json(bpr);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Failed to submit BPR for review";
-      res.status(400).json({ message: msg });
-    }
+    } catch (err) { next(err); }
   });
 
   app.post<{ id: string }>(
