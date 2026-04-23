@@ -1984,8 +1984,13 @@ export class DatabaseStorage implements IStorage {
     }
 
     const rows = await db
-      .select()
+      .select({
+        ...schema.auditTrail,
+        actorName: schema.users.fullName,
+        actorEmail: schema.users.email,
+      })
       .from(schema.auditTrail)
+      .leftJoin(schema.users, eq(schema.auditTrail.userId, schema.users.id))
       .where(conditions.length ? and(...conditions) : undefined)
       .orderBy(desc(schema.auditTrail.occurredAt), desc(schema.auditTrail.id))
       .limit(PAGE + 1);

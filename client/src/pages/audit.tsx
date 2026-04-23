@@ -1,5 +1,5 @@
-import { useState, useCallback } from "react";
-import { useQuery, useInfiniteQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import { useInfiniteQuery } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -35,6 +35,8 @@ interface AuditRow {
   id: string;
   occurredAt: string;
   userId: string;
+  actorName: string | null;
+  actorEmail: string | null;
   action: AuditAction;
   entityType: string;
   entityId: string | null;
@@ -48,12 +50,6 @@ interface AuditRow {
 interface AuditPage {
   rows: AuditRow[];
   nextCursor: string | null;
-}
-
-interface UserRow {
-  id: string;
-  email: string;
-  fullName: string;
 }
 
 // ── Helpers ──────────────────────────────────────────────────
@@ -148,25 +144,6 @@ export default function AuditTrail() {
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
   const [applied, setApplied] = useState<Filters>(EMPTY_FILTERS);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-
-  // User name lookup (admin sees /api/users)
-  const { data: users } = useQuery<UserRow[]>({
-    queryKey: ["/api/users"],
-    queryFn: async () => {
-      const res = await fetch("/api/users", { credentials: "include" });
-      if (!res.ok) return [];
-      return res.json() as Promise<UserRow[]>;
-    },
-    enabled: isAdmin,
-    staleTime: 5 * 60 * 1000,
-  });
-  const nameOf = useCallback(
-    (userId: string): string => {
-      const u = users?.find((x) => x.id === userId);
-      return u ? `${u.fullName} (${u.email})` : userId.slice(0, 8) + "…";
-    },
-    [users],
-  );
 
   // Paginated audit rows
   const {
@@ -403,7 +380,9 @@ export default function AuditTrail() {
                             )}
                           </TableCell>
                           <TableCell className="text-xs py-2 max-w-[200px] truncate">
-                            {nameOf(row.userId)}
+                            {row.actorName
+                              ? `${row.actorName} (${row.actorEmail})`
+                              : row.userId.slice(0, 8) + "…"}
                           </TableCell>
                           <TableCell className="text-xs text-muted-foreground font-mono py-2 max-w-[180px] truncate">
                             {row.route ?? "—"}
