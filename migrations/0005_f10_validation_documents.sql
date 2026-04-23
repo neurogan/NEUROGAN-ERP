@@ -22,3 +22,9 @@ CREATE TABLE IF NOT EXISTS erp_validation_documents (
 
 CREATE INDEX idx_vdoc_module_type
   ON erp_validation_documents (module, type);
+
+-- Protect signed document content: revoke DELETE from public; keep UPDATE for the sign operation.
+-- INSERT is needed to seed documents; SELECT for all queries.
+REVOKE DELETE ON erp_validation_documents FROM PUBLIC;
+GRANT SELECT, INSERT, UPDATE ON erp_validation_documents TO erp_app;
+-- Run manually if migration was already applied: REVOKE DELETE ON erp_validation_documents FROM PUBLIC;

@@ -120,12 +120,16 @@ export async function signValidationDocument(
     .where(eq(schema.electronicSignatures.entityId, id))
     .limit(1);
 
-  if (sigRow) {
-    await db
-      .update(schema.validationDocuments)
-      .set({ signatureId: sigRow.id })
-      .where(eq(schema.validationDocuments.id, id));
+  if (!sigRow) {
+    throw new Error(
+      `[F-10] Signature row not found for entityId=${id} after commit — ` +
+      "document is SIGNED but has no linked signature (data integrity failure)",
+    );
   }
+  await db
+    .update(schema.validationDocuments)
+    .set({ signatureId: sigRow.id })
+    .where(eq(schema.validationDocuments.id, id));
 
   // 5. Return the full detail (non-null at this point).
   return (await getValidationDocument(id))!;
