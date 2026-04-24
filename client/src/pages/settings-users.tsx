@@ -53,9 +53,9 @@ import { Plus, Copy, ShieldAlert, UserX, UserCheck, KeyRound } from "lucide-reac
 // returns 401. The page shows a friendly "Sign-in required" shell in that
 // case rather than a raw error.
 
-// All five spec roles. Checkbox layout is simpler than a multi-select while
+// All six spec roles. Checkbox layout is simpler than a multi-select while
 // the role set is small; revisit if the set grows.
-const ALL_ROLES = ["ADMIN", "QA", "PRODUCTION", "WAREHOUSE", "VIEWER"] as const;
+const ALL_ROLES = ["ADMIN", "QA", "PRODUCTION", "WAREHOUSE", "LAB_TECH", "VIEWER"] as const;
 type Role = (typeof ALL_ROLES)[number];
 
 interface UserRow {
