@@ -30,7 +30,7 @@ export const poStatusEnum = pgEnum("po_status", ["DRAFT", "SUBMITTED", "PARTIALL
 // migration dance. The old pgEnum('user_role', ['ADMIN','OPERATOR']) from the
 // Perplexity-built scaffold (see 0000_baseline.sql) is dropped by the F-01
 // migration; nothing in the codebase referenced it.
-export const userRoleEnum = z.enum(["ADMIN", "QA", "PRODUCTION", "RECEIVING", "VIEWER"]);
+export const userRoleEnum = z.enum(["ADMIN", "QA", "PRODUCTION", "WAREHOUSE", "VIEWER"]);
 export type UserRole = z.infer<typeof userRoleEnum>;
 
 export const userStatusEnum = z.enum(["ACTIVE", "DISABLED"]);
