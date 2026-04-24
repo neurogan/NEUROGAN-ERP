@@ -34,6 +34,7 @@ async function seedUser(email: string, roles: schema.UserRole[] = ["ADMIN"]) {
 }
 
 async function cleanDb() {
+  await db.update(schema.validationDocuments).set({ signatureId: null });
   await db.delete(schema.electronicSignatures);
   await db.delete(schema.auditTrail);
   await db.delete(schema.passwordHistory);
