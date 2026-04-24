@@ -65,12 +65,12 @@ function assertVisualInspectionComplete(record: {
   invoiceMatchesPo: string | null;
 }): void {
   const missing: string[] = [];
-  if (!record.containerConditionOk) missing.push("containerConditionOk");
-  if (!record.sealsIntact) missing.push("sealsIntact");
-  if (!record.labelsMatch) missing.push("labelsMatch");
-  if (!record.invoiceMatchesPo) missing.push("invoiceMatchesPo");
+  if (record.containerConditionOk !== "true") missing.push("containerConditionOk");
+  if (record.sealsIntact !== "true") missing.push("sealsIntact");
+  if (record.labelsMatch !== "true") missing.push("labelsMatch");
+  if (record.invoiceMatchesPo !== "true") missing.push("invoiceMatchesPo");
   if (missing.length > 0) {
-    const err = new Error(`Visual inspection incomplete. Required fields missing: ${missing.join(", ")}.`);
+    const err = new Error(`Visual inspection incomplete. Required fields missing or not confirmed: ${missing.join(", ")}.`);
     (err as any).status = 422;
     throw err;
   }
@@ -1513,6 +1513,11 @@ export class DatabaseStorage implements IStorage {
         .where(eq(schema.receivingRecords.id, id));
       if (!existing) return undefined;
 
+      assertNotLocked("receiving_record", existing.status);
+      if (data.status) {
+        assertValidTransition("receiving_record", existing.status, data.status);
+      }
+
       const merged = { ...existing, ...data };
 
       // Gate 1: QUARANTINED → SAMPLING requires complete visual inspection (FULL_LAB_TEST only)
@@ -1536,7 +1541,7 @@ export class DatabaseStorage implements IStorage {
       // F-06: Auto-set visualExamBy snapshot when visual inspection fields are being submitted
       let visualExamBySnapshot: { userId: string | null; fullName: string; title: string | null } | undefined;
       const isSubmittingInspection =
-        data.containerConditionOk || data.sealsIntact || data.labelsMatch || data.invoiceMatchesPo || (data as any).visualExamAt;
+        data.containerConditionOk || data.sealsIntact || data.labelsMatch || data.invoiceMatchesPo || data.visualExamAt;
       if (isSubmittingInspection && !existing.visualExamBy && actorUserId) {
         const [actor] = await tx
           .select({ fullName: schema.users.fullName, title: schema.users.title })

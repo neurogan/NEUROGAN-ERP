@@ -18,13 +18,14 @@ async function seedQaUser(email: string, createdById: string) {
 async function cleanDb() {
   await db.update(schema.validationDocuments).set({ signatureId: null });
   await db.delete(schema.electronicSignatures);
+  await db.delete(schema.coaDocuments);
   await db.delete(schema.receivingRecords);
   await db.delete(schema.approvedMaterials);
-  await db.delete(schema.coaDocuments);
   await db.delete(schema.auditTrail);
   await db.delete(schema.passwordHistory);
   await db.delete(schema.userRoles);
   await db.delete(schema.users);
+  await db.delete(schema.lots);
 }
 
 async function seedReceivingRecord(adminId: string, status = "QUARANTINED") {
@@ -79,6 +80,22 @@ describeIfDb("R-01 — state machine gates", () => {
     const body = res.body as any;
     expect(typeof body.visualExamBy).toBe("object");
     expect(body.visualExamBy.userId).toBe(adminId);
+  });
+
+  it("Gate 2: QUARANTINED→PENDING_QC rejected (422) if visual inspection incomplete (IDENTITY_CHECK)", async () => {
+    // Create a receiving record with IDENTITY_CHECK workflow type
+    const [product] = await db.insert(schema.products).values({ name: "Gate2 Test Product", sku: `GATE2-${Date.now()}`, category: "ACTIVE_INGREDIENT", defaultUom: "g", status: "ACTIVE" }).returning();
+    const [supplier] = await db.insert(schema.suppliers).values({ name: "Gate2 Supplier" }).returning();
+    const [lot] = await db.insert(schema.lots).values({ productId: product!.id, lotNumber: `GATE2-LOT-${Date.now()}`, supplierName: supplier!.name, quarantineStatus: "QUARANTINED" }).returning();
+    const [record] = await db.insert(schema.receivingRecords).values({ lotId: lot!.id, supplierId: supplier!.id, uniqueIdentifier: `RCV-GATE2-${Date.now()}`, status: "QUARANTINED", qcWorkflowType: "IDENTITY_CHECK", requiresQualification: false, dateReceived: "2026-04-23", quantityReceived: "10", uom: "kg" }).returning();
+
+    // Attempt transition to PENDING_QC without visual inspection
+    const res = await request(app)
+      .put(`/api/receiving/${record.id}`)
+      .set("x-test-user-id", adminId)
+      .send({ status: "PENDING_QC" });
+    expect(res.status).toBe(422);
+    expect((res.body as any).message).toMatch(/visual inspection/i);
   });
 
   it("Gate 3: PENDING_QC→APPROVED rejected (422) when no COA linked", async () => {
