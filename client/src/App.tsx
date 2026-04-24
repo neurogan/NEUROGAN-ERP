@@ -23,6 +23,7 @@ import SupplyChain from "@/pages/supply-chain";
 import BatchPrint from "@/pages/batch-print";
 import SkuManager from "@/pages/sku-manager";
 import Login from "@/pages/login";
+import ValidationList from "@/pages/quality/ValidationList";
 import ValidationDetail from "@/pages/quality/ValidationDetail";
 import { useAuth, useLogout } from "@/lib/auth";
 import { InactivityWarning } from "@/components/InactivityWarning";
@@ -41,6 +42,7 @@ const navItems: NavItem[] = [
   { href: "/receiving", label: "Receiving" },
   { href: "/production", label: "Production" },
   { href: "/transactions", label: "Transactions" },
+  { href: "/quality", label: "Quality", requiredRoles: ["QA", "ADMIN"] },
 ];
 
 function ThemeToggle() {
@@ -174,7 +176,9 @@ function AppLayout() {
           <Route path="/transactions" component={Transactions} />
           <Route path="/sku-manager" component={SkuManager} />
           <Route path="/audit" component={AuditTrail} />
-          <Route path="/settings/validation/:id" component={ValidationDetail} />
+          <Route path="/quality/validation/:id" component={ValidationDetail} />
+          <Route path="/quality/validation" component={ValidationList} />
+          <Route path="/quality" component={ValidationList} />
           <Route path="/settings/users" component={SettingsUsers} />
           <Route path="/settings" component={Settings} />
           <Route path="/profile/rotate-password" component={Profile} />

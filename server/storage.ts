@@ -67,6 +67,7 @@ export interface ApprovedMaterialWithDetails {
   isActive: boolean;
 }
 
+
 // F-01: createUser takes the server-generated passwordHash (see
 // server/auth/password.ts) and the initial role list atomically. The caller
 // is responsible for setting createdByUserId and grantedByUserId from

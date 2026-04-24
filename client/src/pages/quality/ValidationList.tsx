@@ -39,7 +39,7 @@ export default function ValidationList() {
     <div className="p-6">
       <h1 className="text-xl font-semibold mb-1">Validation Documents</h1>
       <p className="text-sm text-muted-foreground mb-6">
-        IQ / OQ / PQ / VSR records confirming the platform meets 21 CFR Part 11 requirements.
+        Platform and module IQ / OQ / PQ / VSR records. QA signature required to proceed to Phase 1.
       </p>
       <Table>
         <TableHeader>
@@ -56,7 +56,7 @@ export default function ValidationList() {
             <TableRow
               key={doc.id}
               className="cursor-pointer"
-              onClick={() => navigate(`/settings/validation/${doc.id}`)}
+              onClick={() => navigate(`/quality/validation/${doc.id}`)}
             >
               <TableCell className="font-medium">{doc.title}</TableCell>
               <TableCell>{doc.type}</TableCell>
