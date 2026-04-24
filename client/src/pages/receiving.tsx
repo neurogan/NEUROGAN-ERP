@@ -622,6 +622,27 @@ function ReceivingDetail({
               </Badge>
             </div>
           )}
+          {/* Z1.4 sampling plan */}
+          {record.qcWorkflowType === "FULL_LAB_TEST" && record.samplingPlan && (
+            <div className="rounded-md border border-border bg-muted/30 p-3 space-y-1">
+              <div className="text-xs font-medium text-foreground">Z1.4 Sampling Plan — AQL 2.5</div>
+              <div className="grid grid-cols-3 gap-2 text-xs text-muted-foreground">
+                <div>
+                  <div className="font-medium text-foreground">{record.samplingPlan.sampleSize}</div>
+                  <div>Sample size</div>
+                </div>
+                <div>
+                  <div className="font-medium text-foreground">≤{record.samplingPlan.acceptNumber}</div>
+                  <div>Accept if defects</div>
+                </div>
+                <div>
+                  <div className="font-medium text-foreground">≥{record.samplingPlan.rejectNumber}</div>
+                  <div>Reject if defects</div>
+                </div>
+              </div>
+              <div className="text-[10px] text-muted-foreground">Code {record.samplingPlan.codeLetterLevel2} • Level II Normal</div>
+            </div>
+          )}
         </div>
 
         <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-sm">
