@@ -160,11 +160,12 @@ describeIfDb("T02 — lab accreditation gate on qcReviewReceivingRecord", () => 
   it("rejects APPROVED when lot has supplier COA (no labId) plus a DISQUALIFIED-lab COA", async () => {
     const { record, lot } = await seedLotAndCoa(labDisqualified);
     // Add a second COA from a supplier (no labId)
-    await db.insert(schema.coaDocuments).values({
+    const [supplierCoa] = await db.insert(schema.coaDocuments).values({
       lotId: lot.id,
       sourceType: "SUPPLIER",
       overallResult: "PASS",
-    });
+    }).returning();
+    seededCoaIds.push(supplierCoa!.id);
     await expect(
       storage.qcReviewReceivingRecord(record.id, "APPROVED", adminId),
     ).rejects.toMatchObject({ status: 422 });
@@ -176,6 +177,7 @@ describeIfDb("T02 — lab accreditation gate on qcReviewReceivingRecord", () => 
     const [lot] = await db.insert(schema.lots).values({
       productId: product!.id, lotNumber: `T02-SUPPLIER-${Date.now()}`, supplierName: "Test", quarantineStatus: "PENDING_QC"
     }).returning();
+    seededLotIds.push(lot!.id);
     const [supplier] = await db.select().from(schema.suppliers).limit(1);
     const [record] = await db.insert(schema.receivingRecords).values({
       lotId: lot!.id, supplierId: supplier?.id ?? null,
@@ -183,11 +185,13 @@ describeIfDb("T02 — lab accreditation gate on qcReviewReceivingRecord", () => 
       qcWorkflowType: "FULL_LAB_TEST", requiresQualification: false,
       dateReceived: "2026-04-24", quantityReceived: "10", uom: "kg",
     }).returning();
-    await db.insert(schema.coaDocuments).values({
+    seededRecordIds.push(record!.id);
+    const [coa] = await db.insert(schema.coaDocuments).values({
       lotId: lot!.id, receivingRecordId: record!.id,
       sourceType: "SUPPLIER", overallResult: "PASS",
       // labId intentionally omitted
-    });
+    }).returning();
+    seededCoaIds.push(coa!.id);
     const result = await storage.qcReviewReceivingRecord(record!.id, "APPROVED", adminId);
     expect(result?.status).toBe("APPROVED");
   });

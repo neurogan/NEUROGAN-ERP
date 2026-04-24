@@ -90,7 +90,7 @@ export function LabsSettings() {
               disabled={patchingId === lab.id}
             >
               <SelectTrigger className="h-7 w-32 text-xs">
-                <SelectValue />
+                {statusBadge(lab.status)}
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="ACTIVE">Active</SelectItem>
