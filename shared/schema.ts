@@ -97,6 +97,12 @@ export const receivingRecords = pgTable("erp_receiving_records", {
   qcWorkflowType: text("qc_workflow_type").$type<"FULL_LAB_TEST" | "IDENTITY_CHECK" | "COA_REVIEW" | "EXEMPT" | null>(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
+  samplingPlan: jsonb("sampling_plan").$type<{
+    codeLetterLevel2: string;
+    sampleSize: number;
+    acceptNumber: number;
+    rejectNumber: number;
+  } | null>(),
 });
 
 // Locations
@@ -465,6 +471,7 @@ export const insertReceivingRecordSchema = createInsertSchema(receivingRecords).
   qcWorkflowType: true,
   visualExamBy: true,
   qcReviewedBy: true,
+  samplingPlan: true,
 });
 export const insertCoaDocumentSchema = createInsertSchema(coaDocuments).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertSupplierQualificationSchema = createInsertSchema(supplierQualifications).omit({ id: true, createdAt: true, updatedAt: true });
