@@ -16,6 +16,7 @@ export async function seedUsers() {
   const recvHash      = await hashPassword("Change_Me_Now!7");
   const viewerHash    = await hashPassword("Change_Me_Now!8");
   const disabledHash  = await hashPassword(randomBytes(32).toString("hex")); // untouchable
+  const artemHash     = await hashPassword("Change_Me_Now!9");
 
   const rows = [
     { id: seedIds.users.admin,       email: "admin@neurogan.com",       fullName: "Admin Seed",       title: "Platform Admin",      passwordHash: adminHash,    status: "ACTIVE"    as const },
@@ -27,6 +28,7 @@ export async function seedUsers() {
     { id: seedIds.users.recv,        email: "recv@neurogan.com",         fullName: "Warehouse Clerk",  title: "Warehouse",          passwordHash: recvHash,     status: "ACTIVE"    as const },
     { id: seedIds.users.viewer,      email: "viewer@neurogan.com",       fullName: "Read-Only Viewer", title: "Viewer",             passwordHash: viewerHash,   status: "ACTIVE"    as const },
     { id: seedIds.users.disabled,    email: "disabled@neurogan.com",     fullName: "Disabled User",    title: "Former Op",          passwordHash: disabledHash, status: "DISABLED"  as const },
+    { id: seedIds.users.artem,       email: "artem@neurogan.com",        fullName: "Artem",            title: "Lab Technician",     passwordHash: artemHash,    status: "ACTIVE"    as const },
   ];
 
   await db.insert(schema.users).values(rows).onConflictDoNothing();
@@ -43,6 +45,7 @@ export async function seedUsers() {
     { userId: seedIds.users.recv,        role: "WAREHOUSE",  grantedByUserId: seedIds.users.admin },
     { userId: seedIds.users.viewer,      role: "VIEWER",     grantedByUserId: seedIds.users.admin },
     { userId: seedIds.users.disabled,    role: "PRODUCTION", grantedByUserId: seedIds.users.admin },
+    { userId: seedIds.users.artem,       role: "LAB_TECH",   grantedByUserId: seedIds.users.admin },
   ];
 
   await db.insert(schema.userRoles).values(roleRows).onConflictDoNothing();

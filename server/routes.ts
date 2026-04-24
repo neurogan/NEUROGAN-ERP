@@ -1102,7 +1102,7 @@ export async function registerRoutes(
 
   // ─── COA Documents ────────────────────────────────────
 
-  app.post("/api/coa", requireAuth, requireRole("WAREHOUSE", "QA", "ADMIN"), async (req, res, next) => {
+  app.post("/api/coa", requireAuth, requireRole("WAREHOUSE", "QA", "ADMIN", "LAB_TECH"), async (req, res, next) => {
     try {
       const data = insertCoaDocumentSchema.parse(req.body);
       const doc = await withAudit(
