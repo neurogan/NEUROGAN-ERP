@@ -10,17 +10,21 @@
 
 import { db } from "../server/db";
 import * as schema from "@shared/schema";
-import { sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
+import { seedIds } from "../server/seed/ids";
 import { seedUsers } from "../server/seed/test/fixtures/users";
 
 async function main() {
-  const [{ count }] = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(schema.users);
+  // Guard: check by stable seed ID, not total count. Test-fixture users left
+  // over from integration tests should not prevent real user bootstrapping.
+  const [existing] = await db
+    .select({ id: schema.users.id })
+    .from(schema.users)
+    .where(eq(schema.users.id, seedIds.users.admin));
 
-  if (count > 0) {
+  if (existing) {
     console.log(
-      `Skipping seed — ${count} user(s) already exist. ` +
+      "Skipping seed — admin seed user already exists. " +
       "This environment is already bootstrapped. " +
       "To reset a specific user's password, use: tsx scripts/reset-password.ts <email> <password>"
     );
