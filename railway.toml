@@ -2,5 +2,5 @@
 builder = "NIXPACKS"
 
 [deploy]
-releaseCommand = "pnpm migrate:up && pnpm seed:users"
+releaseCommand = "pnpm migrate:up"
 startCommand = "pnpm start"
