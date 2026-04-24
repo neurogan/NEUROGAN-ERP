@@ -3,7 +3,7 @@ import { db } from "../db";
 import * as schema from "../../shared/schema";
 import { storage } from "../db-storage";
 import { hashPassword } from "../auth/password";
-import { eq, inArray } from "drizzle-orm";
+import { inArray } from "drizzle-orm";
 
 const describeIfDb = process.env.DATABASE_URL ? describe : describe.skip;
 
