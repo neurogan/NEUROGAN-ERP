@@ -22,6 +22,7 @@ import {
 import { formatQty } from "@/lib/formatQty";
 import { formatDate } from "@/lib/formatDate";
 import { Link } from "wouter";
+import { DashboardTasks } from "@/components/DashboardTasks";
 
 // ─── Types ───────────────────────────────────────────
 
@@ -238,6 +239,9 @@ export default function Dashboard() {
           </div>
         </Link>
       </div>
+
+      {/* Tasks widget */}
+      <DashboardTasks />
 
       {/* Top row: Production Batches + Open POs */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
