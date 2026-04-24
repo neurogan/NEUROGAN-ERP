@@ -2070,11 +2070,13 @@ export class DatabaseStorage implements IStorage {
     return rows as ApprovedMaterialWithDetails[];
   }
 
-  async revokeApprovedMaterial(id: string): Promise<void> {
-    await db
+  async revokeApprovedMaterial(id: string): Promise<ApprovedMaterial | undefined> {
+    const [row] = await db
       .update(schema.approvedMaterials)
       .set({ isActive: false })
-      .where(eq(schema.approvedMaterials.id, id));
+      .where(eq(schema.approvedMaterials.id, id))
+      .returning();
+    return row;
   }
 
   async isApprovedMaterial(productId: string, supplierId: string): Promise<boolean> {

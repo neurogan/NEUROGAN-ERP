@@ -1434,7 +1434,19 @@ export async function registerRoutes(
 
   app.delete<{ id: string }>("/api/approved-materials/:id", requireAuth, requireRole("QA", "ADMIN"), async (req, res, next) => {
     try {
-      await storage.revokeApprovedMaterial(req.params.id);
+      const revoked = await withAudit(
+        {
+          userId: req.user!.id,
+          action: "UPDATE",
+          entityType: "approved_material",
+          entityId: req.params.id,
+          before: null,
+          route: `${req.method} ${req.path}`,
+          requestId: req.requestId,
+        },
+        (_tx) => storage.revokeApprovedMaterial(req.params.id),
+      );
+      if (!revoked) return res.status(404).json({ message: "Approved material not found" });
       res.json({ success: true });
     } catch (err) {
       next(err);

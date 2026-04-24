@@ -353,7 +353,7 @@ export interface IStorage {
 
   // ─── Approved materials registry (R-01) ────────────────
   listApprovedMaterials(): Promise<ApprovedMaterialWithDetails[]>;
-  revokeApprovedMaterial(id: string): Promise<void>;
+  revokeApprovedMaterial(id: string): Promise<ApprovedMaterial | undefined>;
   isApprovedMaterial(productId: string, supplierId: string): Promise<boolean>;
   createApprovedMaterial(productId: string, supplierId: string, approvedByUserId: string, notes?: string, tx?: Tx): Promise<ApprovedMaterial>;
 }
