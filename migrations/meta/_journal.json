@@ -64,6 +64,13 @@
       "when": 1745500000000,
       "tag": "0008_t01_warehouse_role_rename",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1745500100000,
+      "tag": "0009_t02_lab_status",
+      "breakpoints": true
     }
   ]
 }

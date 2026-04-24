@@ -93,9 +93,9 @@ describeIfDb("R-01 — labs registry", () => {
     const res = await request(app)
       .patch(`/api/labs/${labId}`)
       .set("x-test-user-id", adminId)
-      .send({ isActive: false });
+      .send({ status: "INACTIVE" });
     expect(res.status).toBe(200);
-    expect((res.body as { isActive: boolean }).isActive).toBe(false);
+    expect((res.body as { status: string }).status).toBe("INACTIVE");
   });
 
   it("GET /api/labs returns 403 for VIEWER", async () => {
@@ -124,7 +124,7 @@ describeIfDb("R-01 — labs registry", () => {
     const res = await request(app)
       .patch(`/api/labs/${(created.body as { id: string }).id}`)
       .set("x-test-user-id", viewer.id)
-      .send({ isActive: false });
+      .send({ status: "INACTIVE" });
     expect(res.status).toBe(403);
   });
 });

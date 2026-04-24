@@ -131,12 +131,15 @@ export const suppliers = pgTable("erp_suppliers", {
 });
 
 // Labs registry
+export const labStatusEnum = z.enum(["ACTIVE", "INACTIVE", "DISQUALIFIED"]);
+export type LabStatus = z.infer<typeof labStatusEnum>;
+
 export const labs = pgTable("erp_labs", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull().unique(),
   address: text("address"),
   type: text("type").notNull().$type<"IN_HOUSE" | "THIRD_PARTY">(),
-  isActive: boolean("is_active").notNull().default(true),
+  status: text("status").notNull().$type<LabStatus>().default("ACTIVE"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -144,6 +147,7 @@ export const labTypeEnum = z.enum(["IN_HOUSE", "THIRD_PARTY"]);
 
 export const insertLabSchema = createInsertSchema(labs, {
   type: labTypeEnum,
+  status: labStatusEnum.default("ACTIVE"),
 }).omit({ id: true, createdAt: true });
 export type Lab = typeof labs.$inferSelect;
 export type InsertLab = z.infer<typeof insertLabSchema>;
