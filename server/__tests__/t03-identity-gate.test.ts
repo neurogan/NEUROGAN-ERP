@@ -8,6 +8,7 @@ import { inArray } from "drizzle-orm";
 const describeIfDb = process.env.DATABASE_URL ? describe : describe.skip;
 
 let adminId: string;
+let seededProductId: string;
 const seededLotIds: string[] = [];
 const seededRecordIds: string[] = [];
 const seededCoaIds: string[] = [];
@@ -23,12 +24,22 @@ beforeAll(async () => {
   adminId = admin!.id;
   seededUserIds.push(adminId);
   await db.insert(schema.userRoles).values({ userId: adminId, role: "ADMIN", grantedByUserId: adminId });
+
+  const [product] = await db.insert(schema.products).values({
+    name: `T03-Product-${Date.now()}`,
+    sku: `T03-SKU-${Date.now()}`,
+    category: "ACTIVE_INGREDIENT",
+    defaultUom: "g",
+    status: "ACTIVE",
+  }).returning();
+  seededProductId = product!.id;
 });
 
 afterAll(async () => {
   if (seededCoaIds.length) await db.delete(schema.coaDocuments).where(inArray(schema.coaDocuments.id, seededCoaIds));
   if (seededRecordIds.length) await db.delete(schema.receivingRecords).where(inArray(schema.receivingRecords.id, seededRecordIds));
   if (seededLotIds.length) await db.delete(schema.lots).where(inArray(schema.lots.id, seededLotIds));
+  if (seededProductId) await db.delete(schema.products).where(inArray(schema.products.id, [seededProductId]));
   if (seededUserIds.length) {
     await db.delete(schema.userRoles).where(inArray(schema.userRoles.userId, seededUserIds));
     await db.delete(schema.users).where(inArray(schema.users.id, seededUserIds));
@@ -39,11 +50,9 @@ async function seedForWorkflow(
   workflowType: "FULL_LAB_TEST" | "IDENTITY_CHECK" | "COA_REVIEW" | "EXEMPT",
   identityConfirmed: "true" | "false" | null,
 ) {
-  const [product] = await db.select().from(schema.products).limit(1);
-  if (!product) throw new Error("No product seeded — run seed:test first");
   const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
   const [lot] = await db.insert(schema.lots).values({
-    productId: product.id,
+    productId: seededProductId,
     lotNumber: `T03-LOT-${suffix}`,
     supplierName: "Test Supplier",
     quarantineStatus: "PENDING_QC",
