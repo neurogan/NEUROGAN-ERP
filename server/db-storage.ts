@@ -1494,7 +1494,7 @@ export class DatabaseStorage implements IStorage {
       let samplingPlan = null;
       if (qcWorkflowType === "FULL_LAB_TEST" && data.quantityReceived != null) {
         const lotSize = Math.round(Number(data.quantityReceived));
-        if (lotSize > 0) {
+        if (lotSize > 0 && !isNaN(lotSize)) {
           samplingPlan = computeZ14Plan(lotSize, 2.5);
         }
       }
