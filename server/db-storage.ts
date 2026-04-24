@@ -449,6 +449,59 @@ export class DatabaseStorage implements IStorage {
 
     const supplier = await this.getSupplier(po.supplierId);
 
+    // §111.75: a lot is the unit of testing. Multiple deliveries of the same
+    // lot number do not trigger new testing — the lot was already tested.
+    const [existingLot] = await db
+      .select({ id: schema.lots.id, quarantineStatus: schema.lots.quarantineStatus })
+      .from(schema.lots)
+      .where(and(
+        eq(schema.lots.lotNumber, lotNumber),
+        eq(schema.lots.productId, lineItem.productId),
+      ));
+
+    if (existingLot) {
+      if (existingLot.quarantineStatus === "REJECTED") {
+        throw Object.assign(
+          new Error("Cannot receive additional quantity for a rejected lot without QA override."),
+          { status: 422 },
+        );
+      }
+      // Lot in-progress or approved — attach to existing lot, no new QC work needed.
+      // Insert directly (bypassing createReceivingRecord) to force qcWorkflowType=EXEMPT,
+      // since createReceivingRecord always re-derives the workflow from the category matrix.
+      const rcvId = await this.getNextReceivingIdentifier();
+      await db.insert(schema.receivingRecords).values({
+        purchaseOrderId: po.id,
+        lotId: existingLot.id,
+        uniqueIdentifier: rcvId,
+        dateReceived: receivedDate ?? new Date().toISOString().slice(0, 10),
+        quantityReceived: String(quantity),
+        uom: lineItem.uom,
+        supplierLotNumber: lotNumber,
+        status: "QUARANTINED",
+        qcWorkflowType: "EXEMPT",
+        requiresQualification: false,
+      });
+      // Also create the inventory transaction for the additional quantity
+      const transaction = await this.createTransaction({
+        lotId: existingLot.id,
+        locationId,
+        type: "PO_RECEIPT",
+        quantity: String(Math.abs(quantity)),
+        uom: lineItem.uom,
+        notes: `Received against PO ${po.poNumber} (existing lot)`,
+        performedBy: "admin",
+      });
+      // Update PO line item received quantity
+      const newReceivedQty = parseFloat(lineItem.quantityReceived) + Math.abs(quantity);
+      await db.update(schema.poLineItems).set({ quantityReceived: String(newReceivedQty) }).where(eq(schema.poLineItems.id, lineItemId));
+      // Fetch full lot to satisfy return type
+      const [fullLot] = await db.select().from(schema.lots).where(eq(schema.lots.id, existingLot.id));
+      return { lot: fullLot! as Lot, transaction };
+    }
+
+    // No existing lot — continue with normal flow (createLot + createReceivingRecord)
+
     // Create lot
     const lot = await this.createLot({
       productId: lineItem.productId,
@@ -2396,9 +2449,11 @@ export class DatabaseStorage implements IStorage {
   async getUserTasks(_userId: string, roles: string[]): Promise<UserTask[]> {
     // _userId reserved for future per-user scoped task types; currently returns all active records for the role.
     const tasks: UserTask[] = [];
-    // ADMIN gets both QA and WAREHOUSE tasks. No deduplication risk: QA queries FULL_LAB_TEST
-    // in QUARANTINED/SAMPLING + PENDING_QC; WAREHOUSE queries IDENTITY_CHECK/QUARANTINED + REJECTED.
-    // These are disjoint by qcWorkflowType/status combinations under current state machine rules.
+    // ADMIN gets LAB_TECH, QA and WAREHOUSE tasks. No deduplication risk: LAB_TECH queries
+    // FULL_LAB_TEST in QUARANTINED/SAMPLING; QA queries PENDING_QC; WAREHOUSE queries
+    // IDENTITY_CHECK/QUARANTINED + REJECTED. These are disjoint by qcWorkflowType/status
+    // combinations under current state machine rules.
+    const isLabTech = roles.includes("LAB_TECH") || roles.includes("ADMIN");
     const isQa = roles.includes("QA") || roles.includes("ADMIN");
     const isWarehouse = roles.includes("WAREHOUSE") || roles.includes("ADMIN");
 
@@ -2415,7 +2470,8 @@ export class DatabaseStorage implements IStorage {
       supplierName: schema.suppliers.name,
     };
 
-    if (isQa) {
+    // §111.12(c): LAB_TECH performs sampling and lab tests; QA makes the final disposition.
+    if (isLabTech) {
       const labTestRows = await db
         .select(baseSelect)
         .from(schema.receivingRecords)
@@ -2443,7 +2499,9 @@ export class DatabaseStorage implements IStorage {
           isUrgent: !!row.requiresQualification,
         });
       }
+    }
 
+    if (isQa) {
       const pendingQcRows = await db
         .select(baseSelect)
         .from(schema.receivingRecords)
