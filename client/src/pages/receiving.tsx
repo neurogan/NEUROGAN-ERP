@@ -765,6 +765,12 @@ function ReceivingDetail({
               </Button>
             </div>
           )}
+          {record.visualExamBy && typeof record.visualExamBy === "object" && (
+            <p className="text-sm text-muted-foreground" data-testid="text-visual-exam-by">
+              Inspected by {(record.visualExamBy as any).fullName}
+              {(record.visualExamBy as any).title ? ` (${(record.visualExamBy as any).title})` : ""}
+            </p>
+          )}
         </div>
       </div>
 
