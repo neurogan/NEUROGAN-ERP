@@ -1,4 +1,5 @@
 import { eq, ne, desc, asc, and, sql, gte, lte, inArray, getTableColumns, type SQL } from "drizzle-orm";
+import { computeZ14Plan } from "./lib/z14-sampling";
 import { db, type Tx } from "./db";
 import * as schema from "@shared/schema";
 import {
@@ -1490,9 +1491,17 @@ export class DatabaseStorage implements IStorage {
         tx,
       );
 
+      let samplingPlan = null;
+      if (qcWorkflowType === "FULL_LAB_TEST" && data.quantityReceived != null) {
+        const lotSize = Math.round(Number(data.quantityReceived));
+        if (lotSize > 0) {
+          samplingPlan = computeZ14Plan(lotSize, 2.5);
+        }
+      }
+
       const [record] = await tx
         .insert(schema.receivingRecords)
-        .values({ ...data, qcWorkflowType, requiresQualification })
+        .values({ ...data, qcWorkflowType, requiresQualification, samplingPlan })
         .returning();
 
       await tx
