@@ -52,6 +52,57 @@ import type {
 import { computeRoleDelta } from "./storage/users";
 import { assertNotLocked, assertValidTransition } from "./state/transitions";
 
+// ─── QC Workflow type derivation ──────────────────────────────────────────────
+
+type QcWorkflowType = "FULL_LAB_TEST" | "IDENTITY_CHECK" | "COA_REVIEW" | "EXEMPT";
+
+async function deriveWorkflowType(
+  productId: string | null | undefined,
+  supplierId: string | null | undefined,
+  tx: Tx,
+): Promise<{ qcWorkflowType: QcWorkflowType; requiresQualification: boolean }> {
+  if (!productId) return { qcWorkflowType: "COA_REVIEW", requiresQualification: false };
+
+  // Look up product category
+  const [product] = await tx
+    .select({ category: schema.products.category })
+    .from(schema.products)
+    .where(eq(schema.products.id, productId));
+
+  const category = product?.category ?? "ACTIVE_INGREDIENT";
+
+  if (category === "SECONDARY_PACKAGING") {
+    return { qcWorkflowType: "EXEMPT", requiresQualification: false };
+  }
+
+  if (category === "PRIMARY_PACKAGING" || category === "FINISHED_GOOD") {
+    return { qcWorkflowType: "COA_REVIEW", requiresQualification: false };
+  }
+
+  // ACTIVE_INGREDIENT or SUPPORTING_INGREDIENT — check approved_materials
+  if (!supplierId) {
+    return { qcWorkflowType: "FULL_LAB_TEST", requiresQualification: true };
+  }
+
+  const [approved] = await tx
+    .select({ id: schema.approvedMaterials.id })
+    .from(schema.approvedMaterials)
+    .where(
+      and(
+        eq(schema.approvedMaterials.productId, productId),
+        eq(schema.approvedMaterials.supplierId, supplierId),
+        eq(schema.approvedMaterials.isActive, true),
+      ),
+    )
+    .limit(1);
+
+  if (approved) {
+    return { qcWorkflowType: "IDENTITY_CHECK", requiresQualification: false };
+  }
+
+  return { qcWorkflowType: "FULL_LAB_TEST", requiresQualification: true };
+}
+
 export class DatabaseStorage implements IStorage {
 
   // ─── Products ─────────────────────────────────────────
@@ -1397,11 +1448,29 @@ export class DatabaseStorage implements IStorage {
 
   async createReceivingRecord(data: InsertReceivingRecord, outerTx?: Tx): Promise<ReceivingRecord> {
     const run = async (tx: Tx) => {
-      const [record] = await tx.insert(schema.receivingRecords).values(data).returning();
-      if (data.status) {
-        await tx.update(schema.lots).set({ quarantineStatus: data.status }).where(eq(schema.lots.id, data.lotId));
-      }
-      return record;
+      // Fetch the lot to get productId for workflow determination
+      const [lot] = await tx
+        .select({ productId: schema.lots.productId })
+        .from(schema.lots)
+        .where(eq(schema.lots.id, data.lotId));
+
+      const { qcWorkflowType, requiresQualification } = await deriveWorkflowType(
+        lot?.productId ?? null,
+        data.supplierId ?? null,
+        tx,
+      );
+
+      const [record] = await tx
+        .insert(schema.receivingRecords)
+        .values({ ...data, qcWorkflowType, requiresQualification })
+        .returning();
+
+      await tx
+        .update(schema.lots)
+        .set({ quarantineStatus: data.status ?? "QUARANTINED" })
+        .where(eq(schema.lots.id, data.lotId));
+
+      return record!;
     };
     return outerTx ? run(outerTx) : db.transaction(run);
   }
