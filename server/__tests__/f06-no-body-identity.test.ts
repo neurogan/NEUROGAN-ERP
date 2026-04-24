@@ -98,6 +98,8 @@ describeIfDb("F-06 — no body-supplied identity fields", () => {
         .insert(schema.receivingRecords)
         .values({ lotId: lot.id, uniqueIdentifier: "RCV-F06-001", status: "PENDING_QC" })
         .returning();
+      // Gate 3 requires at least one COA before APPROVED
+      await db.insert(schema.coaDocuments).values({ lotId: lot.id, sourceType: "SUPPLIER", overallResult: "PASS" });
       return rec!;
     }
 

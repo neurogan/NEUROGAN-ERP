@@ -56,6 +56,26 @@ import { assertNotLocked, assertValidTransition } from "./state/transitions";
 
 type QcWorkflowType = "FULL_LAB_TEST" | "IDENTITY_CHECK" | "COA_REVIEW" | "EXEMPT";
 
+// ─── Visual inspection gate ───────────────────────────────────────────────────
+
+function assertVisualInspectionComplete(record: {
+  containerConditionOk: string | null;
+  sealsIntact: string | null;
+  labelsMatch: string | null;
+  invoiceMatchesPo: string | null;
+}): void {
+  const missing: string[] = [];
+  if (!record.containerConditionOk) missing.push("containerConditionOk");
+  if (!record.sealsIntact) missing.push("sealsIntact");
+  if (!record.labelsMatch) missing.push("labelsMatch");
+  if (!record.invoiceMatchesPo) missing.push("invoiceMatchesPo");
+  if (missing.length > 0) {
+    const err = new Error(`Visual inspection incomplete. Required fields missing: ${missing.join(", ")}.`);
+    (err as any).status = 422;
+    throw err;
+  }
+}
+
 async function deriveWorkflowType(
   productId: string | null | undefined,
   supplierId: string | null | undefined,
@@ -1480,35 +1500,152 @@ export class DatabaseStorage implements IStorage {
     return outerTx ? run(outerTx) : db.transaction(run);
   }
 
-  async updateReceivingRecord(id: string, data: Partial<InsertReceivingRecord>, tx?: Tx): Promise<ReceivingRecord | undefined> {
-    const [row] = await (tx ?? db).update(schema.receivingRecords).set({ ...data, updatedAt: new Date() }).where(eq(schema.receivingRecords.id, id)).returning();
-    return row;
+  async updateReceivingRecord(
+    id: string,
+    data: Partial<InsertReceivingRecord> & { visualExamAt?: Date },
+    actorUserId: string,
+    outerTx?: Tx,
+  ): Promise<ReceivingRecord | undefined> {
+    const run = async (tx: Tx) => {
+      const [existing] = await tx
+        .select()
+        .from(schema.receivingRecords)
+        .where(eq(schema.receivingRecords.id, id));
+      if (!existing) return undefined;
+
+      const merged = { ...existing, ...data };
+
+      // Gate 1: QUARANTINED → SAMPLING requires complete visual inspection (FULL_LAB_TEST only)
+      if (
+        data.status === "SAMPLING" &&
+        existing.status === "QUARANTINED" &&
+        existing.qcWorkflowType === "FULL_LAB_TEST"
+      ) {
+        assertVisualInspectionComplete(merged as any);
+      }
+
+      // Gate 2: QUARANTINED → PENDING_QC requires complete visual inspection (IDENTITY_CHECK / COA_REVIEW)
+      if (
+        data.status === "PENDING_QC" &&
+        existing.status === "QUARANTINED" &&
+        (existing.qcWorkflowType === "IDENTITY_CHECK" || existing.qcWorkflowType === "COA_REVIEW")
+      ) {
+        assertVisualInspectionComplete(merged as any);
+      }
+
+      // F-06: Auto-set visualExamBy snapshot when visual inspection fields are being submitted
+      let visualExamBySnapshot: { userId: string | null; fullName: string; title: string | null } | undefined;
+      const isSubmittingInspection =
+        data.containerConditionOk || data.sealsIntact || data.labelsMatch || data.invoiceMatchesPo || (data as any).visualExamAt;
+      if (isSubmittingInspection && !existing.visualExamBy && actorUserId) {
+        const [actor] = await tx
+          .select({ fullName: schema.users.fullName, title: schema.users.title })
+          .from(schema.users)
+          .where(eq(schema.users.id, actorUserId));
+        if (actor) {
+          visualExamBySnapshot = { userId: actorUserId, fullName: actor.fullName, title: actor.title ?? null };
+        }
+      }
+
+      const [updated] = await tx
+        .update(schema.receivingRecords)
+        .set({
+          ...data,
+          ...(visualExamBySnapshot ? { visualExamBy: visualExamBySnapshot } : {}),
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.receivingRecords.id, id))
+        .returning();
+
+      if (data.status) {
+        await tx
+          .update(schema.lots)
+          .set({ quarantineStatus: data.status })
+          .where(eq(schema.lots.id, existing.lotId));
+      }
+
+      return updated;
+    };
+    return outerTx ? run(outerTx) : db.transaction(run);
   }
 
   async qcReviewReceivingRecord(id: string, disposition: string, reviewedByUserId: string, notes?: string, outerTx?: Tx): Promise<ReceivingRecord | undefined> {
     const run = async (tx: Tx) => {
-      const [existing] = await tx.select().from(schema.receivingRecords).where(eq(schema.receivingRecords.id, id));
+      const [existing] = await tx
+        .select()
+        .from(schema.receivingRecords)
+        .where(eq(schema.receivingRecords.id, id));
       if (!existing) return undefined;
 
       assertNotLocked("receiving_record", existing.status);
 
-      const reviewer = await tx.select({ fullName: schema.users.fullName }).from(schema.users).where(eq(schema.users.id, reviewedByUserId));
-      const reviewerName = reviewer[0]?.fullName ?? reviewedByUserId;
-
-      const newStatus = disposition === "APPROVED" || disposition === "APPROVED_WITH_CONDITIONS" ? "APPROVED" : "REJECTED";
+      const newStatus =
+        disposition === "APPROVED" || disposition === "APPROVED_WITH_CONDITIONS" ? "APPROVED" : "REJECTED";
       assertValidTransition("receiving_record", existing.status, newStatus);
-      const [updated] = await tx.update(schema.receivingRecords).set({
-        status: newStatus,
-        qcDisposition: disposition,
-        qcReviewedBy: { userId: reviewedByUserId, fullName: reviewerName, title: null },
-        qcReviewedAt: new Date(),
-        qcNotes: notes ?? existing.qcNotes,
-        updatedAt: new Date(),
-      }).where(eq(schema.receivingRecords.id, id)).returning();
 
-      await tx.update(schema.lots).set({ quarantineStatus: newStatus }).where(eq(schema.lots.id, existing.lotId));
+      // Gate 3: require at least one COA before APPROVED
+      if (newStatus === "APPROVED") {
+        const [coa] = await tx
+          .select({ id: schema.coaDocuments.id })
+          .from(schema.coaDocuments)
+          .where(eq(schema.coaDocuments.lotId, existing.lotId))
+          .limit(1);
+        if (!coa) {
+          const err = new Error("Cannot approve: no COA document is linked to this lot. Attach a COA before approving.");
+          (err as any).status = 422;
+          throw err;
+        }
+      }
 
-      return updated;
+      // F-06: fetch full identity snapshot including title
+      const [reviewer] = await tx
+        .select({ fullName: schema.users.fullName, title: schema.users.title })
+        .from(schema.users)
+        .where(eq(schema.users.id, reviewedByUserId));
+      const qcReviewedBy = reviewer
+        ? { userId: reviewedByUserId, fullName: reviewer.fullName, title: reviewer.title ?? null }
+        : { userId: null, fullName: reviewedByUserId, title: null };
+
+      const [updated] = await tx
+        .update(schema.receivingRecords)
+        .set({
+          status: newStatus,
+          qcDisposition: disposition,
+          qcReviewedBy,
+          qcReviewedAt: new Date(),
+          qcNotes: notes ?? existing.qcNotes,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.receivingRecords.id, id))
+        .returning();
+
+      await tx
+        .update(schema.lots)
+        .set({ quarantineStatus: newStatus })
+        .where(eq(schema.lots.id, existing.lotId));
+
+      // Auto-create approved_materials entry on first approval of a qualification-required lot
+      if (newStatus === "APPROVED" && existing.requiresQualification && existing.supplierId) {
+        const [lot] = await tx
+          .select({ productId: schema.lots.productId })
+          .from(schema.lots)
+          .where(eq(schema.lots.id, existing.lotId));
+        if (lot?.productId) {
+          await tx
+            .insert(schema.approvedMaterials)
+            .values({
+              productId: lot.productId,
+              supplierId: existing.supplierId,
+              approvedByUserId: reviewedByUserId,
+            })
+            .onConflictDoUpdate({
+              target: [schema.approvedMaterials.productId, schema.approvedMaterials.supplierId],
+              set: { isActive: true, approvedByUserId: reviewedByUserId, approvedAt: new Date() },
+            });
+        }
+      }
+
+      return updated!;
     };
     return outerTx ? run(outerTx) : db.transaction(run);
   }

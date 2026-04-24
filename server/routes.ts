@@ -1054,14 +1054,15 @@ export async function registerRoutes(
 
   app.put<{ id: string }>("/api/receiving/:id", requireAuth, requireRole("RECEIVING", "QA", "ADMIN"), async (req, res, next) => {
     try {
-      const data = insertReceivingRecordSchema.partial().parse(req.body);
+      const baseSchema = insertReceivingRecordSchema.partial().extend({ visualExamAt: z.coerce.date().optional().nullable() });
+      const data = baseSchema.parse(req.body);
       const before = await storage.getReceivingRecord(req.params.id);
       if (!before) return res.status(404).json({ message: "Not found" });
       const record = await withAudit(
         { userId: req.user!.id, action: "UPDATE", entityType: "receiving_record",
           entityId: req.params.id, before,
           route: `${req.method} ${req.path}`, requestId: req.requestId },
-        (tx) => storage.updateReceivingRecord(req.params.id, data, tx),
+        (tx) => storage.updateReceivingRecord(req.params.id, data, req.user!.id, tx),
       );
       res.json(record);
     } catch (err) { next(err); }
