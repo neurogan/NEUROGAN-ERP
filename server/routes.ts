@@ -19,6 +19,7 @@ import {
   insertBprSchema,
   insertBprStepSchema,
   insertBprDeviationSchema,
+  insertLabSchema,
   userRoleEnum,
   userStatusEnum,
   type UserResponse,
@@ -1053,14 +1054,15 @@ export async function registerRoutes(
 
   app.put<{ id: string }>("/api/receiving/:id", requireAuth, requireRole("RECEIVING", "QA", "ADMIN"), async (req, res, next) => {
     try {
-      const data = insertReceivingRecordSchema.partial().parse(req.body);
+      const baseSchema = insertReceivingRecordSchema.partial().extend({ visualExamAt: z.coerce.date().optional().nullable() });
+      const data = baseSchema.parse(req.body);
       const before = await storage.getReceivingRecord(req.params.id);
       if (!before) return res.status(404).json({ message: "Not found" });
       const record = await withAudit(
         { userId: req.user!.id, action: "UPDATE", entityType: "receiving_record",
           entityId: req.params.id, before,
           route: `${req.method} ${req.path}`, requestId: req.requestId },
-        (tx) => storage.updateReceivingRecord(req.params.id, data, tx),
+        (tx) => storage.updateReceivingRecord(req.params.id, data, req.user!.id, tx),
       );
       res.json(record);
     } catch (err) { next(err); }
@@ -1385,6 +1387,81 @@ export async function registerRoutes(
       if (err instanceof ZodError) return res.status(400).json({ message: formatZodError(err) });
       const msg = err instanceof Error ? err.message : "Failed to add BPR deviation";
       res.status(400).json({ message: msg });
+    }
+  });
+
+  // ── Labs registry ──────────────────────────────────────────────────────────
+
+  app.get("/api/labs", requireAuth, requireRole("QA", "ADMIN"), async (_req, res, next) => {
+    try {
+      const labs = await storage.listLabs();
+      res.json(labs);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.post("/api/labs", requireAuth, requireRole("QA", "ADMIN"), async (req, res, next) => {
+    try {
+      const data = insertLabSchema.parse(req.body);
+      const lab = await storage.createLab(data);
+      res.status(201).json(lab);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.patch<{ id: string }>("/api/labs/:id", requireAuth, requireRole("QA", "ADMIN"), async (req, res, next) => {
+    try {
+      const data = insertLabSchema.partial().parse(req.body);
+      const lab = await storage.updateLab(req.params.id, data);
+      if (!lab) return res.status(404).json({ message: "Lab not found" });
+      res.json(lab);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // ── Approved materials ──────────────────────────────────────────────────────
+
+  app.get("/api/approved-materials", requireAuth, requireRole("QA", "ADMIN"), async (_req, res, next) => {
+    try {
+      const items = await storage.listApprovedMaterials();
+      res.json(items);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.delete<{ id: string }>("/api/approved-materials/:id", requireAuth, requireRole("QA", "ADMIN"), async (req, res, next) => {
+    try {
+      const revoked = await withAudit(
+        {
+          userId: req.user!.id,
+          action: "UPDATE",
+          entityType: "approved_material",
+          entityId: req.params.id,
+          before: null,
+          route: `${req.method} ${req.path}`,
+          requestId: req.requestId,
+        },
+        (_tx) => storage.revokeApprovedMaterial(req.params.id),
+      );
+      if (!revoked) return res.status(404).json({ message: "Approved material not found" });
+      res.json({ success: true });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // ─── User tasks (R-01) ─────────────────────────────────
+
+  app.get("/api/tasks", requireAuth, async (req, res, next) => {
+    try {
+      const tasks = await storage.getUserTasks(req.user!.id, req.user!.roles);
+      res.json(tasks);
+    } catch (err) {
+      next(err);
     }
   });
 

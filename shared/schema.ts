@@ -9,6 +9,8 @@ import {
   integer,
   primaryKey,
   jsonb,
+  boolean,
+  unique,
 } from "drizzle-orm/pg-core";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -62,7 +64,7 @@ export const lots = pgTable("erp_lots", {
   purchaseUom: text("purchase_uom"),
   poReference: text("po_reference"),
   notes: text("notes"),
-  quarantineStatus: text("quarantine_status").default("APPROVED"), // QUARANTINED, SAMPLING, PENDING_QC, APPROVED, REJECTED, ON_HOLD
+  quarantineStatus: text("quarantine_status").default("QUARANTINED"), // QUARANTINED, SAMPLING, PENDING_QC, APPROVED, REJECTED, ON_HOLD
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -83,14 +85,16 @@ export const receivingRecords = pgTable("erp_receiving_records", {
   labelsMatch: text("labels_match"),
   invoiceMatchesPo: text("invoice_matches_po"),
   visualExamNotes: text("visual_exam_notes"),
-  visualExamBy: text("visual_exam_by"),
+  visualExamBy: jsonb("visual_exam_by").$type<{ userId: string | null; fullName: string; title: string | null } | null>(),
   visualExamAt: timestamp("visual_exam_at"),
   // QC Review
   status: text("status").notNull().default("QUARANTINED"), // QUARANTINED, SAMPLING, PENDING_QC, APPROVED, REJECTED, ON_HOLD
-  qcReviewedBy: text("qc_reviewed_by"),
+  qcReviewedBy: jsonb("qc_reviewed_by").$type<{ userId: string | null; fullName: string; title: string | null } | null>(),
   qcReviewedAt: timestamp("qc_reviewed_at"),
   qcDisposition: text("qc_disposition"), // APPROVED, REJECTED, APPROVED_WITH_CONDITIONS
   qcNotes: text("qc_notes"),
+  requiresQualification: boolean("requires_qualification").notNull().default(false),
+  qcWorkflowType: text("qc_workflow_type").$type<"FULL_LAB_TEST" | "IDENTITY_CHECK" | "COA_REVIEW" | "EXEMPT" | null>(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -125,6 +129,44 @@ export const suppliers = pgTable("erp_suppliers", {
   notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow(),
 });
+
+// Labs registry
+export const labs = pgTable("erp_labs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull().unique(),
+  address: text("address"),
+  type: text("type").notNull().$type<"IN_HOUSE" | "THIRD_PARTY">(),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const labTypeEnum = z.enum(["IN_HOUSE", "THIRD_PARTY"]);
+
+export const insertLabSchema = createInsertSchema(labs, {
+  type: labTypeEnum,
+}).omit({ id: true, createdAt: true });
+export type Lab = typeof labs.$inferSelect;
+export type InsertLab = z.infer<typeof insertLabSchema>;
+
+// Approved materials registry
+export const approvedMaterials = pgTable(
+  "erp_approved_materials",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    productId: varchar("product_id").notNull().references(() => products.id),
+    supplierId: varchar("supplier_id").notNull().references(() => suppliers.id),
+    approvedByUserId: uuid("approved_by_user_id").notNull().references(() => users.id),
+    approvedAt: timestamp("approved_at", { withTimezone: true }).notNull().defaultNow(),
+    notes: text("notes"),
+    isActive: boolean("is_active").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    uniq: unique().on(t.productId, t.supplierId),
+  }),
+);
+
+export type ApprovedMaterial = typeof approvedMaterials.$inferSelect;
 
 // Purchase Orders
 export const purchaseOrders = pgTable("erp_purchase_orders", {
@@ -250,6 +292,7 @@ export const coaDocuments = pgTable("erp_coa_documents", {
   qcReviewedAt: timestamp("qc_reviewed_at"),
   qcAccepted: text("qc_accepted"), // "true"/"false"
   qcNotes: text("qc_notes"),
+  labId: uuid("lab_id").references(() => labs.id),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -386,6 +429,13 @@ export const productionInputs = pgTable("erp_production_inputs", {
   uom: text("uom").notNull(),
 });
 
+// IdentitySnapshot — stored as jsonb in receiving_records (visual_exam_by, qc_reviewed_by)
+export interface IdentitySnapshot {
+  userId: string | null;
+  fullName: string;
+  title: string | null;
+}
+
 // Insert schemas
 export const insertProductCategorySchema = createInsertSchema(productCategories).omit({ id: true, createdAt: true });
 export const insertProductCategoryAssignmentSchema = createInsertSchema(productCategoryAssignments).omit({ id: true });
@@ -403,7 +453,15 @@ export const insertRecipeSchema = createInsertSchema(recipes).omit({ id: true, c
 export const insertRecipeLineSchema = createInsertSchema(recipeLines).omit({ id: true });
 export const insertProductionNoteSchema = createInsertSchema(productionNotes).omit({ id: true, createdAt: true });
 export const insertSupplierDocumentSchema = createInsertSchema(supplierDocuments).omit({ id: true, uploadedAt: true });
-export const insertReceivingRecordSchema = createInsertSchema(receivingRecords).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertReceivingRecordSchema = createInsertSchema(receivingRecords).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  requiresQualification: true,
+  qcWorkflowType: true,
+  visualExamBy: true,
+  qcReviewedBy: true,
+});
 export const insertCoaDocumentSchema = createInsertSchema(coaDocuments).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertSupplierQualificationSchema = createInsertSchema(supplierQualifications).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertBprSchema = createInsertSchema(batchProductionRecords).omit({ id: true, createdAt: true, updatedAt: true });

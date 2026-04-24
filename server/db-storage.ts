@@ -31,6 +31,8 @@ import {
   type BatchProductionRecord, type InsertBpr, type BprStep, type InsertBprStep,
   type BprDeviation, type InsertBprDeviation, type BprWithDetails,
   type User, type UserResponse, type UserRole, type UserStatus,
+  type Lab, type InsertLab,
+  type ApprovedMaterial,
 } from "@shared/schema";
 import type {
   IStorage,
@@ -45,9 +47,89 @@ import type {
   LowStockItem,
   CreateUserInput,
   AuditFilters,
+  ApprovedMaterialWithDetails,
+  UserTask,
 } from "./storage";
 import { computeRoleDelta } from "./storage/users";
 import { assertNotLocked, assertValidTransition } from "./state/transitions";
+
+// ─── QC Workflow type derivation ──────────────────────────────────────────────
+
+type QcWorkflowType = "FULL_LAB_TEST" | "IDENTITY_CHECK" | "COA_REVIEW" | "EXEMPT";
+
+// ─── Visual inspection gate ───────────────────────────────────────────────────
+
+function assertVisualInspectionComplete(record: {
+  containerConditionOk: string | null;
+  sealsIntact: string | null;
+  labelsMatch: string | null;
+  invoiceMatchesPo: string | null;
+}): void {
+  const missing: string[] = [];
+  if (record.containerConditionOk !== "true") missing.push("containerConditionOk");
+  if (record.sealsIntact !== "true") missing.push("sealsIntact");
+  if (record.labelsMatch !== "true") missing.push("labelsMatch");
+  if (record.invoiceMatchesPo !== "true") missing.push("invoiceMatchesPo");
+  if (missing.length > 0) {
+    throw Object.assign(
+      new Error(`Visual inspection incomplete. Required fields missing or not confirmed: ${missing.join(", ")}.`),
+      { status: 422 },
+    );
+  }
+}
+
+async function deriveWorkflowType(
+  productId: string | null | undefined,
+  supplierId: string | null | undefined,
+  tx: Tx,
+): Promise<{ qcWorkflowType: QcWorkflowType; requiresQualification: boolean }> {
+  if (!productId) return { qcWorkflowType: "COA_REVIEW", requiresQualification: false };
+
+  // Look up product category
+  const [product] = await tx
+    .select({ category: schema.products.category })
+    .from(schema.products)
+    .where(eq(schema.products.id, productId));
+
+  if (!product) {
+    throw Object.assign(
+      new Error(`Cannot derive QC workflow type: product not found for lot. Check that the lot has a valid productId.`),
+      { status: 422 },
+    );
+  }
+  const category = product.category;
+
+  if (category === "SECONDARY_PACKAGING") {
+    return { qcWorkflowType: "EXEMPT", requiresQualification: false };
+  }
+
+  if (category === "PRIMARY_PACKAGING" || category === "FINISHED_GOOD") {
+    return { qcWorkflowType: "COA_REVIEW", requiresQualification: false };
+  }
+
+  // ACTIVE_INGREDIENT or SUPPORTING_INGREDIENT — check approved_materials
+  if (!supplierId) {
+    return { qcWorkflowType: "FULL_LAB_TEST", requiresQualification: true };
+  }
+
+  const [approved] = await tx
+    .select({ id: schema.approvedMaterials.id })
+    .from(schema.approvedMaterials)
+    .where(
+      and(
+        eq(schema.approvedMaterials.productId, productId),
+        eq(schema.approvedMaterials.supplierId, supplierId),
+        eq(schema.approvedMaterials.isActive, true),
+      ),
+    )
+    .limit(1);
+
+  if (approved) {
+    return { qcWorkflowType: "IDENTITY_CHECK", requiresQualification: false };
+  }
+
+  return { qcWorkflowType: "FULL_LAB_TEST", requiresQualification: true };
+}
 
 export class DatabaseStorage implements IStorage {
 
@@ -1394,44 +1476,185 @@ export class DatabaseStorage implements IStorage {
 
   async createReceivingRecord(data: InsertReceivingRecord, outerTx?: Tx): Promise<ReceivingRecord> {
     const run = async (tx: Tx) => {
-      const [record] = await tx.insert(schema.receivingRecords).values(data).returning();
-      if (data.status) {
-        await tx.update(schema.lots).set({ quarantineStatus: data.status }).where(eq(schema.lots.id, data.lotId));
-      }
-      return record;
+      // Fetch the lot to get productId for workflow determination
+      const [lot] = await tx
+        .select({ productId: schema.lots.productId })
+        .from(schema.lots)
+        .where(eq(schema.lots.id, data.lotId));
+
+      const { qcWorkflowType, requiresQualification } = await deriveWorkflowType(
+        lot?.productId ?? null,
+        data.supplierId ?? null,
+        tx,
+      );
+
+      const [record] = await tx
+        .insert(schema.receivingRecords)
+        .values({ ...data, qcWorkflowType, requiresQualification })
+        .returning();
+
+      await tx
+        .update(schema.lots)
+        .set({ quarantineStatus: data.status ?? "QUARANTINED" })
+        .where(eq(schema.lots.id, data.lotId));
+
+      return record!;
     };
     return outerTx ? run(outerTx) : db.transaction(run);
   }
 
-  async updateReceivingRecord(id: string, data: Partial<InsertReceivingRecord>, tx?: Tx): Promise<ReceivingRecord | undefined> {
-    const [row] = await (tx ?? db).update(schema.receivingRecords).set({ ...data, updatedAt: new Date() }).where(eq(schema.receivingRecords.id, id)).returning();
-    return row;
+  async updateReceivingRecord(
+    id: string,
+    data: Partial<InsertReceivingRecord> & { visualExamAt?: Date },
+    actorUserId: string,
+    outerTx?: Tx,
+  ): Promise<ReceivingRecord | undefined> {
+    const run = async (tx: Tx) => {
+      const [existing] = await tx
+        .select()
+        .from(schema.receivingRecords)
+        .where(eq(schema.receivingRecords.id, id));
+      if (!existing) return undefined;
+
+      assertNotLocked("receiving_record", existing.status);
+      if (data.status) {
+        assertValidTransition("receiving_record", existing.status, data.status);
+      }
+
+      const merged = { ...existing, ...data };
+
+      // Gate 1: QUARANTINED → SAMPLING requires complete visual inspection (FULL_LAB_TEST only)
+      if (
+        data.status === "SAMPLING" &&
+        existing.status === "QUARANTINED" &&
+        existing.qcWorkflowType === "FULL_LAB_TEST"
+      ) {
+        assertVisualInspectionComplete(merged);
+      }
+
+      // Gate 2: QUARANTINED → PENDING_QC requires complete visual inspection (IDENTITY_CHECK / COA_REVIEW)
+      if (
+        data.status === "PENDING_QC" &&
+        existing.status === "QUARANTINED" &&
+        (existing.qcWorkflowType === "IDENTITY_CHECK" || existing.qcWorkflowType === "COA_REVIEW")
+      ) {
+        assertVisualInspectionComplete(merged);
+      }
+
+      // F-06: Auto-set visualExamBy snapshot when visual inspection fields are being submitted
+      let visualExamBySnapshot: { userId: string | null; fullName: string; title: string | null } | undefined;
+      const isSubmittingInspection =
+        data.containerConditionOk || data.sealsIntact || data.labelsMatch || data.invoiceMatchesPo || data.visualExamAt;
+      if (isSubmittingInspection && !existing.visualExamBy && actorUserId) {
+        const [actor] = await tx
+          .select({ fullName: schema.users.fullName, title: schema.users.title })
+          .from(schema.users)
+          .where(eq(schema.users.id, actorUserId));
+        if (actor) {
+          visualExamBySnapshot = { userId: actorUserId, fullName: actor.fullName, title: actor.title ?? null };
+        }
+      }
+
+      const [updated] = await tx
+        .update(schema.receivingRecords)
+        .set({
+          ...data,
+          ...(visualExamBySnapshot ? { visualExamBy: visualExamBySnapshot } : {}),
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.receivingRecords.id, id))
+        .returning();
+
+      if (data.status) {
+        await tx
+          .update(schema.lots)
+          .set({ quarantineStatus: data.status })
+          .where(eq(schema.lots.id, existing.lotId));
+      }
+
+      return updated;
+    };
+    return outerTx ? run(outerTx) : db.transaction(run);
   }
 
   async qcReviewReceivingRecord(id: string, disposition: string, reviewedByUserId: string, notes?: string, outerTx?: Tx): Promise<ReceivingRecord | undefined> {
     const run = async (tx: Tx) => {
-      const [existing] = await tx.select().from(schema.receivingRecords).where(eq(schema.receivingRecords.id, id));
+      const [existing] = await tx
+        .select()
+        .from(schema.receivingRecords)
+        .where(eq(schema.receivingRecords.id, id));
       if (!existing) return undefined;
 
       assertNotLocked("receiving_record", existing.status);
 
-      const reviewer = await tx.select({ fullName: schema.users.fullName }).from(schema.users).where(eq(schema.users.id, reviewedByUserId));
-      const reviewerName = reviewer[0]?.fullName ?? reviewedByUserId;
-
-      const newStatus = disposition === "APPROVED" || disposition === "APPROVED_WITH_CONDITIONS" ? "APPROVED" : "REJECTED";
+      const newStatus =
+        disposition === "APPROVED" || disposition === "APPROVED_WITH_CONDITIONS" ? "APPROVED" : "REJECTED";
       assertValidTransition("receiving_record", existing.status, newStatus);
-      const [updated] = await tx.update(schema.receivingRecords).set({
-        status: newStatus,
-        qcDisposition: disposition,
-        qcReviewedBy: reviewerName,
-        qcReviewedAt: new Date(),
-        qcNotes: notes ?? existing.qcNotes,
-        updatedAt: new Date(),
-      }).where(eq(schema.receivingRecords.id, id)).returning();
 
-      await tx.update(schema.lots).set({ quarantineStatus: newStatus }).where(eq(schema.lots.id, existing.lotId));
+      // Gate 3: require at least one COA before APPROVED
+      if (newStatus === "APPROVED") {
+        const [coa] = await tx
+          .select({ id: schema.coaDocuments.id })
+          .from(schema.coaDocuments)
+          .where(eq(schema.coaDocuments.lotId, existing.lotId))
+          .limit(1);
+        if (!coa) {
+          throw Object.assign(
+            new Error("Cannot approve: no COA document is linked to this lot. Attach a COA before approving."),
+            { status: 422 },
+          );
+        }
+      }
 
-      return updated;
+      // F-06: fetch full identity snapshot including title
+      const [reviewer] = await tx
+        .select({ fullName: schema.users.fullName, title: schema.users.title })
+        .from(schema.users)
+        .where(eq(schema.users.id, reviewedByUserId));
+      const qcReviewedBy = reviewer
+        ? { userId: reviewedByUserId, fullName: reviewer.fullName, title: reviewer.title ?? null }
+        : { userId: null, fullName: reviewedByUserId, title: null };
+
+      const [updated] = await tx
+        .update(schema.receivingRecords)
+        .set({
+          status: newStatus,
+          qcDisposition: disposition,
+          qcReviewedBy,
+          qcReviewedAt: new Date(),
+          qcNotes: notes ?? existing.qcNotes,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.receivingRecords.id, id))
+        .returning();
+
+      await tx
+        .update(schema.lots)
+        .set({ quarantineStatus: newStatus })
+        .where(eq(schema.lots.id, existing.lotId));
+
+      // Auto-create approved_materials entry on first approval of a qualification-required lot
+      if (newStatus === "APPROVED" && existing.requiresQualification && existing.supplierId) {
+        const [lot] = await tx
+          .select({ productId: schema.lots.productId })
+          .from(schema.lots)
+          .where(eq(schema.lots.id, existing.lotId));
+        if (lot?.productId) {
+          await tx
+            .insert(schema.approvedMaterials)
+            .values({
+              productId: lot.productId,
+              supplierId: existing.supplierId,
+              approvedByUserId: reviewedByUserId,
+            })
+            .onConflictDoUpdate({
+              target: [schema.approvedMaterials.productId, schema.approvedMaterials.supplierId],
+              set: { isActive: true, approvedByUserId: reviewedByUserId, approvedAt: new Date() },
+            });
+        }
+      }
+
+      return updated!;
     };
     return outerTx ? run(outerTx) : db.transaction(run);
   }
@@ -2019,5 +2242,226 @@ export class DatabaseStorage implements IStorage {
         ),
       )
       .orderBy(schema.electronicSignatures.signedAt);
+  }
+
+  // ─── Labs registry (R-01) ───────────────────────────────────────────────
+
+  async listLabs(): Promise<Lab[]> {
+    return db.select().from(schema.labs).orderBy(schema.labs.name);
+  }
+
+  async createLab(data: InsertLab): Promise<Lab> {
+    const [lab] = await db.insert(schema.labs).values(data).returning();
+    return lab!;
+  }
+
+  async updateLab(id: string, data: Partial<InsertLab>): Promise<Lab | undefined> {
+    const [lab] = await db
+      .update(schema.labs)
+      .set(data)
+      .where(eq(schema.labs.id, id))
+      .returning();
+    return lab;
+  }
+
+  // ─── Approved materials registry (R-01) ─────────────────────────────────
+
+  async listApprovedMaterials(): Promise<ApprovedMaterialWithDetails[]> {
+    const rows = await db
+      .select({
+        id: schema.approvedMaterials.id,
+        productId: schema.approvedMaterials.productId,
+        productName: schema.products.name,
+        productSku: schema.products.sku,
+        supplierId: schema.approvedMaterials.supplierId,
+        supplierName: schema.suppliers.name,
+        approvedByUserId: schema.approvedMaterials.approvedByUserId,
+        approvedByName: schema.users.fullName,
+        approvedAt: schema.approvedMaterials.approvedAt,
+        notes: schema.approvedMaterials.notes,
+        isActive: schema.approvedMaterials.isActive,
+      })
+      .from(schema.approvedMaterials)
+      .leftJoin(schema.products, eq(schema.approvedMaterials.productId, schema.products.id))
+      .leftJoin(schema.suppliers, eq(schema.approvedMaterials.supplierId, schema.suppliers.id))
+      .leftJoin(schema.users, eq(schema.approvedMaterials.approvedByUserId, schema.users.id))
+      .where(eq(schema.approvedMaterials.isActive, true))
+      .orderBy(schema.products.name);
+    return rows as ApprovedMaterialWithDetails[];
+  }
+
+  async revokeApprovedMaterial(id: string): Promise<ApprovedMaterial | undefined> {
+    const [row] = await db
+      .update(schema.approvedMaterials)
+      .set({ isActive: false })
+      .where(eq(schema.approvedMaterials.id, id))
+      .returning();
+    return row;
+  }
+
+  async isApprovedMaterial(productId: string, supplierId: string): Promise<boolean> {
+    const [row] = await db
+      .select({ id: schema.approvedMaterials.id })
+      .from(schema.approvedMaterials)
+      .where(
+        and(
+          eq(schema.approvedMaterials.productId, productId),
+          eq(schema.approvedMaterials.supplierId, supplierId),
+          eq(schema.approvedMaterials.isActive, true),
+        ),
+      )
+      .limit(1);
+    return !!row;
+  }
+
+  async createApprovedMaterial(
+    productId: string,
+    supplierId: string,
+    approvedByUserId: string,
+    notes?: string,
+    tx?: Tx,
+  ): Promise<ApprovedMaterial> {
+    const [row] = await (tx ?? db)
+      .insert(schema.approvedMaterials)
+      .values({ productId, supplierId, approvedByUserId, notes: notes ?? null })
+      .onConflictDoUpdate({
+        target: [schema.approvedMaterials.productId, schema.approvedMaterials.supplierId],
+        set: { isActive: true, approvedByUserId, approvedAt: new Date(), notes: notes ?? null },
+      })
+      .returning();
+    return row!;
+  }
+
+  // ─── User tasks (R-01) ─────────────────────────────────
+
+  async getUserTasks(_userId: string, roles: string[]): Promise<UserTask[]> {
+    // _userId reserved for future per-user scoped task types; currently returns all active records for the role.
+    const tasks: UserTask[] = [];
+    // ADMIN gets both QA and RECEIVING tasks. No deduplication risk: QA queries FULL_LAB_TEST
+    // in QUARANTINED/SAMPLING + PENDING_QC; RECEIVING queries IDENTITY_CHECK/QUARANTINED + REJECTED.
+    // These are disjoint by qcWorkflowType/status combinations under current state machine rules.
+    const isQa = roles.includes("QA") || roles.includes("ADMIN");
+    const isReceiving = roles.includes("RECEIVING") || roles.includes("ADMIN");
+
+    const baseSelect = {
+      id: schema.receivingRecords.id,
+      receivingIdentifier: schema.receivingRecords.uniqueIdentifier,
+      status: schema.receivingRecords.status,
+      qcWorkflowType: schema.receivingRecords.qcWorkflowType,
+      requiresQualification: schema.receivingRecords.requiresQualification,
+      quantityReceived: schema.receivingRecords.quantityReceived,
+      uom: schema.receivingRecords.uom,
+      dateReceived: schema.receivingRecords.dateReceived,
+      materialName: schema.products.name,
+      supplierName: schema.suppliers.name,
+    };
+
+    if (isQa) {
+      const labTestRows = await db
+        .select(baseSelect)
+        .from(schema.receivingRecords)
+        .leftJoin(schema.lots, eq(schema.receivingRecords.lotId, schema.lots.id))
+        .leftJoin(schema.products, eq(schema.lots.productId, schema.products.id))
+        .leftJoin(schema.suppliers, eq(schema.receivingRecords.supplierId, schema.suppliers.id))
+        .where(
+          and(
+            eq(schema.receivingRecords.qcWorkflowType, "FULL_LAB_TEST"),
+            inArray(schema.receivingRecords.status, ["QUARANTINED", "SAMPLING"]),
+          ),
+        );
+
+      for (const row of labTestRows) {
+        tasks.push({
+          id: `lab-${row.id}`,
+          taskType: row.requiresQualification ? "QUALIFICATION_REQUIRED" : "LAB_TEST_REQUIRED",
+          receivingRecordId: row.id,
+          receivingIdentifier: row.receivingIdentifier,
+          materialName: row.materialName ?? null,
+          supplierName: row.supplierName ?? null,
+          quantityReceived: row.quantityReceived ?? null,
+          uom: row.uom ?? null,
+          dateReceived: row.dateReceived ?? null,
+          isUrgent: !!row.requiresQualification,
+        });
+      }
+
+      const pendingQcRows = await db
+        .select(baseSelect)
+        .from(schema.receivingRecords)
+        .leftJoin(schema.lots, eq(schema.receivingRecords.lotId, schema.lots.id))
+        .leftJoin(schema.products, eq(schema.lots.productId, schema.products.id))
+        .leftJoin(schema.suppliers, eq(schema.receivingRecords.supplierId, schema.suppliers.id))
+        .where(eq(schema.receivingRecords.status, "PENDING_QC"));
+
+      for (const row of pendingQcRows) {
+        tasks.push({
+          id: `qc-${row.id}`,
+          taskType: "PENDING_QC",
+          receivingRecordId: row.id,
+          receivingIdentifier: row.receivingIdentifier,
+          materialName: row.materialName ?? null,
+          supplierName: row.supplierName ?? null,
+          quantityReceived: row.quantityReceived ?? null,
+          uom: row.uom ?? null,
+          dateReceived: row.dateReceived ?? null,
+          isUrgent: false,
+        });
+      }
+    }
+
+    if (isReceiving) {
+      const identityCheckRows = await db
+        .select(baseSelect)
+        .from(schema.receivingRecords)
+        .leftJoin(schema.lots, eq(schema.receivingRecords.lotId, schema.lots.id))
+        .leftJoin(schema.products, eq(schema.lots.productId, schema.products.id))
+        .leftJoin(schema.suppliers, eq(schema.receivingRecords.supplierId, schema.suppliers.id))
+        .where(
+          and(
+            eq(schema.receivingRecords.qcWorkflowType, "IDENTITY_CHECK"),
+            eq(schema.receivingRecords.status, "QUARANTINED"),
+          ),
+        );
+
+      for (const row of identityCheckRows) {
+        tasks.push({
+          id: `id-check-${row.id}`,
+          taskType: "IDENTITY_CHECK_REQUIRED",
+          receivingRecordId: row.id,
+          receivingIdentifier: row.receivingIdentifier,
+          materialName: row.materialName ?? null,
+          supplierName: row.supplierName ?? null,
+          quantityReceived: row.quantityReceived ?? null,
+          uom: row.uom ?? null,
+          dateReceived: row.dateReceived ?? null,
+          isUrgent: false,
+        });
+      }
+
+      const rejectedRows = await db
+        .select(baseSelect)
+        .from(schema.receivingRecords)
+        .leftJoin(schema.lots, eq(schema.receivingRecords.lotId, schema.lots.id))
+        .leftJoin(schema.products, eq(schema.lots.productId, schema.products.id))
+        .leftJoin(schema.suppliers, eq(schema.receivingRecords.supplierId, schema.suppliers.id))
+        .where(eq(schema.receivingRecords.status, "REJECTED"));
+
+      for (const row of rejectedRows) {
+        tasks.push({
+          id: `rejected-${row.id}`,
+          taskType: "REJECTED_LOT",
+          receivingRecordId: row.id,
+          receivingIdentifier: row.receivingIdentifier,
+          materialName: row.materialName ?? null,
+          supplierName: row.supplierName ?? null,
+          quantityReceived: row.quantityReceived ?? null,
+          uom: row.uom ?? null,
+          dateReceived: row.dateReceived ?? null,
+          isUrgent: true,
+        });
+      }
+    }
+
+    return tasks;
   }
 }

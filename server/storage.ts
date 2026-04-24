@@ -30,8 +30,43 @@ import {
   type User, type UserResponse, type UserRole, type UserStatus,
   type AuditRow,
   type SignatureRow,
+  type Lab, type InsertLab,
+  type ApprovedMaterial,
 } from "@shared/schema";
 import type { Tx } from "./db";
+
+export interface UserTask {
+  id: string; // composite key like "lab-<recordId>"
+  taskType:
+    | "LAB_TEST_REQUIRED"
+    | "QUALIFICATION_REQUIRED"
+    | "PENDING_QC"
+    | "IDENTITY_CHECK_REQUIRED"
+    | "REJECTED_LOT";
+  receivingRecordId: string;
+  receivingIdentifier: string;
+  materialName: string | null;
+  supplierName: string | null;
+  quantityReceived: string | null;
+  uom: string | null;
+  dateReceived: string | null;
+  isUrgent: boolean;
+}
+
+export interface ApprovedMaterialWithDetails {
+  id: string;
+  productId: string;
+  productName: string | null;
+  productSku: string | null;
+  supplierId: string;
+  supplierName: string | null;
+  approvedByUserId: string;
+  approvedByName: string | null;
+  approvedAt: Date;
+  notes: string | null;
+  isActive: boolean;
+}
+
 
 // F-01: createUser takes the server-generated passwordHash (see
 // server/auth/password.ts) and the initial role list atomically. The caller
@@ -249,7 +284,7 @@ export interface IStorage {
   getReceivingRecords(filters?: { status?: string }): Promise<ReceivingRecordWithDetails[]>;
   getReceivingRecord(id: string): Promise<ReceivingRecordWithDetails | undefined>;
   createReceivingRecord(data: InsertReceivingRecord, tx?: Tx): Promise<ReceivingRecord>;
-  updateReceivingRecord(id: string, data: Partial<InsertReceivingRecord>, tx?: Tx): Promise<ReceivingRecord | undefined>;
+  updateReceivingRecord(id: string, data: Partial<InsertReceivingRecord>, actorUserId: string, tx?: Tx): Promise<ReceivingRecord | undefined>;
   qcReviewReceivingRecord(id: string, disposition: string, reviewedByUserId: string, notes?: string, tx?: Tx): Promise<ReceivingRecord | undefined>;
   getNextReceivingIdentifier(): Promise<string>;
   getQuarantinedLots(): Promise<ReceivingRecordWithDetails[]>;
@@ -329,6 +364,20 @@ export interface IStorage {
 
   // ─── Electronic signatures (F-04) ─────────────────────────
   listSignatures(entityType: string, entityId: string): Promise<SignatureRow[]>;
+
+  // ─── Labs registry (R-01) ──────────────────────────────
+  listLabs(): Promise<Lab[]>;
+  createLab(data: InsertLab): Promise<Lab>;
+  updateLab(id: string, data: Partial<InsertLab>): Promise<Lab | undefined>;
+
+  // ─── Approved materials registry (R-01) ────────────────
+  listApprovedMaterials(): Promise<ApprovedMaterialWithDetails[]>;
+  revokeApprovedMaterial(id: string): Promise<ApprovedMaterial | undefined>;
+  isApprovedMaterial(productId: string, supplierId: string): Promise<boolean>;
+  createApprovedMaterial(productId: string, supplierId: string, approvedByUserId: string, notes?: string, tx?: Tx): Promise<ApprovedMaterial>;
+
+  // ─── User tasks (R-01) ─────────────────────────────────
+  getUserTasks(_userId: string, roles: string[]): Promise<UserTask[]>;
 }
 
 export interface AuditFilters {

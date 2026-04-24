@@ -583,6 +583,9 @@ function LocationsContent() {
 
 const LazySkuManager = lazy(() => import("@/pages/sku-manager"));
 const LazySettingsUsers = lazy(() => import("@/pages/settings-users"));
+const LazyValidationList = lazy(() => import("@/pages/quality/ValidationList"));
+const LazyLabsSettings = lazy(() => import("@/pages/settings/LabsSettings").then((m) => ({ default: m.LabsSettings })));
+const LazyApprovedMaterials = lazy(() => import("@/pages/settings/ApprovedMaterials").then((m) => ({ default: m.ApprovedMaterialsSettings })));
 
 function SkuManagerEmbed() {
   return (
@@ -600,12 +603,37 @@ function UsersEmbed() {
   );
 }
 
-type SettingsTab = "settings" | "locations" | "sku-manager" | "users";
+function ValidationEmbed() {
+  return (
+    <Suspense fallback={<div className="p-6"><Skeleton className="h-96 w-full" /></div>}>
+      <LazyValidationList />
+    </Suspense>
+  );
+}
+
+function LabsEmbed() {
+  return (
+    <Suspense fallback={<div className="p-6"><Skeleton className="h-96 w-full" /></div>}>
+      <LazyLabsSettings />
+    </Suspense>
+  );
+}
+
+function ApprovedMaterialsEmbed() {
+  return (
+    <Suspense fallback={<div className="p-6"><Skeleton className="h-96 w-full" /></div>}>
+      <LazyApprovedMaterials />
+    </Suspense>
+  );
+}
+
+type SettingsTab = "settings" | "locations" | "sku-manager" | "users" | "validation" | "labs" | "approved-materials";
 
 export default function Settings() {
   const [activeTab, setActiveTab] = useState<SettingsTab>("settings");
   const { user } = useAuth();
   const isAdmin = user?.roles?.includes("ADMIN") ?? false;
+  const isQa = user?.roles?.includes("QA") ?? false;
 
   return (
     <div className="flex flex-col h-full">
@@ -663,6 +691,45 @@ export default function Settings() {
               Users
             </button>
           )}
+          {(isAdmin || isQa) && (
+            <button
+              onClick={() => setActiveTab("validation")}
+              data-testid="tab-validation"
+              className={`px-4 py-2 text-sm font-medium rounded-t-lg border border-b-0 transition-colors ${
+                activeTab === "validation"
+                  ? "bg-background text-foreground border-border"
+                  : "bg-muted/50 text-muted-foreground border-transparent hover:text-foreground hover:bg-muted"
+              }`}
+            >
+              System Validation
+            </button>
+          )}
+          {(isAdmin || isQa) && (
+            <button
+              onClick={() => setActiveTab("labs")}
+              data-testid="tab-labs"
+              className={`px-4 py-2 text-sm font-medium rounded-t-lg border border-b-0 transition-colors ${
+                activeTab === "labs"
+                  ? "bg-background text-foreground border-border"
+                  : "bg-muted/50 text-muted-foreground border-transparent hover:text-foreground hover:bg-muted"
+              }`}
+            >
+              Labs
+            </button>
+          )}
+          {(isAdmin || isQa) && (
+            <button
+              onClick={() => setActiveTab("approved-materials")}
+              data-testid="tab-approved-materials"
+              className={`px-4 py-2 text-sm font-medium rounded-t-lg border border-b-0 transition-colors ${
+                activeTab === "approved-materials"
+                  ? "bg-background text-foreground border-border"
+                  : "bg-muted/50 text-muted-foreground border-transparent hover:text-foreground hover:bg-muted"
+              }`}
+            >
+              Approved Materials
+            </button>
+          )}
         </div>
       </div>
 
@@ -672,6 +739,9 @@ export default function Settings() {
         {activeTab === "locations" && <LocationsContent />}
         {activeTab === "sku-manager" && <SkuManagerEmbed />}
         {activeTab === "users" && isAdmin && <UsersEmbed />}
+        {activeTab === "validation" && <ValidationEmbed />}
+        {activeTab === "labs" && (isAdmin || isQa) && <LabsEmbed />}
+        {activeTab === "approved-materials" && (isAdmin || isQa) && <ApprovedMaterialsEmbed />}
       </div>
     </div>
   );

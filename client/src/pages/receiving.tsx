@@ -43,6 +43,23 @@ import type {
   PurchaseOrderWithDetails,
 } from "@shared/schema";
 
+// ── Identity snapshot helper ──
+// visualExamBy and qcReviewedBy are stored as jsonb { userId, fullName, title }
+// but may be legacy strings in old rows — handle both gracefully.
+function toDisplayName(val: { fullName: string } | string | null | undefined): string {
+  if (!val) return "";
+  if (typeof val === "string") return val;
+  return val.fullName;
+}
+
+// ── QC workflow type labels ──
+const WORKFLOW_LABELS: Record<string, string> = {
+  FULL_LAB_TEST: "Full Lab Test",
+  IDENTITY_CHECK: "Identity Check",
+  COA_REVIEW: "COA Review",
+  EXEMPT: "Exempt",
+};
+
 // ── Status badge ──
 
 function receivingStatusBadge(status: string) {
@@ -161,7 +178,11 @@ function StatusTimeline({ record }: { record: ReceivingRecordWithDetails }) {
     {
       label: "Visual Inspection",
       description: record.visualExamBy
-        ? `Inspected by ${record.visualExamBy}${record.visualExamAt ? ` on ${formatDate(record.visualExamAt)}` : ""}`
+        ? `Inspected by ${
+            typeof record.visualExamBy === "object"
+              ? `${record.visualExamBy.fullName}${record.visualExamBy.title ? ` (${record.visualExamBy.title})` : ""}`
+              : toDisplayName(record.visualExamBy)
+          }${record.visualExamAt ? ` on ${formatDate(record.visualExamAt)}` : ""}`
         : "Pending inspection",
       completed: !!record.visualExamBy,
       icon: ClipboardCheck,
@@ -169,7 +190,11 @@ function StatusTimeline({ record }: { record: ReceivingRecordWithDetails }) {
     {
       label: "QC Review",
       description: record.qcReviewedBy
-        ? `${dispositionLabel(record.qcDisposition ?? "")} by ${record.qcReviewedBy}${record.qcReviewedAt ? ` on ${formatDate(record.qcReviewedAt)}` : ""}`
+        ? `${dispositionLabel(record.qcDisposition ?? "")} by ${
+            typeof record.qcReviewedBy === "object"
+              ? `${record.qcReviewedBy.fullName}${record.qcReviewedBy.title ? ` (${record.qcReviewedBy.title})` : ""}`
+              : toDisplayName(record.qcReviewedBy)
+          }${record.qcReviewedAt ? ` on ${formatDate(record.qcReviewedAt)}` : ""}`
         : record.status === "PENDING_QC"
         ? "Awaiting QC review"
         : "Not yet submitted",
@@ -480,7 +505,6 @@ function ReceivingDetail({
   const [labelsMatch, setLabelsMatch] = useState(record.labelsMatch === "true");
   const [invoiceMatch, setInvoiceMatch] = useState(record.invoiceMatchesPo === "true");
   const [examNotes, setExamNotes] = useState(record.visualExamNotes ?? "");
-  const [examBy, setExamBy] = useState(record.visualExamBy ?? "");
 
   // QC review form state
   const [qcDisposition, setQcDisposition] = useState<string>("");
@@ -495,7 +519,6 @@ function ReceivingDetail({
     setLabelsMatch(record.labelsMatch === "true");
     setInvoiceMatch(record.invoiceMatchesPo === "true");
     setExamNotes(record.visualExamNotes ?? "");
-    setExamBy(record.visualExamBy ?? "");
     setQcDisposition("");
     setQcNotes("");
   }, [recordId]);
@@ -509,7 +532,6 @@ function ReceivingDetail({
         labelsMatch: labelsMatch ? "true" : "false",
         invoiceMatchesPo: invoiceMatch ? "true" : "false",
         visualExamNotes: examNotes,
-        visualExamBy: examBy,
       });
       return res.json();
     },
@@ -533,7 +555,6 @@ function ReceivingDetail({
         labelsMatch: labelsMatch ? "true" : "false",
         invoiceMatchesPo: invoiceMatch ? "true" : "false",
         visualExamNotes: examNotes,
-        visualExamBy: examBy,
       });
       return res.json();
     },
@@ -584,6 +605,25 @@ function ReceivingDetail({
           </h2>
           {receivingStatusBadge(record.status)}
         </div>
+        <div className="space-y-2 mb-3">
+          {/* Qualification banner */}
+          {record.requiresQualification && (
+            <div className="flex items-center gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-600 dark:text-amber-400">
+              <AlertTriangle className="h-4 w-4 shrink-0" />
+              <span>New material — QC qualification required before release to inventory</span>
+            </div>
+          )}
+          {/* Workflow type badge */}
+          {record.qcWorkflowType && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">QC Workflow:</span>
+              <Badge variant="secondary" className="text-xs">
+                {WORKFLOW_LABELS[record.qcWorkflowType] ?? record.qcWorkflowType}
+              </Badge>
+            </div>
+          )}
+        </div>
+
         <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-sm">
           <div>
             <span className="text-muted-foreground">Lot Number:</span>{" "}
@@ -700,26 +740,13 @@ function ReceivingDetail({
               data-testid="textarea-exam-notes"
             />
           </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="exam-by" className="text-sm">Visual Exam By</Label>
-            <Input
-              id="exam-by"
-              placeholder="Inspector name"
-              value={examBy}
-              onChange={(e) => setExamBy(e.target.value)}
-              disabled={!isQuarantined}
-              className="text-sm"
-              data-testid="input-exam-by"
-            />
-          </div>
-
           {isQuarantined && (
             <div className="flex gap-2 pt-2">
               <Button
                 variant="outline"
                 size="sm"
                 onClick={() => saveInspection.mutate()}
-                disabled={saveInspection.isPending || !examBy.trim()}
+                disabled={saveInspection.isPending}
                 data-testid="button-save-inspection"
               >
                 {saveInspection.isPending ? (
@@ -732,7 +759,7 @@ function ReceivingDetail({
               <Button
                 size="sm"
                 onClick={() => submitForQc.mutate()}
-                disabled={submitForQc.isPending || !examBy.trim()}
+                disabled={submitForQc.isPending}
                 data-testid="button-submit-qc"
               >
                 {submitForQc.isPending ? (
@@ -744,6 +771,15 @@ function ReceivingDetail({
               </Button>
             </div>
           )}
+          {(() => {
+            const snap = record.visualExamBy;
+            if (!snap || typeof snap !== "object") return null;
+            return (
+              <p className="text-sm text-muted-foreground" data-testid="text-visual-exam-by">
+                Inspected by {snap.fullName}{snap.title ? ` (${snap.title})` : ""}
+              </p>
+            );
+          })()}
         </div>
       </div>
 
@@ -775,7 +811,11 @@ function ReceivingDetail({
                 </div>
                 <div className="text-sm">
                   <span className="text-muted-foreground">Reviewed By:</span>{" "}
-                  <span data-testid="text-qc-reviewer">{record.qcReviewedBy ?? "—"}</span>
+                  <span data-testid="text-qc-reviewer">
+                    {record.qcReviewedBy && typeof record.qcReviewedBy === "object"
+                      ? `${record.qcReviewedBy.fullName}${record.qcReviewedBy.title ? ` · ${record.qcReviewedBy.title}` : ""}`
+                      : toDisplayName(record.qcReviewedBy) || "—"}
+                  </span>
                 </div>
                 {record.qcReviewedAt && (
                   <div className="text-sm">
