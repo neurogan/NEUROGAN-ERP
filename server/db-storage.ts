@@ -472,35 +472,43 @@ export class DatabaseStorage implements IStorage {
       // We intentionally do NOT sync lots.quarantineStatus here: for an APPROVED lot we must
       // not regress it back to QUARANTINED, and for an in-progress lot the new EXEMPT receipt
       // must not override the active workflow state. The existing lot's status is authoritative.
-      const rcvId = await this.getNextReceivingIdentifier();
-      await db.insert(schema.receivingRecords).values({
-        purchaseOrderId: po.id,
-        lotId: existingLot.id,
-        uniqueIdentifier: rcvId,
-        dateReceived: receivedDate ?? new Date().toISOString().slice(0, 10),
-        quantityReceived: String(quantity),
-        uom: lineItem.uom,
-        supplierLotNumber: lotNumber,
-        status: "QUARANTINED",
-        qcWorkflowType: "EXEMPT",
-        requiresQualification: false,
+      return db.transaction(async (tx) => {
+        const rcvId = await this.getNextReceivingIdentifier();
+        await tx.insert(schema.receivingRecords).values({
+          purchaseOrderId: po.id,
+          lotId: existingLot.id,
+          uniqueIdentifier: rcvId,
+          dateReceived: receivedDate ?? new Date().toISOString().slice(0, 10),
+          quantityReceived: String(quantity),
+          uom: lineItem.uom,
+          supplierLotNumber: lotNumber,
+          status: "QUARANTINED",
+          qcWorkflowType: "EXEMPT",
+          requiresQualification: false,
+        });
+        const transaction = await this.createTransaction({
+          lotId: existingLot.id,
+          locationId,
+          type: "PO_RECEIPT",
+          quantity: String(Math.abs(quantity)),
+          uom: lineItem.uom,
+          notes: `Received against PO ${po.poNumber} (existing lot)`,
+          performedBy: "admin",
+        });
+        const newReceivedQty = parseFloat(lineItem.quantityReceived) + Math.abs(quantity);
+        await tx.update(schema.poLineItems).set({ quantityReceived: String(newReceivedQty) }).where(eq(schema.poLineItems.id, lineItemId));
+        // Keep PO status in sync — same logic as normal flow path
+        const updatedLineItems = await tx.select().from(schema.poLineItems).where(eq(schema.poLineItems.purchaseOrderId, po.id));
+        const allFull = updatedLineItems.every(li => parseFloat(li.quantityReceived) >= parseFloat(li.quantityOrdered));
+        const someReceived = updatedLineItems.some(li => parseFloat(li.quantityReceived) > 0);
+        if (allFull) {
+          await this.updatePurchaseOrderStatus(po.id, "CLOSED");
+        } else if (someReceived) {
+          await this.updatePurchaseOrderStatus(po.id, "PARTIALLY_RECEIVED");
+        }
+        const [fullLot] = await tx.select().from(schema.lots).where(eq(schema.lots.id, existingLot.id));
+        return { lot: fullLot! as Lot, transaction };
       });
-      // Also create the inventory transaction for the additional quantity
-      const transaction = await this.createTransaction({
-        lotId: existingLot.id,
-        locationId,
-        type: "PO_RECEIPT",
-        quantity: String(Math.abs(quantity)),
-        uom: lineItem.uom,
-        notes: `Received against PO ${po.poNumber} (existing lot)`,
-        performedBy: "admin",
-      });
-      // Update PO line item received quantity
-      const newReceivedQty = parseFloat(lineItem.quantityReceived) + Math.abs(quantity);
-      await db.update(schema.poLineItems).set({ quantityReceived: String(newReceivedQty) }).where(eq(schema.poLineItems.id, lineItemId));
-      // Fetch full lot to satisfy return type
-      const [fullLot] = await db.select().from(schema.lots).where(eq(schema.lots.id, existingLot.id));
-      return { lot: fullLot! as Lot, transaction };
     }
 
     // No existing lot — continue with normal flow (createLot + createReceivingRecord)
