@@ -112,4 +112,24 @@ describeIfDb("T03 — identity test gate on qcReviewReceivingRecord", () => {
     const result = await storage.qcReviewReceivingRecord(record.id, "APPROVED", adminId);
     expect(result?.status).toBe("APPROVED");
   });
+
+  it("FULL_LAB_TEST with identityConfirmed never set (null) → 422", async () => {
+    const { record } = await seedForWorkflow("FULL_LAB_TEST", null);
+    await expect(
+      storage.qcReviewReceivingRecord(record.id, "APPROVED", adminId),
+    ).rejects.toMatchObject({ status: 422 });
+  });
+
+  it("FULL_LAB_TEST with APPROVED_WITH_CONDITIONS + no identity confirmed → 422", async () => {
+    const { record } = await seedForWorkflow("FULL_LAB_TEST", "false");
+    await expect(
+      storage.qcReviewReceivingRecord(record.id, "APPROVED_WITH_CONDITIONS", adminId),
+    ).rejects.toMatchObject({ status: 422 });
+  });
+
+  it("FULL_LAB_TEST with APPROVED_WITH_CONDITIONS + identity confirmed → APPROVED", async () => {
+    const { record } = await seedForWorkflow("FULL_LAB_TEST", "true");
+    const result = await storage.qcReviewReceivingRecord(record.id, "APPROVED_WITH_CONDITIONS", adminId);
+    expect(result?.status).toBe("APPROVED");
+  });
 });

@@ -57,6 +57,8 @@ import { assertNotLocked, assertValidTransition } from "./state/transitions";
 
 type QcWorkflowType = "FULL_LAB_TEST" | "IDENTITY_CHECK" | "COA_REVIEW" | "EXEMPT";
 
+const IDENTITY_REQUIRED_WORKFLOWS: QcWorkflowType[] = ["FULL_LAB_TEST", "IDENTITY_CHECK"];
+
 // ─── Visual inspection gate ───────────────────────────────────────────────────
 
 function assertVisualInspectionComplete(record: {
@@ -1623,9 +1625,8 @@ export class DatabaseStorage implements IStorage {
           }
         }
 
-        // Gate 3b: identity workflows require identity confirmation on at least one COA
-        const IDENTITY_REQUIRED_WORKFLOWS: Array<string | null> = ["FULL_LAB_TEST", "IDENTITY_CHECK"];
-        if (IDENTITY_REQUIRED_WORKFLOWS.includes(existing.qcWorkflowType ?? null)) {
+        // Gate 3b: identity workflows require that at least one COA on this lot has identityConfirmed = "true"
+        if (IDENTITY_REQUIRED_WORKFLOWS.includes(existing.qcWorkflowType as QcWorkflowType)) {
           const identityConfirmed = coas.some((c) => c.identityConfirmed === "true");
           if (!identityConfirmed) {
             throw Object.assign(
