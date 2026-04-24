@@ -58,7 +58,7 @@ describeIfDb("R-01 — tasks endpoint", () => {
     adminId = admin.id;
     const qa = await storage.createUser({ email: "qa@tasks.test", fullName: "QA User", title: "QC Manager", passwordHash: await hashPassword("Neurogan1!Secure"), roles: ["QA"], createdByUserId: adminId, grantedByUserId: adminId });
     qaId = qa.id;
-    const recv = await storage.createUser({ email: "recv@tasks.test", fullName: "Warehouse User", title: null, passwordHash: await hashPassword("Neurogan1!Secure"), roles: ["RECEIVING"], createdByUserId: adminId, grantedByUserId: adminId });
+    const recv = await storage.createUser({ email: "recv@tasks.test", fullName: "Warehouse User", title: null, passwordHash: await hashPassword("Neurogan1!Secure"), roles: ["WAREHOUSE"], createdByUserId: adminId, grantedByUserId: adminId });
     receivingId = recv.id;
     const prod = await storage.createUser({ email: "prod@tasks.test", fullName: "Production User", title: null, passwordHash: await hashPassword("Neurogan1!Secure"), roles: ["PRODUCTION"], createdByUserId: adminId, grantedByUserId: adminId });
     productionId = prod.id;
@@ -82,7 +82,7 @@ describeIfDb("R-01 — tasks endpoint", () => {
     expect(tasks.some((t) => t.taskType === "PENDING_QC")).toBe(true);
   });
 
-  it("RECEIVING user sees IDENTITY_CHECK tasks", async () => {
+  it("WAREHOUSE user sees IDENTITY_CHECK tasks", async () => {
     await seedReceivingRecord({ status: "QUARANTINED", qcWorkflowType: "IDENTITY_CHECK", productName: "MCT Oil" });
 
     const res = await request(app).get("/api/tasks").set("x-test-user-id", receivingId);

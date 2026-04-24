@@ -40,7 +40,7 @@ export async function seedUsers() {
     { userId: seedIds.users.carrieTreat, role: "ADMIN",      grantedByUserId: seedIds.users.admin },
     { userId: seedIds.users.prod,        role: "PRODUCTION", grantedByUserId: seedIds.users.admin },
     { userId: seedIds.users.prod2,       role: "PRODUCTION", grantedByUserId: seedIds.users.admin },
-    { userId: seedIds.users.recv,        role: "RECEIVING",  grantedByUserId: seedIds.users.admin },
+    { userId: seedIds.users.recv,        role: "WAREHOUSE",  grantedByUserId: seedIds.users.admin },
     { userId: seedIds.users.viewer,      role: "VIEWER",     grantedByUserId: seedIds.users.admin },
     { userId: seedIds.users.disabled,    role: "PRODUCTION", grantedByUserId: seedIds.users.admin },
   ];

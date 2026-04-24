@@ -60,7 +60,7 @@ describeIfDb("R-01 — workflow type determination", () => {
     await cleanDb();
     const admin = await seedUser("admin@workflow.test", ["ADMIN"], null);
     adminId = admin.id;
-    const recv = await seedUser("recv@workflow.test", ["RECEIVING"], adminId);
+    const recv = await seedUser("recv@workflow.test", ["WAREHOUSE"], adminId);
     receivingUserId = recv.id;
   });
 
