@@ -47,6 +47,7 @@ describeIfDb("R-01 — tasks endpoint", () => {
   let app: Express;
   let adminId: string;
   let qaId: string;
+  let labTechId: string;
   let receivingId: string;
   let productionId: string;
 
@@ -58,6 +59,8 @@ describeIfDb("R-01 — tasks endpoint", () => {
     adminId = admin.id;
     const qa = await storage.createUser({ email: "qa@tasks.test", fullName: "QA User", title: "QC Manager", passwordHash: await hashPassword("Neurogan1!Secure"), roles: ["QA"], createdByUserId: adminId, grantedByUserId: adminId });
     qaId = qa.id;
+    const labTech = await storage.createUser({ email: "labtech@tasks.test", fullName: "Lab Tech", title: "Lab Technician", passwordHash: await hashPassword("Neurogan1!Secure"), roles: ["LAB_TECH"], createdByUserId: adminId, grantedByUserId: adminId });
+    labTechId = labTech.id;
     const recv = await storage.createUser({ email: "recv@tasks.test", fullName: "Warehouse User", title: null, passwordHash: await hashPassword("Neurogan1!Secure"), roles: ["WAREHOUSE"], createdByUserId: adminId, grantedByUserId: adminId });
     receivingId = recv.id;
     const prod = await storage.createUser({ email: "prod@tasks.test", fullName: "Production User", title: null, passwordHash: await hashPassword("Neurogan1!Secure"), roles: ["PRODUCTION"], createdByUserId: adminId, grantedByUserId: adminId });
@@ -71,15 +74,24 @@ describeIfDb("R-01 — tasks endpoint", () => {
     expect(res.status).toBe(401);
   });
 
-  it("QA user sees FULL_LAB_TEST and PENDING_QC tasks", async () => {
+  it("LAB_TECH user sees FULL_LAB_TEST tasks (§111.12(c): lab tech performs testing)", async () => {
+    await seedReceivingRecord({ status: "QUARANTINED", qcWorkflowType: "FULL_LAB_TEST", requiresQualification: true, productName: "Hemp Extract" });
+
+    const res = await request(app).get("/api/tasks").set("x-test-user-id", labTechId);
+    expect(res.status).toBe(200);
+    const tasks = res.body as Array<{ taskType: string }>;
+    expect(tasks.some((t) => t.taskType === "LAB_TEST_REQUIRED" || t.taskType === "QUALIFICATION_REQUIRED")).toBe(true);
+  });
+
+  it("QA user sees PENDING_QC tasks but NOT FULL_LAB_TEST (§111.12(c): QA performs disposition)", async () => {
     await seedReceivingRecord({ status: "QUARANTINED", qcWorkflowType: "FULL_LAB_TEST", requiresQualification: true, productName: "Hemp Extract" });
     await seedReceivingRecord({ status: "PENDING_QC", qcWorkflowType: "COA_REVIEW", productName: "Bottles" });
 
     const res = await request(app).get("/api/tasks").set("x-test-user-id", qaId);
     expect(res.status).toBe(200);
     const tasks = res.body as Array<{ taskType: string }>;
-    expect(tasks.some((t) => t.taskType === "LAB_TEST_REQUIRED" || t.taskType === "QUALIFICATION_REQUIRED")).toBe(true);
     expect(tasks.some((t) => t.taskType === "PENDING_QC")).toBe(true);
+    expect(tasks.some((t) => t.taskType === "LAB_TEST_REQUIRED" || t.taskType === "QUALIFICATION_REQUIRED")).toBe(false);
   });
 
   it("WAREHOUSE user sees IDENTITY_CHECK tasks", async () => {
