@@ -1441,6 +1441,14 @@ export async function registerRoutes(
   app.patch<{ id: string }>("/api/labs/:id", requireAuth, requireRole("QA", "ADMIN"), async (req, res, next) => {
     try {
       const data = insertLabSchema.partial().parse(req.body);
+      if (data.status === "ACTIVE") {
+        const allLabs = await storage.listLabs();
+        const existing = allLabs.find((l) => l.id === req.params.id);
+        if (!existing) return res.status(404).json({ message: "Lab not found" });
+        if (existing.type === "THIRD_PARTY") {
+          return res.status(400).json({ message: "Use POST /api/labs/:id/qualify to activate a third-party lab." });
+        }
+      }
       const lab = await storage.updateLab(req.params.id, data);
       if (!lab) return res.status(404).json({ message: "Lab not found" });
       res.json(lab);
@@ -1461,7 +1469,7 @@ export async function registerRoutes(
           signaturePassword?: string;
         };
         if (!qualificationMethod) return res.status(400).json({ message: "qualificationMethod required" });
-        if (!requalificationFrequencyMonths) return res.status(400).json({ message: "requalificationFrequencyMonths required" });
+        if (!requalificationFrequencyMonths || Number(requalificationFrequencyMonths) < 1) return res.status(400).json({ message: "requalificationFrequencyMonths must be a positive integer" });
         if (!signaturePassword) return res.status(400).json({ message: "signaturePassword required for electronic signature" });
 
         const lab = await performSignature(
