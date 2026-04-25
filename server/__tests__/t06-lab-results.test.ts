@@ -154,6 +154,23 @@ describeIfDb("T06 — per-analyte lab test results", () => {
     expect(coa?.overallResult).toBe("FAIL");
   });
 
+  it("audit trail records LAB_RESULT_ADDED action via POST /api/coa/:id/results", async () => {
+    const res = await request(app)
+      .post(`/api/coa/${coaId}/results`)
+      .set("x-test-user-id", labTechId)
+      .send({ analyteName: "Moisture", resultValue: "4.2", resultUnits: "%", pass: true });
+    expect(res.status).toBe(201);
+    const resultId = (res.body as { id: string }).id;
+    seededResultIds.push(resultId);
+
+    const [auditRow] = await db
+      .select({ action: schema.auditTrail.action })
+      .from(schema.auditTrail)
+      .where(eq(schema.auditTrail.entityId, resultId))
+      .limit(1);
+    expect(auditRow?.action).toBe("LAB_RESULT_ADDED");
+  });
+
   it("returns 401 for unauthenticated POST /api/coa/:id/results", async () => {
     const res = await request(app)
       .post(`/api/coa/${coaId}/results`)

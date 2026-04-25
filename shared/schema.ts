@@ -795,6 +795,7 @@ export const auditActionEnum = z.enum([
   "ROLE_GRANT",
   "ROLE_REVOKE",
   "PASSWORD_ROTATE",
+  "LAB_RESULT_ADDED",
 ]);
 export type AuditAction = z.infer<typeof auditActionEnum>;
 

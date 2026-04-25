@@ -224,7 +224,7 @@ export interface IStorage {
   updatePurchaseOrderStatus(id: string, status: string): Promise<PurchaseOrder | undefined>;
 
   // PO Receiving
-  receivePOLineItem(lineItemId: string, quantity: number, lotNumber: string, locationId: string, supplierName?: string, expirationDate?: string, receivedDate?: string): Promise<{ lot: Lot; transaction: Transaction }>;
+  receivePOLineItem(lineItemId: string, quantity: number, lotNumber: string | undefined, locationId: string, supplierName?: string, expirationDate?: string, receivedDate?: string): Promise<{ lot: Lot; transaction: Transaction }>;
 
   // Production Batches
   getProductionBatches(filters?: { status?: string }): Promise<ProductionBatchWithDetails[]>;

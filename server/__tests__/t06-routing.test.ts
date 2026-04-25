@@ -260,6 +260,59 @@ describeIfDb("T06-A — lot-existence routing in receivePOLineItem", () => {
     for (const r of records) seededRecordIds.push(r.id);
   });
 
+  it("SECONDARY_PACKAGING with no lot number → auto-generates NOLOT- lot, EXEMPT workflow", async () => {
+    // Seed a SECONDARY_PACKAGING product + PO line item
+    const suffix = Date.now();
+    const [pkgProduct] = await db.insert(schema.products).values({
+      name: `T06-PKG-${suffix}`,
+      sku: `T06-PKG-SKU-${suffix}`,
+      category: "SECONDARY_PACKAGING",
+      defaultUom: "pcs",
+      status: "ACTIVE",
+    }).returning();
+    seededProductIds.push(pkgProduct!.id);
+
+    const [supplier] = await db.insert(schema.suppliers).values({ name: `T06-PKG-Sup-${suffix}` }).returning();
+    seededSupplierIds.push(supplier!.id);
+
+    const [po] = await db.insert(schema.purchaseOrders).values({
+      poNumber: `T06-PKG-PO-${suffix}`, supplierId: supplier!.id, status: "DRAFT",
+    }).returning();
+    seededPOIds.push(po!.id);
+
+    const [lineItem] = await db.insert(schema.poLineItems).values({
+      purchaseOrderId: po!.id, productId: pkgProduct!.id,
+      quantityOrdered: "500", quantityReceived: "0", uom: "pcs",
+    }).returning();
+    seededLineItemIds.push(lineItem!.id);
+
+    const [location] = await db.insert(schema.locations).values({
+      name: `T06-PKG-Loc-${suffix}`, type: "WAREHOUSE",
+    }).returning();
+    seededLocationIds.push(location!.id);
+
+    // Act: receive with no lot number
+    const result = await storage.receivePOLineItem(lineItem!.id, 100, undefined, location!.id);
+
+    // Assert: a NOLOT- lot was auto-created
+    expect(result.lot.lotNumber).toMatch(/^NOLOT-/);
+    seededLotIds.push(result.lot.id);
+    seededTransactionIds.push(result.transaction.id);
+
+    // Assert: receiving record has EXEMPT workflow
+    const records = await db.select().from(schema.receivingRecords)
+      .where(eq(schema.receivingRecords.lotId, result.lot.id));
+    expect(records[0]?.qcWorkflowType).toBe("EXEMPT");
+    for (const r of records) seededRecordIds.push(r.id);
+  });
+
+  it("non-SECONDARY_PACKAGING with no lot number → throws 422", async () => {
+    const { lineItem, location } = await seedPOAndLineItem();
+    await expect(
+      storage.receivePOLineItem(lineItem.id, 5, undefined, location.id),
+    ).rejects.toMatchObject({ status: 422 });
+  });
+
   it("second receipt of REJECTED lot → throws 422", async () => {
     // Arrange: create a REJECTED lot
     const { product, supplier, lineItem, location } = await seedPOAndLineItem();

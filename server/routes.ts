@@ -600,12 +600,10 @@ export async function registerRoutes(
       if (!lineItemId || !quantity || !locationId) {
         return res.status(400).json({ message: "Missing required fields: lineItemId, quantity, locationId" });
       }
-      // If lotNumber is empty, auto-generate for secondary packaging
-      const effectiveLotNumber = lotNumber || `NOLOT-${new Date().toISOString().slice(0, 10)}`;
       const result = await storage.receivePOLineItem(
         lineItemId,
         parseFloat(quantity),
-        effectiveLotNumber,
+        lotNumber || undefined,
         locationId,
         supplierName,
         expirationDate,
@@ -1210,7 +1208,7 @@ export async function registerRoutes(
         if (!coa) return res.status(404).json({ message: "COA document not found" });
         const data = insertLabTestResultSchema.parse(req.body);
         const result = await withAudit(
-          { userId: req.user!.id, action: "CREATE", entityType: "lab_test_result",
+          { userId: req.user!.id, action: "LAB_RESULT_ADDED", entityType: "lab_test_result",
             entityId: (r) => (r as { id: string }).id, before: null,
             route: `${req.method} ${req.path}`, requestId: req.requestId },
           (tx) => storage.addLabTestResult(req.params.id, data, req.user!.id, tx),

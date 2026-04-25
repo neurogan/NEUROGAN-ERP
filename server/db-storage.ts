@@ -433,7 +433,7 @@ export class DatabaseStorage implements IStorage {
   async receivePOLineItem(
     lineItemId: string,
     quantity: number,
-    lotNumber: string,
+    lotNumber: string | undefined,
     locationId: string,
     supplierName?: string,
     expirationDate?: string,
@@ -449,6 +449,16 @@ export class DatabaseStorage implements IStorage {
     if (!product) throw new Error("Product not found");
 
     const supplier = await this.getSupplier(po.supplierId);
+
+    // §111.68(a): SECONDARY_PACKAGING does not require identity testing — no lot number
+    // needed from the user. Auto-generate a unique reference so the receiving record is
+    // still traceable without burdening warehouse staff with a lot# they don't have.
+    if (!lotNumber) {
+      if (product.category !== "SECONDARY_PACKAGING") {
+        throw Object.assign(new Error("Lot number is required for this product category."), { status: 422 });
+      }
+      lotNumber = `NOLOT-${new Date().toISOString().slice(0, 10)}-${Math.random().toString(36).slice(2, 7)}`;
+    }
 
     // §111.75: a lot is the unit of testing. Multiple deliveries of the same
     // lot number do not trigger new testing — the lot was already tested.
