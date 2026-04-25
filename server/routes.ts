@@ -1441,6 +1441,14 @@ export async function registerRoutes(
   app.patch<{ id: string }>("/api/labs/:id", requireAuth, requireRole("QA", "ADMIN"), async (req, res, next) => {
     try {
       const data = insertLabSchema.partial().parse(req.body);
+      if (data.status === "ACTIVE") {
+        const allLabs = await storage.listLabs();
+        const existing = allLabs.find((l) => l.id === req.params.id);
+        if (!existing) return res.status(404).json({ message: "Lab not found" });
+        if (existing.type === "THIRD_PARTY") {
+          return res.status(400).json({ message: "Use POST /api/labs/:id/qualify to activate a third-party lab." });
+        }
+      }
       const lab = await storage.updateLab(req.params.id, data);
       if (!lab) return res.status(404).json({ message: "Lab not found" });
       res.json(lab);
@@ -1448,6 +1456,104 @@ export async function registerRoutes(
       next(err);
     }
   });
+
+  app.post<{ id: string }>(
+    "/api/labs/:id/qualify",
+    requireAuth, requireRole("QA", "ADMIN"), rejectIdentityInBody(["performedByUserId"]),
+    async (req, res, next) => {
+      try {
+        const { qualificationMethod, requalificationFrequencyMonths, notes, signaturePassword } = req.body as {
+          qualificationMethod?: string;
+          requalificationFrequencyMonths?: number;
+          notes?: string;
+          signaturePassword?: string;
+        };
+        if (!qualificationMethod) return res.status(400).json({ message: "qualificationMethod required" });
+        if (!requalificationFrequencyMonths || Number(requalificationFrequencyMonths) < 1) return res.status(400).json({ message: "requalificationFrequencyMonths must be a positive integer" });
+        if (!signaturePassword) return res.status(400).json({ message: "signaturePassword required for electronic signature" });
+
+        const lab = await performSignature(
+          {
+            userId: req.user!.id,
+            password: signaturePassword,
+            meaning: "LAB_APPROVAL",
+            entityType: "lab",
+            entityId: req.params.id,
+            commentary: notes ?? null,
+            recordSnapshot: { qualificationMethod, requalificationFrequencyMonths },
+            route: `${req.method} ${req.path}`,
+            requestId: req.requestId,
+          },
+          (tx) =>
+            storage.recordLabQualification(
+              req.params.id,
+              req.user!.id,
+              qualificationMethod,
+              Number(requalificationFrequencyMonths),
+              notes,
+              req.requestId,
+              `${req.method} ${req.path}`,
+              tx,
+            ),
+        );
+        if (!lab) return res.status(404).json({ message: "Lab not found" });
+        res.json(lab);
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
+
+  app.post<{ id: string }>(
+    "/api/labs/:id/disqualify",
+    requireAuth, requireRole("QA", "ADMIN"), rejectIdentityInBody(["performedByUserId"]),
+    async (req, res, next) => {
+      try {
+        const { notes, signaturePassword } = req.body as { notes?: string; signaturePassword?: string };
+        if (!signaturePassword) return res.status(400).json({ message: "signaturePassword required for electronic signature" });
+
+        const lab = await performSignature(
+          {
+            userId: req.user!.id,
+            password: signaturePassword,
+            meaning: "LAB_DISQUALIFICATION",
+            entityType: "lab",
+            entityId: req.params.id,
+            commentary: notes ?? null,
+            recordSnapshot: { notes: notes ?? null },
+            route: `${req.method} ${req.path}`,
+            requestId: req.requestId,
+          },
+          (tx) =>
+            storage.recordLabDisqualification(
+              req.params.id,
+              req.user!.id,
+              notes,
+              req.requestId,
+              `${req.method} ${req.path}`,
+              tx,
+            ),
+        );
+        if (!lab) return res.status(404).json({ message: "Lab not found" });
+        res.json(lab);
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
+
+  app.get<{ id: string }>(
+    "/api/labs/:id/qualifications",
+    requireAuth,
+    async (req, res, next) => {
+      try {
+        const history = await storage.getLabQualificationHistory(req.params.id);
+        res.json(history);
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
 
   // ── Approved materials ──────────────────────────────────────────────────────
 

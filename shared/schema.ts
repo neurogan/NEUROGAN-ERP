@@ -796,6 +796,8 @@ export const auditActionEnum = z.enum([
   "ROLE_REVOKE",
   "PASSWORD_ROTATE",
   "LAB_RESULT_ADDED",
+  "LAB_QUALIFIED",
+  "LAB_DISQUALIFIED",
 ]);
 export type AuditAction = z.infer<typeof auditActionEnum>;
 
@@ -843,6 +845,7 @@ export const signatureMeaningEnum = z.enum([
   "MMR_APPROVAL",
   "SPEC_APPROVAL",
   "LAB_APPROVAL",
+  "LAB_DISQUALIFICATION",
 ]);
 export type SignatureMeaning = z.infer<typeof signatureMeaningEnum>;
 
@@ -921,3 +924,24 @@ export const insertLabTestResultSchema = createInsertSchema(labTestResults).omit
 });
 export type InsertLabTestResult = z.infer<typeof insertLabTestResultSchema>;
 export type LabTestResult = typeof labTestResults.$inferSelect;
+
+// Lab Qualifications (T-07) ─────────────────────────────────────────────────
+export const labQualifications = pgTable("erp_lab_qualifications", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  labId: uuid("lab_id").notNull().references(() => labs.id),
+  eventType: text("event_type").notNull().$type<"QUALIFIED" | "DISQUALIFIED">(),
+  performedByUserId: uuid("performed_by_user_id").notNull().references(() => users.id),
+  performedAt: timestamp("performed_at", { withTimezone: true }).notNull().defaultNow(),
+  qualificationMethod: text("qualification_method"),
+  requalificationFrequencyMonths: integer("requalification_frequency_months"),
+  nextRequalificationDue: text("next_requalification_due"), // ISO date string "YYYY-MM-DD"
+  notes: text("notes"),
+});
+
+export const insertLabQualificationSchema = createInsertSchema(labQualifications).omit({
+  id: true,
+  performedAt: true,
+});
+export type LabQualification = typeof labQualifications.$inferSelect;
+export type InsertLabQualification = z.infer<typeof insertLabQualificationSchema>;
+export type LabQualificationWithDetails = LabQualification & { performedByName: string };

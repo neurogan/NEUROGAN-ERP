@@ -34,6 +34,7 @@ import {
   type BprDeviation, type InsertBprDeviation, type BprWithDetails,
   type User, type UserResponse, type UserRole, type UserStatus,
   type Lab, type InsertLab,
+  type LabQualificationWithDetails,
   type ApprovedMaterial,
 } from "@shared/schema";
 import type {
@@ -1842,7 +1843,7 @@ export class DatabaseStorage implements IStorage {
       // Only COAs explicitly linked to a lab registry entry enforce the ACTIVE requirement.
       if (accepted && existing.labId) {
         const [lab] = await tx
-          .select({ status: schema.labs.status })
+          .select({ status: schema.labs.status, type: schema.labs.type, name: schema.labs.name })
           .from(schema.labs)
           .where(eq(schema.labs.id, existing.labId));
         if (lab && lab.status !== "ACTIVE") {
@@ -1850,6 +1851,36 @@ export class DatabaseStorage implements IStorage {
             new Error(`Cannot accept COA: the linked lab has status "${lab.status}". Only ACTIVE labs are accepted.`),
             { status: 422 },
           );
+        }
+        // T-07: Third-party labs must have a current qualification record.
+        if (lab && lab.type === "THIRD_PARTY") {
+          const [latestEvent] = await tx
+            .select({
+              eventType: schema.labQualifications.eventType,
+              nextRequalificationDue: schema.labQualifications.nextRequalificationDue,
+            })
+            .from(schema.labQualifications)
+            .where(eq(schema.labQualifications.labId, existing.labId))
+            .orderBy(desc(schema.labQualifications.performedAt))
+            .limit(1);
+
+          if (!latestEvent || latestEvent.eventType !== "QUALIFIED") {
+            throw Object.assign(
+              new Error(
+                `Cannot accept COA: lab "${lab.name}" has not been qualified. Qualify the lab before accepting COAs.`,
+              ),
+              { status: 422 },
+            );
+          }
+          const today = new Date().toISOString().slice(0, 10);
+          if (latestEvent.nextRequalificationDue && latestEvent.nextRequalificationDue < today) {
+            throw Object.assign(
+              new Error(
+                `Cannot accept COA: lab "${lab.name}" requalification is overdue (was due ${latestEvent.nextRequalificationDue}). Requalify the lab before accepting COAs.`,
+              ),
+              { status: 422 },
+            );
+          }
         }
       }
 
@@ -2420,6 +2451,117 @@ export class DatabaseStorage implements IStorage {
       .where(eq(schema.labs.id, id))
       .returning();
     return lab;
+  }
+
+  async recordLabQualification(
+    labId: string,
+    userId: string,
+    method: string,
+    frequencyMonths: number,
+    notes: string | undefined,
+    requestId: string,
+    route: string,
+    tx: Tx,
+  ): Promise<schema.Lab> {
+    const [lab] = await tx.select().from(schema.labs).where(eq(schema.labs.id, labId));
+    if (!lab) throw Object.assign(new Error("Lab not found"), { status: 404 });
+    if (lab.type !== "THIRD_PARTY") {
+      throw Object.assign(new Error("Only THIRD_PARTY labs require formal qualification."), { status: 400 });
+    }
+
+    const today = new Date();
+    const dueDate = new Date(today);
+    dueDate.setMonth(dueDate.getMonth() + frequencyMonths);
+    const nextRequalificationDue = dueDate.toISOString().slice(0, 10);
+
+    await tx.insert(schema.labQualifications).values({
+      labId,
+      eventType: "QUALIFIED",
+      performedByUserId: userId,
+      qualificationMethod: method,
+      requalificationFrequencyMonths: frequencyMonths,
+      nextRequalificationDue,
+      notes: notes ?? null,
+    });
+
+    const [updated] = await tx
+      .update(schema.labs)
+      .set({ status: "ACTIVE" })
+      .where(eq(schema.labs.id, labId))
+      .returning();
+
+    await tx.insert(schema.auditTrail).values({
+      userId,
+      action: "LAB_QUALIFIED",
+      entityType: "lab",
+      entityId: labId,
+      after: { labName: lab.name, qualificationMethod: method, nextRequalificationDue, requalificationFrequencyMonths: frequencyMonths },
+      requestId,
+      route,
+    });
+
+    return updated!;
+  }
+
+  async recordLabDisqualification(
+    labId: string,
+    userId: string,
+    notes: string | undefined,
+    requestId: string,
+    route: string,
+    tx: Tx,
+  ): Promise<schema.Lab> {
+    const [lab] = await tx.select().from(schema.labs).where(eq(schema.labs.id, labId));
+    if (!lab) throw Object.assign(new Error("Lab not found"), { status: 404 });
+    if (lab.type !== "THIRD_PARTY") {
+      throw Object.assign(new Error("Only THIRD_PARTY labs can be disqualified via this workflow."), { status: 400 });
+    }
+
+    await tx.insert(schema.labQualifications).values({
+      labId,
+      eventType: "DISQUALIFIED",
+      performedByUserId: userId,
+      notes: notes ?? null,
+    });
+
+    const [updated] = await tx
+      .update(schema.labs)
+      .set({ status: "DISQUALIFIED" })
+      .where(eq(schema.labs.id, labId))
+      .returning();
+
+    await tx.insert(schema.auditTrail).values({
+      userId,
+      action: "LAB_DISQUALIFIED",
+      entityType: "lab",
+      entityId: labId,
+      after: { labName: lab.name, notes: notes ?? null },
+      requestId,
+      route,
+    });
+
+    return updated!;
+  }
+
+  async getLabQualificationHistory(labId: string): Promise<LabQualificationWithDetails[]> {
+    const rows = await db
+      .select({
+        id: schema.labQualifications.id,
+        labId: schema.labQualifications.labId,
+        eventType: schema.labQualifications.eventType,
+        performedByUserId: schema.labQualifications.performedByUserId,
+        performedAt: schema.labQualifications.performedAt,
+        qualificationMethod: schema.labQualifications.qualificationMethod,
+        requalificationFrequencyMonths: schema.labQualifications.requalificationFrequencyMonths,
+        nextRequalificationDue: schema.labQualifications.nextRequalificationDue,
+        notes: schema.labQualifications.notes,
+        performedByName: schema.users.fullName,
+      })
+      .from(schema.labQualifications)
+      .innerJoin(schema.users, eq(schema.labQualifications.performedByUserId, schema.users.id))
+      .where(eq(schema.labQualifications.labId, labId))
+      .orderBy(desc(schema.labQualifications.performedAt));
+    return rows;
   }
 
   // ─── Approved materials registry (R-01) ─────────────────────────────────

@@ -32,6 +32,7 @@ import {
   type AuditRow,
   type SignatureRow,
   type Lab, type InsertLab,
+  type LabQualificationWithDetails,
   type ApprovedMaterial,
 } from "@shared/schema";
 import type { Tx } from "./db";
@@ -374,6 +375,11 @@ export interface IStorage {
   listLabs(): Promise<Lab[]>;
   createLab(data: InsertLab): Promise<Lab>;
   updateLab(id: string, data: Partial<InsertLab>): Promise<Lab | undefined>;
+
+  // ─── Lab qualification lifecycle (T-07) ────────────────
+  recordLabQualification(labId: string, userId: string, method: string, frequencyMonths: number, notes: string | undefined, requestId: string, route: string, tx: Tx): Promise<Lab>;
+  recordLabDisqualification(labId: string, userId: string, notes: string | undefined, requestId: string, route: string, tx: Tx): Promise<Lab>;
+  getLabQualificationHistory(labId: string): Promise<LabQualificationWithDetails[]>;
 
   // ─── Approved materials registry (R-01) ────────────────
   listApprovedMaterials(): Promise<ApprovedMaterialWithDetails[]>;
