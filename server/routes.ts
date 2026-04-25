@@ -1451,7 +1451,7 @@ export async function registerRoutes(
 
   app.post<{ id: string }>(
     "/api/labs/:id/qualify",
-    requireAuth, requireRole("QA", "ADMIN"),
+    requireAuth, requireRole("QA", "ADMIN"), rejectIdentityInBody(["performedByUserId"]),
     async (req, res, next) => {
       try {
         const { qualificationMethod, requalificationFrequencyMonths, notes, signaturePassword } = req.body as {
@@ -1498,7 +1498,7 @@ export async function registerRoutes(
 
   app.post<{ id: string }>(
     "/api/labs/:id/disqualify",
-    requireAuth, requireRole("QA", "ADMIN"),
+    requireAuth, requireRole("QA", "ADMIN"), rejectIdentityInBody(["performedByUserId"]),
     async (req, res, next) => {
       try {
         const { notes, signaturePassword } = req.body as { notes?: string; signaturePassword?: string };
