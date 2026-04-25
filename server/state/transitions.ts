@@ -24,8 +24,9 @@ export interface Transition<TState extends string> {
 
 // Lot quarantine lifecycle (mirrors receiving_record.status).
 export const lotTransitions: Transition<LotStatus>[] = [
-  { from: "QUARANTINED",  to: "SAMPLING",    action: "BEGIN_SAMPLING",      requiredRoles: ["QA", "RECEIVING"] },
-  { from: "SAMPLING",     to: "PENDING_QC",  action: "SAMPLING_COMPLETE",   requiredRoles: ["QA", "RECEIVING"] },
+  { from: "QUARANTINED",  to: "SAMPLING",    action: "BEGIN_SAMPLING",      requiredRoles: ["QA", "WAREHOUSE", "LAB_TECH"] },
+  { from: "QUARANTINED",  to: "PENDING_QC",  action: "SKIP_TO_PENDING_QC",  requiredRoles: ["QA", "WAREHOUSE", "ADMIN"] },
+  { from: "SAMPLING",     to: "PENDING_QC",  action: "SAMPLING_COMPLETE",   requiredRoles: ["QA", "WAREHOUSE", "LAB_TECH"] },
   { from: "PENDING_QC",   to: "APPROVED",    action: "QC_APPROVE",          requiredRoles: ["QA"], requiredSignatureMeaning: "QC_DISPOSITION" },
   { from: "PENDING_QC",   to: "REJECTED",    action: "QC_REJECT",           requiredRoles: ["QA"], requiredSignatureMeaning: "QC_DISPOSITION" },
   { from: "PENDING_QC",   to: "ON_HOLD",     action: "QC_HOLD",             requiredRoles: ["QA"], requiredSignatureMeaning: "QC_DISPOSITION" },

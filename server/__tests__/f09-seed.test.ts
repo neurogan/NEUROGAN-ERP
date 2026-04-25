@@ -18,11 +18,11 @@ describeIfDb("F-09: seed fixtures", () => {
 
   // ── Users ──────────────────────────────────────────────────────────────────
 
-  it("seeds all 7 users", async () => {
+  it("seeds real users (Frederik, Steven, Carrie)", async () => {
     const rows = await db
       .select({ id: schema.users.id })
       .from(schema.users)
-      .where(eq(schema.users.id, seedIds.users.admin));
+      .where(eq(schema.users.id, seedIds.users.frederik));
     expect(rows).toHaveLength(1);
   });
 
@@ -34,14 +34,6 @@ describeIfDb("F-09: seed fixtures", () => {
     const roleSet = new Set(roles.map((r) => r.role));
     expect(roleSet.has("QA")).toBe(true);
     expect(roleSet.has("ADMIN")).toBe(true);
-  });
-
-  it("disabled user has DISABLED status", async () => {
-    const [row] = await db
-      .select({ status: schema.users.status })
-      .from(schema.users)
-      .where(eq(schema.users.id, seedIds.users.disabled));
-    expect(row?.status).toBe("DISABLED");
   });
 
   // ── Locations ──────────────────────────────────────────────────────────────
@@ -137,7 +129,7 @@ describeIfDb("F-09: seed fixtures", () => {
     const rows = await db
       .select({ id: schema.users.id })
       .from(schema.users)
-      .where(eq(schema.users.id, seedIds.users.admin));
+      .where(eq(schema.users.id, seedIds.users.frederik));
     expect(rows).toHaveLength(1); // still exactly one, not two
   });
 

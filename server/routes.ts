@@ -19,6 +19,8 @@ import {
   insertBprSchema,
   insertBprStepSchema,
   insertBprDeviationSchema,
+  insertLabSchema,
+  insertLabTestResultSchema,
   userRoleEnum,
   userStatusEnum,
   type UserResponse,
@@ -350,7 +352,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/lots", requireAuth, requireRole("RECEIVING", "QA", "ADMIN"), async (req, res, next) => {
+  app.post("/api/lots", requireAuth, requireRole("WAREHOUSE", "QA", "ADMIN"), async (req, res, next) => {
     try {
       const data = insertLotSchema.parse(req.body);
       const lot = await withAudit(
@@ -363,7 +365,7 @@ export async function registerRoutes(
     } catch (err) { next(err); }
   });
 
-  app.patch<{ id: string }>("/api/lots/:id", requireAuth, requireRole("RECEIVING", "QA", "ADMIN"), async (req, res, next) => {
+  app.patch<{ id: string }>("/api/lots/:id", requireAuth, requireRole("WAREHOUSE", "QA", "ADMIN"), async (req, res, next) => {
     try {
       const data = insertLotSchema.partial().parse(req.body);
       const before = await storage.getLot(req.params.id);
@@ -439,7 +441,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/transactions", requireAuth, requireRole("ADMIN", "QA", "PRODUCTION", "RECEIVING"), async (req, res, next) => {
+  app.post("/api/transactions", requireAuth, requireRole("ADMIN", "QA", "PRODUCTION", "WAREHOUSE"), async (req, res, next) => {
     try {
       const data = insertTransactionSchema.parse(req.body);
       const transaction = await withAudit(
@@ -453,7 +455,7 @@ export async function registerRoutes(
   });
 
   // Combo endpoint: create lot + transaction atomically (for PO Receipt)
-  app.post("/api/transactions/po-receipt", requireAuth, requireRole("RECEIVING", "QA", "ADMIN"), rejectIdentityInBody(["performedBy"]), async (req, res, next) => {
+  app.post("/api/transactions/po-receipt", requireAuth, requireRole("WAREHOUSE", "QA", "ADMIN"), rejectIdentityInBody(["performedBy"]), async (req, res, next) => {
     try {
       const { lotNumber, supplierName, productId, locationId, quantity, uom, notes } = req.body;
       if (!lotNumber || !productId || !locationId || !quantity || !uom) {
@@ -499,7 +501,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/suppliers", requireAuth, requireRole("ADMIN", "QA", "RECEIVING"), async (req, res, next) => {
+  app.post("/api/suppliers", requireAuth, requireRole("ADMIN", "QA", "WAREHOUSE"), async (req, res, next) => {
     try {
       const data = insertSupplierSchema.parse(req.body);
       const supplier = await storage.createSupplier(data);
@@ -507,7 +509,7 @@ export async function registerRoutes(
     } catch (err) { next(err); }
   });
 
-  app.patch<{ id: string }>("/api/suppliers/:id", requireAuth, requireRole("ADMIN", "QA", "RECEIVING"), async (req, res, next) => {
+  app.patch<{ id: string }>("/api/suppliers/:id", requireAuth, requireRole("ADMIN", "QA", "WAREHOUSE"), async (req, res, next) => {
     try {
       const data = insertSupplierSchema.partial().parse(req.body);
       const supplier = await storage.updateSupplier(req.params.id, data);
@@ -554,7 +556,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/purchase-orders", requireAuth, requireRole("ADMIN", "QA", "RECEIVING"), async (req, res, next) => {
+  app.post("/api/purchase-orders", requireAuth, requireRole("ADMIN", "QA", "WAREHOUSE"), async (req, res, next) => {
     try {
       const { lineItems, ...poData } = req.body;
       const data = insertPurchaseOrderSchema.parse(poData);
@@ -566,7 +568,7 @@ export async function registerRoutes(
     } catch (err) { next(err); }
   });
 
-  app.patch<{ id: string }>("/api/purchase-orders/:id", requireAuth, requireRole("ADMIN", "QA", "RECEIVING"), async (req, res, next) => {
+  app.patch<{ id: string }>("/api/purchase-orders/:id", requireAuth, requireRole("ADMIN", "QA", "WAREHOUSE"), async (req, res, next) => {
     try {
       const po = await storage.updatePurchaseOrder(req.params.id, req.body);
       if (!po) return res.status(404).json({ message: "Purchase order not found" });
@@ -574,7 +576,7 @@ export async function registerRoutes(
     } catch (err) { next(err); }
   });
 
-  app.post<{ id: string }>("/api/purchase-orders/:id/submit", requireAuth, requireRole("ADMIN", "QA", "RECEIVING"), async (req, res, next) => {
+  app.post<{ id: string }>("/api/purchase-orders/:id/submit", requireAuth, requireRole("ADMIN", "QA", "WAREHOUSE"), async (req, res, next) => {
     try {
       const po = await storage.updatePurchaseOrderStatus(req.params.id, "SUBMITTED");
       if (!po) return res.status(404).json({ message: "Purchase order not found" });
@@ -582,7 +584,7 @@ export async function registerRoutes(
     } catch (err) { next(err); }
   });
 
-  app.post<{ id: string }>("/api/purchase-orders/:id/cancel", requireAuth, requireRole("ADMIN", "QA", "RECEIVING"), async (req, res, next) => {
+  app.post<{ id: string }>("/api/purchase-orders/:id/cancel", requireAuth, requireRole("ADMIN", "QA", "WAREHOUSE"), async (req, res, next) => {
     try {
       const po = await storage.updatePurchaseOrderStatus(req.params.id, "CANCELLED");
       if (!po) return res.status(404).json({ message: "Purchase order not found" });
@@ -592,18 +594,16 @@ export async function registerRoutes(
 
   // ─── PO Receiving ──────────────────────────────────────
 
-  app.post("/api/purchase-orders/receive", requireAuth, requireRole("RECEIVING", "QA", "ADMIN"), async (req, res) => {
+  app.post("/api/purchase-orders/receive", requireAuth, requireRole("WAREHOUSE", "QA", "ADMIN"), async (req, res) => {
     try {
       const { lineItemId, quantity, lotNumber, locationId, supplierName, expirationDate, receivedDate } = req.body;
       if (!lineItemId || !quantity || !locationId) {
         return res.status(400).json({ message: "Missing required fields: lineItemId, quantity, locationId" });
       }
-      // If lotNumber is empty, auto-generate for secondary packaging
-      const effectiveLotNumber = lotNumber || `NOLOT-${new Date().toISOString().slice(0, 10)}`;
       const result = await storage.receivePOLineItem(
         lineItemId,
         parseFloat(quantity),
-        effectiveLotNumber,
+        lotNumber || undefined,
         locationId,
         supplierName,
         expirationDate,
@@ -972,7 +972,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/suppliers/:id/documents", requireAuth, requireRole("ADMIN", "QA", "RECEIVING"), async (req, res, next) => {
+  app.post("/api/suppliers/:id/documents", requireAuth, requireRole("ADMIN", "QA", "WAREHOUSE"), async (req, res, next) => {
     try {
       const data = { ...req.body, supplierId: req.params.id };
       const doc = await storage.createSupplierDocument(data);
@@ -1038,7 +1038,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/receiving", requireAuth, requireRole("RECEIVING", "QA", "ADMIN"), async (req, res, next) => {
+  app.post("/api/receiving", requireAuth, requireRole("WAREHOUSE", "QA", "ADMIN"), async (req, res, next) => {
     try {
       const data = insertReceivingRecordSchema.parse(req.body);
       const record = await withAudit(
@@ -1051,16 +1051,17 @@ export async function registerRoutes(
     } catch (err) { next(err); }
   });
 
-  app.put<{ id: string }>("/api/receiving/:id", requireAuth, requireRole("RECEIVING", "QA", "ADMIN"), async (req, res, next) => {
+  app.put<{ id: string }>("/api/receiving/:id", requireAuth, requireRole("WAREHOUSE", "QA", "ADMIN"), async (req, res, next) => {
     try {
-      const data = insertReceivingRecordSchema.partial().parse(req.body);
+      const baseSchema = insertReceivingRecordSchema.partial().extend({ visualExamAt: z.coerce.date().optional().nullable() });
+      const data = baseSchema.parse(req.body);
       const before = await storage.getReceivingRecord(req.params.id);
       if (!before) return res.status(404).json({ message: "Not found" });
       const record = await withAudit(
         { userId: req.user!.id, action: "UPDATE", entityType: "receiving_record",
           entityId: req.params.id, before,
           route: `${req.method} ${req.path}`, requestId: req.requestId },
-        (tx) => storage.updateReceivingRecord(req.params.id, data, tx),
+        (tx) => storage.updateReceivingRecord(req.params.id, data, req.user!.id, tx),
       );
       res.json(record);
     } catch (err) { next(err); }
@@ -1100,7 +1101,7 @@ export async function registerRoutes(
 
   // ─── COA Documents ────────────────────────────────────
 
-  app.post("/api/coa", requireAuth, requireRole("RECEIVING", "QA", "ADMIN"), async (req, res, next) => {
+  app.post("/api/coa", requireAuth, requireRole("WAREHOUSE", "QA", "ADMIN", "LAB_TECH"), async (req, res, next) => {
     try {
       const data = insertCoaDocumentSchema.parse(req.body);
       const doc = await withAudit(
@@ -1147,7 +1148,7 @@ export async function registerRoutes(
     }
   });
 
-  app.put<{ id: string }>("/api/coa/:id", requireAuth, requireRole("RECEIVING", "QA", "ADMIN"), async (req, res, next) => {
+  app.put<{ id: string }>("/api/coa/:id", requireAuth, requireRole("WAREHOUSE", "QA", "ADMIN"), async (req, res, next) => {
     try {
       const data = insertCoaDocumentSchema.partial().parse(req.body);
       const before = await storage.getCoaDocument(req.params.id);
@@ -1195,6 +1196,34 @@ export async function registerRoutes(
       }
     },
   );
+
+  // ─── Lab Test Results (T-06 §111.75) ─────────────────
+
+  // §111.75: lab result entry — LAB_TECH performs, QA/ADMIN can also enter
+  app.post<{ id: string }>("/api/coa/:id/results",
+    requireAuth, requireRole("LAB_TECH", "QA", "ADMIN"), rejectIdentityInBody(["testedByUserId", "coaDocumentId"]),
+    async (req, res, next) => {
+      try {
+        const coa = await storage.getCoaDocument(req.params.id);
+        if (!coa) return res.status(404).json({ message: "COA document not found" });
+        const data = insertLabTestResultSchema.parse(req.body);
+        const result = await withAudit(
+          { userId: req.user!.id, action: "LAB_RESULT_ADDED", entityType: "lab_test_result",
+            entityId: (r) => (r as { id: string }).id, before: null,
+            route: `${req.method} ${req.path}`, requestId: req.requestId },
+          (tx) => storage.addLabTestResult(req.params.id, data, req.user!.id, tx),
+        );
+        res.status(201).json(result);
+      } catch (err) { next(err); }
+    },
+  );
+
+  app.get<{ id: string }>("/api/coa/:id/results", requireAuth, async (req, res, next) => {
+    try {
+      const results = await storage.getLabTestResults(req.params.id);
+      res.json(results);
+    } catch (err) { next(err); }
+  });
 
   // ─── Supplier Qualifications ──────────────────────────
 
@@ -1385,6 +1414,187 @@ export async function registerRoutes(
       if (err instanceof ZodError) return res.status(400).json({ message: formatZodError(err) });
       const msg = err instanceof Error ? err.message : "Failed to add BPR deviation";
       res.status(400).json({ message: msg });
+    }
+  });
+
+  // ── Labs registry ──────────────────────────────────────────────────────────
+
+  app.get("/api/labs", requireAuth, requireRole("QA", "ADMIN"), async (_req, res, next) => {
+    try {
+      const labs = await storage.listLabs();
+      res.json(labs);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.post("/api/labs", requireAuth, requireRole("QA", "ADMIN"), async (req, res, next) => {
+    try {
+      const data = insertLabSchema.parse(req.body);
+      const lab = await storage.createLab(data);
+      res.status(201).json(lab);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.patch<{ id: string }>("/api/labs/:id", requireAuth, requireRole("QA", "ADMIN"), async (req, res, next) => {
+    try {
+      const data = insertLabSchema.partial().parse(req.body);
+      if (data.status === "ACTIVE") {
+        const allLabs = await storage.listLabs();
+        const existing = allLabs.find((l) => l.id === req.params.id);
+        if (!existing) return res.status(404).json({ message: "Lab not found" });
+        if (existing.type === "THIRD_PARTY") {
+          return res.status(400).json({ message: "Use POST /api/labs/:id/qualify to activate a third-party lab." });
+        }
+      }
+      const lab = await storage.updateLab(req.params.id, data);
+      if (!lab) return res.status(404).json({ message: "Lab not found" });
+      res.json(lab);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.post<{ id: string }>(
+    "/api/labs/:id/qualify",
+    requireAuth, requireRole("QA", "ADMIN"), rejectIdentityInBody(["performedByUserId"]),
+    async (req, res, next) => {
+      try {
+        const { qualificationMethod, requalificationFrequencyMonths, notes, signaturePassword } = req.body as {
+          qualificationMethod?: string;
+          requalificationFrequencyMonths?: number;
+          notes?: string;
+          signaturePassword?: string;
+        };
+        if (!qualificationMethod) return res.status(400).json({ message: "qualificationMethod required" });
+        if (!requalificationFrequencyMonths || Number(requalificationFrequencyMonths) < 1) return res.status(400).json({ message: "requalificationFrequencyMonths must be a positive integer" });
+        if (!signaturePassword) return res.status(400).json({ message: "signaturePassword required for electronic signature" });
+
+        const lab = await performSignature(
+          {
+            userId: req.user!.id,
+            password: signaturePassword,
+            meaning: "LAB_APPROVAL",
+            entityType: "lab",
+            entityId: req.params.id,
+            commentary: notes ?? null,
+            recordSnapshot: { qualificationMethod, requalificationFrequencyMonths },
+            route: `${req.method} ${req.path}`,
+            requestId: req.requestId,
+          },
+          (tx) =>
+            storage.recordLabQualification(
+              req.params.id,
+              req.user!.id,
+              qualificationMethod,
+              Number(requalificationFrequencyMonths),
+              notes,
+              req.requestId,
+              `${req.method} ${req.path}`,
+              tx,
+            ),
+        );
+        if (!lab) return res.status(404).json({ message: "Lab not found" });
+        res.json(lab);
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
+
+  app.post<{ id: string }>(
+    "/api/labs/:id/disqualify",
+    requireAuth, requireRole("QA", "ADMIN"), rejectIdentityInBody(["performedByUserId"]),
+    async (req, res, next) => {
+      try {
+        const { notes, signaturePassword } = req.body as { notes?: string; signaturePassword?: string };
+        if (!signaturePassword) return res.status(400).json({ message: "signaturePassword required for electronic signature" });
+
+        const lab = await performSignature(
+          {
+            userId: req.user!.id,
+            password: signaturePassword,
+            meaning: "LAB_DISQUALIFICATION",
+            entityType: "lab",
+            entityId: req.params.id,
+            commentary: notes ?? null,
+            recordSnapshot: { notes: notes ?? null },
+            route: `${req.method} ${req.path}`,
+            requestId: req.requestId,
+          },
+          (tx) =>
+            storage.recordLabDisqualification(
+              req.params.id,
+              req.user!.id,
+              notes,
+              req.requestId,
+              `${req.method} ${req.path}`,
+              tx,
+            ),
+        );
+        if (!lab) return res.status(404).json({ message: "Lab not found" });
+        res.json(lab);
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
+
+  app.get<{ id: string }>(
+    "/api/labs/:id/qualifications",
+    requireAuth,
+    async (req, res, next) => {
+      try {
+        const history = await storage.getLabQualificationHistory(req.params.id);
+        res.json(history);
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
+
+  // ── Approved materials ──────────────────────────────────────────────────────
+
+  app.get("/api/approved-materials", requireAuth, requireRole("QA", "ADMIN"), async (_req, res, next) => {
+    try {
+      const items = await storage.listApprovedMaterials();
+      res.json(items);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.delete<{ id: string }>("/api/approved-materials/:id", requireAuth, requireRole("QA", "ADMIN"), async (req, res, next) => {
+    try {
+      const revoked = await withAudit(
+        {
+          userId: req.user!.id,
+          action: "UPDATE",
+          entityType: "approved_material",
+          entityId: req.params.id,
+          before: null,
+          route: `${req.method} ${req.path}`,
+          requestId: req.requestId,
+        },
+        (_tx) => storage.revokeApprovedMaterial(req.params.id),
+      );
+      if (!revoked) return res.status(404).json({ message: "Approved material not found" });
+      res.json({ success: true });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // ─── User tasks (R-01) ─────────────────────────────────
+
+  app.get("/api/tasks", requireAuth, async (req, res, next) => {
+    try {
+      const tasks = await storage.getUserTasks(req.user!.id, req.user!.roles);
+      res.json(tasks);
+    } catch (err) {
+      next(err);
     }
   });
 

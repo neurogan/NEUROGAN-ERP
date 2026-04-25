@@ -1,0 +1,33 @@
+{
+  "planPath": "docs/superpowers/plans/2026-04-24-t07-lab-qualification-lifecycle.md",
+  "tasks": [
+    {
+      "id": 33,
+      "subject": "Task 1: Schema + Migration",
+      "status": "pending",
+      "description": "**Goal:** Add the erp_lab_qualifications table to the schema and create migration 0015.\n\n**Files:**\n- Modify: `shared/schema.ts`\n- Create: `migrations/0015_t07_lab_qualifications.sql`\n- Modify: `migrations/meta/_journal.json`\n\n**Acceptance Criteria:**\n- [ ] labQualifications table defined with all columns and FK refs\n- [ ] LabQualification, InsertLabQualification, LabQualificationWithDetails types exported\n- [ ] auditActionEnum includes LAB_QUALIFIED and LAB_DISQUALIFIED\n- [ ] signatureMeaningEnum includes LAB_DISQUALIFICATION\n- [ ] Migration SQL creates the table\n- [ ] _journal.json has idx 15\n\n```json:metadata\n{\"files\": [\"shared/schema.ts\", \"migrations/0015_t07_lab_qualifications.sql\", \"migrations/meta/_journal.json\"], \"verifyCommand\": \"npx tsx -e \\\"import * as s from './shared/schema'; console.log(s.labQualifications)\\\" 2>&1 | grep -c labQualifications\", \"acceptanceCriteria\": [\"labQualifications table defined\", \"types exported\", \"auditActionEnum updated\", \"signatureMeaningEnum updated\", \"migration 0015 created\", \"journal idx 15 added\"]}\n```"
+    },
+    {
+      "id": 34,
+      "subject": "Task 2: Storage layer — new methods + Gate 3c extension",
+      "status": "pending",
+      "blockedBy": [33],
+      "description": "**Goal:** Add recordLabQualification, recordLabDisqualification, getLabQualificationHistory and extend qcReviewCoa Gate 3c.\n\n**Files:**\n- Modify: `server/storage.ts`\n- Modify: `server/db-storage.ts`\n\n```json:metadata\n{\"files\": [\"server/storage.ts\", \"server/db-storage.ts\"], \"verifyCommand\": \"npx vitest run server/__tests__/t07-lab-qualification.test.ts 2>&1 | grep -E 'passed|failed'\", \"acceptanceCriteria\": [\"IStorage has 3 new method signatures\", \"recordLabQualification correct\", \"recordLabDisqualification correct\", \"getLabQualificationHistory enriched\", \"Gate 3c blocks unqualified\", \"Gate 3c blocks overdue\", \"IN_HOUSE exempt\"]}\n```"
+    },
+    {
+      "id": 35,
+      "subject": "Task 3: API routes + integration tests",
+      "status": "pending",
+      "blockedBy": [34],
+      "description": "**Goal:** Add 3 lab qualification API routes and a 10-case integration test suite.\n\n**Files:**\n- Modify: `server/routes.ts`\n- Create: `server/__tests__/t07-lab-qualification.test.ts`\n\n```json:metadata\n{\"files\": [\"server/routes.ts\", \"server/__tests__/t07-lab-qualification.test.ts\"], \"verifyCommand\": \"npx vitest run server/__tests__/t07-lab-qualification.test.ts 2>&1 | grep -E 'passed|failed'\", \"acceptanceCriteria\": [\"POST qualify route\", \"POST disqualify route\", \"GET qualifications route\", \"Gate 3c 4 cases\", \"10 tests pass\"]}\n```"
+    },
+    {
+      "id": 36,
+      "subject": "Task 4: UI — LabsSettings qualification controls",
+      "status": "pending",
+      "blockedBy": [35],
+      "description": "**Goal:** Extend LabsSettings.tsx with qualification badge, Qualify/Disqualify modals, and history panel.\n\n**Files:**\n- Modify: `client/src/pages/settings/LabsSettings.tsx`\n\n```json:metadata\n{\"files\": [\"client/src/pages/settings/LabsSettings.tsx\"], \"verifyCommand\": \"npm run dev\", \"acceptanceCriteria\": [\"Qualification badge for THIRD_PARTY labs\", \"Qualify modal\", \"Disqualify modal\", \"History panel\", \"IN_HOUSE unchanged\"]}\n```"
+    }
+  ],
+  "lastUpdated": "2026-04-24T00:00:00.000Z"
+}

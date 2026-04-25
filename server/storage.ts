@@ -24,14 +24,51 @@ import {
   type DashboardSupplyChain,
   type ReceivingRecord, type InsertReceivingRecord, type ReceivingRecordWithDetails,
   type CoaDocument, type InsertCoaDocument, type CoaDocumentWithDetails,
+  type LabTestResult, type InsertLabTestResult,
   type SupplierQualification, type InsertSupplierQualification, type SupplierQualificationWithDetails,
   type BatchProductionRecord, type InsertBpr, type BprStep, type InsertBprStep,
   type BprDeviation, type InsertBprDeviation, type BprWithDetails,
   type User, type UserResponse, type UserRole, type UserStatus,
   type AuditRow,
   type SignatureRow,
+  type Lab, type InsertLab,
+  type LabQualificationWithDetails,
+  type ApprovedMaterial,
 } from "@shared/schema";
 import type { Tx } from "./db";
+
+export interface UserTask {
+  id: string; // composite key like "lab-<recordId>"
+  taskType:
+    | "LAB_TEST_REQUIRED"
+    | "QUALIFICATION_REQUIRED"
+    | "PENDING_QC"
+    | "IDENTITY_CHECK_REQUIRED"
+    | "REJECTED_LOT";
+  receivingRecordId: string;
+  receivingIdentifier: string;
+  materialName: string | null;
+  supplierName: string | null;
+  quantityReceived: string | null;
+  uom: string | null;
+  dateReceived: string | null;
+  isUrgent: boolean;
+}
+
+export interface ApprovedMaterialWithDetails {
+  id: string;
+  productId: string;
+  productName: string | null;
+  productSku: string | null;
+  supplierId: string;
+  supplierName: string | null;
+  approvedByUserId: string;
+  approvedByName: string | null;
+  approvedAt: Date;
+  notes: string | null;
+  isActive: boolean;
+}
+
 
 // F-01: createUser takes the server-generated passwordHash (see
 // server/auth/password.ts) and the initial role list atomically. The caller
@@ -188,7 +225,7 @@ export interface IStorage {
   updatePurchaseOrderStatus(id: string, status: string): Promise<PurchaseOrder | undefined>;
 
   // PO Receiving
-  receivePOLineItem(lineItemId: string, quantity: number, lotNumber: string, locationId: string, supplierName?: string, expirationDate?: string, receivedDate?: string): Promise<{ lot: Lot; transaction: Transaction }>;
+  receivePOLineItem(lineItemId: string, quantity: number, lotNumber: string | undefined, locationId: string, supplierName?: string, expirationDate?: string, receivedDate?: string): Promise<{ lot: Lot; transaction: Transaction }>;
 
   // Production Batches
   getProductionBatches(filters?: { status?: string }): Promise<ProductionBatchWithDetails[]>;
@@ -249,7 +286,7 @@ export interface IStorage {
   getReceivingRecords(filters?: { status?: string }): Promise<ReceivingRecordWithDetails[]>;
   getReceivingRecord(id: string): Promise<ReceivingRecordWithDetails | undefined>;
   createReceivingRecord(data: InsertReceivingRecord, tx?: Tx): Promise<ReceivingRecord>;
-  updateReceivingRecord(id: string, data: Partial<InsertReceivingRecord>, tx?: Tx): Promise<ReceivingRecord | undefined>;
+  updateReceivingRecord(id: string, data: Partial<InsertReceivingRecord>, actorUserId: string, tx?: Tx): Promise<ReceivingRecord | undefined>;
   qcReviewReceivingRecord(id: string, disposition: string, reviewedByUserId: string, notes?: string, tx?: Tx): Promise<ReceivingRecord | undefined>;
   getNextReceivingIdentifier(): Promise<string>;
   getQuarantinedLots(): Promise<ReceivingRecordWithDetails[]>;
@@ -261,6 +298,10 @@ export interface IStorage {
   updateCoaDocument(id: string, data: Partial<InsertCoaDocument>, tx?: Tx): Promise<CoaDocument | undefined>;
   qcReviewCoa(id: string, accepted: boolean, reviewedByUserId: string, notes?: string, tx?: Tx): Promise<CoaDocument | undefined>;
   getCoasByLot(lotId: string): Promise<CoaDocumentWithDetails[]>;
+
+  // Lab Test Results (T-06)
+  addLabTestResult(coaId: string, data: InsertLabTestResult, userId: string, tx?: Tx): Promise<LabTestResult>;
+  getLabTestResults(coaId: string): Promise<LabTestResult[]>;
 
   // Supplier Qualifications
   getSupplierQualifications(supplierId?: string): Promise<SupplierQualificationWithDetails[]>;
@@ -329,6 +370,25 @@ export interface IStorage {
 
   // ─── Electronic signatures (F-04) ─────────────────────────
   listSignatures(entityType: string, entityId: string): Promise<SignatureRow[]>;
+
+  // ─── Labs registry (R-01) ──────────────────────────────
+  listLabs(): Promise<Lab[]>;
+  createLab(data: InsertLab): Promise<Lab>;
+  updateLab(id: string, data: Partial<InsertLab>): Promise<Lab | undefined>;
+
+  // ─── Lab qualification lifecycle (T-07) ────────────────
+  recordLabQualification(labId: string, userId: string, method: string, frequencyMonths: number, notes: string | undefined, requestId: string, route: string, tx: Tx): Promise<Lab>;
+  recordLabDisqualification(labId: string, userId: string, notes: string | undefined, requestId: string, route: string, tx: Tx): Promise<Lab>;
+  getLabQualificationHistory(labId: string): Promise<LabQualificationWithDetails[]>;
+
+  // ─── Approved materials registry (R-01) ────────────────
+  listApprovedMaterials(): Promise<ApprovedMaterialWithDetails[]>;
+  revokeApprovedMaterial(id: string): Promise<ApprovedMaterial | undefined>;
+  isApprovedMaterial(productId: string, supplierId: string): Promise<boolean>;
+  createApprovedMaterial(productId: string, supplierId: string, approvedByUserId: string, notes?: string, tx?: Tx): Promise<ApprovedMaterial>;
+
+  // ─── User tasks (R-01) ─────────────────────────────────
+  getUserTasks(_userId: string, roles: string[]): Promise<UserTask[]>;
 }
 
 export interface AuditFilters {

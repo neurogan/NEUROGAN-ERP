@@ -9,6 +9,8 @@ import {
   integer,
   primaryKey,
   jsonb,
+  boolean,
+  unique,
 } from "drizzle-orm/pg-core";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -28,7 +30,7 @@ export const poStatusEnum = pgEnum("po_status", ["DRAFT", "SUBMITTED", "PARTIALL
 // migration dance. The old pgEnum('user_role', ['ADMIN','OPERATOR']) from the
 // Perplexity-built scaffold (see 0000_baseline.sql) is dropped by the F-01
 // migration; nothing in the codebase referenced it.
-export const userRoleEnum = z.enum(["ADMIN", "QA", "PRODUCTION", "RECEIVING", "VIEWER"]);
+export const userRoleEnum = z.enum(["ADMIN", "QA", "PRODUCTION", "WAREHOUSE", "LAB_TECH", "VIEWER"]);
 export type UserRole = z.infer<typeof userRoleEnum>;
 
 export const userStatusEnum = z.enum(["ACTIVE", "DISABLED"]);
@@ -62,7 +64,7 @@ export const lots = pgTable("erp_lots", {
   purchaseUom: text("purchase_uom"),
   poReference: text("po_reference"),
   notes: text("notes"),
-  quarantineStatus: text("quarantine_status").default("APPROVED"), // QUARANTINED, SAMPLING, PENDING_QC, APPROVED, REJECTED, ON_HOLD
+  quarantineStatus: text("quarantine_status").default("QUARANTINED"), // QUARANTINED, SAMPLING, PENDING_QC, APPROVED, REJECTED, ON_HOLD
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -83,16 +85,24 @@ export const receivingRecords = pgTable("erp_receiving_records", {
   labelsMatch: text("labels_match"),
   invoiceMatchesPo: text("invoice_matches_po"),
   visualExamNotes: text("visual_exam_notes"),
-  visualExamBy: text("visual_exam_by"),
+  visualExamBy: jsonb("visual_exam_by").$type<{ userId: string | null; fullName: string; title: string | null } | null>(),
   visualExamAt: timestamp("visual_exam_at"),
   // QC Review
   status: text("status").notNull().default("QUARANTINED"), // QUARANTINED, SAMPLING, PENDING_QC, APPROVED, REJECTED, ON_HOLD
-  qcReviewedBy: text("qc_reviewed_by"),
+  qcReviewedBy: jsonb("qc_reviewed_by").$type<{ userId: string | null; fullName: string; title: string | null } | null>(),
   qcReviewedAt: timestamp("qc_reviewed_at"),
   qcDisposition: text("qc_disposition"), // APPROVED, REJECTED, APPROVED_WITH_CONDITIONS
   qcNotes: text("qc_notes"),
+  requiresQualification: boolean("requires_qualification").notNull().default(false),
+  qcWorkflowType: text("qc_workflow_type").$type<"FULL_LAB_TEST" | "IDENTITY_CHECK" | "COA_REVIEW" | "EXEMPT" | null>(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
+  samplingPlan: jsonb("sampling_plan").$type<{
+    codeLetterLevel2: string;
+    sampleSize: number;
+    acceptNumber: number;
+    rejectNumber: number;
+  } | null>(),
 });
 
 // Locations
@@ -125,6 +135,48 @@ export const suppliers = pgTable("erp_suppliers", {
   notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow(),
 });
+
+// Labs registry
+export const labStatusEnum = z.enum(["ACTIVE", "INACTIVE", "DISQUALIFIED"]);
+export type LabStatus = z.infer<typeof labStatusEnum>;
+
+export const labs = pgTable("erp_labs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull().unique(),
+  address: text("address"),
+  type: text("type").notNull().$type<"IN_HOUSE" | "THIRD_PARTY">(),
+  status: text("status").notNull().$type<LabStatus>().default("ACTIVE"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const labTypeEnum = z.enum(["IN_HOUSE", "THIRD_PARTY"]);
+
+export const insertLabSchema = createInsertSchema(labs, {
+  type: labTypeEnum,
+  status: labStatusEnum.default("ACTIVE"),
+}).omit({ id: true, createdAt: true });
+export type Lab = typeof labs.$inferSelect;
+export type InsertLab = z.infer<typeof insertLabSchema>;
+
+// Approved materials registry
+export const approvedMaterials = pgTable(
+  "erp_approved_materials",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    productId: varchar("product_id").notNull().references(() => products.id),
+    supplierId: varchar("supplier_id").notNull().references(() => suppliers.id),
+    approvedByUserId: uuid("approved_by_user_id").notNull().references(() => users.id),
+    approvedAt: timestamp("approved_at", { withTimezone: true }).notNull().defaultNow(),
+    notes: text("notes"),
+    isActive: boolean("is_active").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    uniq: unique().on(t.productId, t.supplierId),
+  }),
+);
+
+export type ApprovedMaterial = typeof approvedMaterials.$inferSelect;
 
 // Purchase Orders
 export const purchaseOrders = pgTable("erp_purchase_orders", {
@@ -250,6 +302,7 @@ export const coaDocuments = pgTable("erp_coa_documents", {
   qcReviewedAt: timestamp("qc_reviewed_at"),
   qcAccepted: text("qc_accepted"), // "true"/"false"
   qcNotes: text("qc_notes"),
+  labId: uuid("lab_id").references(() => labs.id),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -386,6 +439,13 @@ export const productionInputs = pgTable("erp_production_inputs", {
   uom: text("uom").notNull(),
 });
 
+// IdentitySnapshot — stored as jsonb in receiving_records (visual_exam_by, qc_reviewed_by)
+export interface IdentitySnapshot {
+  userId: string | null;
+  fullName: string;
+  title: string | null;
+}
+
 // Insert schemas
 export const insertProductCategorySchema = createInsertSchema(productCategories).omit({ id: true, createdAt: true });
 export const insertProductCategoryAssignmentSchema = createInsertSchema(productCategoryAssignments).omit({ id: true });
@@ -403,7 +463,16 @@ export const insertRecipeSchema = createInsertSchema(recipes).omit({ id: true, c
 export const insertRecipeLineSchema = createInsertSchema(recipeLines).omit({ id: true });
 export const insertProductionNoteSchema = createInsertSchema(productionNotes).omit({ id: true, createdAt: true });
 export const insertSupplierDocumentSchema = createInsertSchema(supplierDocuments).omit({ id: true, uploadedAt: true });
-export const insertReceivingRecordSchema = createInsertSchema(receivingRecords).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertReceivingRecordSchema = createInsertSchema(receivingRecords).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  requiresQualification: true,
+  qcWorkflowType: true,
+  visualExamBy: true,
+  qcReviewedBy: true,
+  samplingPlan: true,
+});
 export const insertCoaDocumentSchema = createInsertSchema(coaDocuments).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertSupplierQualificationSchema = createInsertSchema(supplierQualifications).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertBprSchema = createInsertSchema(batchProductionRecords).omit({ id: true, createdAt: true, updatedAt: true });
@@ -726,6 +795,9 @@ export const auditActionEnum = z.enum([
   "ROLE_GRANT",
   "ROLE_REVOKE",
   "PASSWORD_ROTATE",
+  "LAB_RESULT_ADDED",
+  "LAB_QUALIFIED",
+  "LAB_DISQUALIFIED",
 ]);
 export type AuditAction = z.infer<typeof auditActionEnum>;
 
@@ -773,6 +845,7 @@ export const signatureMeaningEnum = z.enum([
   "MMR_APPROVAL",
   "SPEC_APPROVAL",
   "LAB_APPROVAL",
+  "LAB_DISQUALIFICATION",
 ]);
 export type SignatureMeaning = z.infer<typeof signatureMeaningEnum>;
 
@@ -827,3 +900,48 @@ export const insertValidationDocumentSchema = createInsertSchema(validationDocum
 export const selectValidationDocumentSchema = createSelectSchema(validationDocuments);
 export type InsertValidationDocument = z.infer<typeof insertValidationDocumentSchema>;
 export type SelectValidationDocument = z.infer<typeof selectValidationDocumentSchema>;
+
+// T-06: Per-analyte lab test results (21 CFR §111.75 — test against specifications)
+// Each row records one analyte result linked to a COA document and the person
+// who performed the test. coaDocumentId uses varchar to match coaDocuments.id.
+export const labTestResults = pgTable("erp_lab_test_results", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  coaDocumentId: varchar("coa_document_id").notNull().references(() => coaDocuments.id),
+  analyteName: text("analyte_name").notNull(),
+  resultValue: text("result_value").notNull(),
+  resultUnits: text("result_units"),
+  specMin: text("spec_min"),
+  specMax: text("spec_max"),
+  pass: boolean("pass").notNull(),
+  testedByUserId: uuid("tested_by_user_id").notNull().references(() => users.id),
+  testedAt: timestamp("tested_at", { withTimezone: true }).notNull().defaultNow(),
+  notes: text("notes"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const insertLabTestResultSchema = createInsertSchema(labTestResults).omit({
+  id: true, createdAt: true, testedAt: true, testedByUserId: true, coaDocumentId: true,
+});
+export type InsertLabTestResult = z.infer<typeof insertLabTestResultSchema>;
+export type LabTestResult = typeof labTestResults.$inferSelect;
+
+// Lab Qualifications (T-07) ─────────────────────────────────────────────────
+export const labQualifications = pgTable("erp_lab_qualifications", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  labId: uuid("lab_id").notNull().references(() => labs.id),
+  eventType: text("event_type").notNull().$type<"QUALIFIED" | "DISQUALIFIED">(),
+  performedByUserId: uuid("performed_by_user_id").notNull().references(() => users.id),
+  performedAt: timestamp("performed_at", { withTimezone: true }).notNull().defaultNow(),
+  qualificationMethod: text("qualification_method"),
+  requalificationFrequencyMonths: integer("requalification_frequency_months"),
+  nextRequalificationDue: text("next_requalification_due"), // ISO date string "YYYY-MM-DD"
+  notes: text("notes"),
+});
+
+export const insertLabQualificationSchema = createInsertSchema(labQualifications).omit({
+  id: true,
+  performedAt: true,
+});
+export type LabQualification = typeof labQualifications.$inferSelect;
+export type InsertLabQualification = z.infer<typeof insertLabQualificationSchema>;
+export type LabQualificationWithDetails = LabQualification & { performedByName: string };

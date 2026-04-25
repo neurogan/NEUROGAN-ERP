@@ -53,10 +53,19 @@ import { Plus, Copy, ShieldAlert, UserX, UserCheck, KeyRound } from "lucide-reac
 // returns 401. The page shows a friendly "Sign-in required" shell in that
 // case rather than a raw error.
 
-// All five spec roles. Checkbox layout is simpler than a multi-select while
+// All six spec roles. Checkbox layout is simpler than a multi-select while
 // the role set is small; revisit if the set grows.
-const ALL_ROLES = ["ADMIN", "QA", "PRODUCTION", "RECEIVING", "VIEWER"] as const;
+const ALL_ROLES = ["ADMIN", "QA", "PRODUCTION", "WAREHOUSE", "LAB_TECH", "VIEWER"] as const;
 type Role = (typeof ALL_ROLES)[number];
+
+const ROLE_LABEL: Record<Role, string> = {
+  ADMIN: "ADMIN",
+  QA: "QA",
+  PRODUCTION: "PRODUCTION",
+  WAREHOUSE: "WAREHOUSE",
+  LAB_TECH: "Lab",
+  VIEWER: "VIEWER",
+};
 
 interface UserRow {
   id: string;
@@ -89,7 +98,7 @@ function RoleBadges({ roles }: { roles: Role[] }) {
     <div className="flex flex-wrap gap-1">
       {roles.map((r) => (
         <Badge key={r} variant={r === "ADMIN" ? "default" : "secondary"} className="text-xs">
-          {r}
+          {ROLE_LABEL[r]}
         </Badge>
       ))}
     </div>
@@ -117,6 +126,7 @@ export default function SettingsUsers() {
   );
   const [editingUser, setEditingUser] = useState<UserRow | null>(null);
   const [confirmDisable, setConfirmDisable] = useState<UserRow | null>(null);
+  const [showDisabled, setShowDisabled] = useState(false);
 
   const {
     data: users,
@@ -238,9 +248,19 @@ export default function SettingsUsers() {
             Administer users and their roles. ADMIN only. 21 CFR Part 11 §11.10(d)/(g).
           </p>
         </div>
-        <Button size="sm" onClick={() => setCreateOpen(true)} data-testid="button-create-user">
-          <Plus className="h-3.5 w-3.5 mr-1.5" /> Create user
-        </Button>
+        <div className="flex items-center gap-3">
+          <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer select-none">
+            <Checkbox
+              checked={showDisabled}
+              onCheckedChange={(c) => setShowDisabled(!!c)}
+              data-testid="checkbox-show-disabled"
+            />
+            Show disabled
+          </label>
+          <Button size="sm" onClick={() => setCreateOpen(true)} data-testid="button-create-user">
+            <Plus className="h-3.5 w-3.5 mr-1.5" /> Create user
+          </Button>
+        </div>
       </div>
 
       <div className="rounded-md border border-border bg-card">
@@ -266,8 +286,8 @@ export default function SettingsUsers() {
                   ))}
                 </TableRow>
               ))
-            ) : users && users.length > 0 ? (
-              users.map((u) => (
+            ) : (users ?? []).filter((u) => showDisabled || u.status === "ACTIVE").length > 0 ? (
+              (users ?? []).filter((u) => showDisabled || u.status === "ACTIVE").map((u) => (
                 <TableRow key={u.id} data-testid={`row-user-${u.id}`}>
                   <TableCell className="font-medium">{u.fullName}</TableCell>
                   <TableCell className="text-sm">{u.email}</TableCell>
@@ -401,7 +421,7 @@ export default function SettingsUsers() {
                               }}
                               data-testid={`checkbox-role-${r}`}
                             />
-                            <span>{r}</span>
+                            <span>{ROLE_LABEL[r]}</span>
                           </label>
                         );
                       })}
@@ -583,7 +603,7 @@ function EditRolesDialog({
               onCheckedChange={(c) => toggle(r, !!c)}
               data-testid={`checkbox-edit-role-${r}`}
             />
-            <span>{r}</span>
+            <span>{ROLE_LABEL[r]}</span>
           </label>
         ))}
       </div>

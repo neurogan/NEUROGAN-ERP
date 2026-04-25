@@ -12,7 +12,7 @@ export default defineConfig({
     globals: true,
     environment: "node",
     include: ["shared/**/*.test.ts", "server/**/*.test.ts", "client/**/*.test.{ts,tsx}"],
-    exclude: ["node_modules/**", "dist/**", "build/**", "FDA/**", "server/__tests__/**"],
+    exclude: ["node_modules/**", "dist/**", "build/**", "FDA/**"],
     testTimeout: 10_000,
   },
 });

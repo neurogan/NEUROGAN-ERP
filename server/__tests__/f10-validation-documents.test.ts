@@ -11,7 +11,7 @@
 // This ensures the VSR doc is unsigned for the first two cases and signed for
 // the last one.
 
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import type { Express } from "express";
 import request from "supertest";
 import { eq } from "drizzle-orm";
@@ -19,6 +19,7 @@ import { eq } from "drizzle-orm";
 import { buildTestApp } from "./helpers/test-app";
 import { seedOnce } from "../seed/test";
 import { seedIds } from "../seed/ids";
+import { hashPassword } from "../auth/password";
 import { db } from "../db";
 import * as schema from "@shared/schema";
 
@@ -26,12 +27,13 @@ const dbUrl = process.env.DATABASE_URL;
 const describeIfDb = dbUrl ? describe : describe.skip;
 
 // Seeded user IDs (from server/seed/ids.ts)
-const QA_USER_ID   = seedIds.users.carrieTreat;   // roles: QA + ADMIN
-const PROD_USER_ID = seedIds.users.prod;           // role: PRODUCTION only
+const QA_USER_ID = seedIds.users.carrieTreat;   // roles: QA + ADMIN
 
 // Seeded passwords (from server/seed/test/fixtures/users.ts)
-const QA_PASSWORD   = "Change_Me_Now!4";          // carrieHash slot
-const PROD_PASSWORD = "Change_Me_Now!5";          // prodHash slot — not used for signing (403 before password check)
+const QA_PASSWORD = "Change_Me_Now!4";
+
+// Production-only user created inline (not seeded) so f10 has no placeholder dependency
+let prodUserId: string;
 
 // The VSR document is used for all sign tests; the other 3 stay in DRAFT.
 const DOC_ID      = seedIds.validationDocuments.vsrPlatform;
@@ -61,6 +63,22 @@ describeIfDb("F-10 — Validation Documents", () => {
     app = await buildTestApp();
     // Reset the VSR doc to DRAFT in case a prior test run already signed it.
     await resetVsrDocument();
+    // Create a throwaway PRODUCTION-only user for 403 tests.
+    const [prodUser] = await db.insert(schema.users).values({
+      email: `f10-prod-${Date.now()}@test.com`,
+      fullName: "F10 Production",
+      passwordHash: await hashPassword("Change_Me_Now!5"),
+      createdByUserId: seedIds.users.frederik,
+    }).returning();
+    prodUserId = prodUser!.id;
+    await db.insert(schema.userRoles).values({ userId: prodUserId, role: "PRODUCTION", grantedByUserId: seedIds.users.frederik });
+  });
+
+  afterAll(async () => {
+    if (prodUserId) {
+      await db.delete(schema.userRoles).where(eq(schema.userRoles.userId, prodUserId));
+      await db.delete(schema.users).where(eq(schema.users.id, prodUserId));
+    }
   });
 
   // ─── GET /api/validation-documents ─────────────────────────────────────────
@@ -92,7 +110,7 @@ describeIfDb("F-10 — Validation Documents", () => {
     it("returns 403 for PRODUCTION role", async () => {
       const res = await request(app)
         .get("/api/validation-documents")
-        .set("x-test-user-id", PROD_USER_ID);
+        .set("x-test-user-id", prodUserId);
 
       expect(res.status).toBe(403);
     });
@@ -124,7 +142,7 @@ describeIfDb("F-10 — Validation Documents", () => {
     it("returns 403 for PRODUCTION role", async () => {
       const res = await request(app)
         .get(`/api/validation-documents/${DOC_ID}`)
-        .set("x-test-user-id", PROD_USER_ID);
+        .set("x-test-user-id", prodUserId);
 
       expect(res.status).toBe(403);
     });
@@ -167,8 +185,8 @@ describeIfDb("F-10 — Validation Documents", () => {
     it("returns 403 for PRODUCTION role", async () => {
       const res = await request(app)
         .post(`/api/validation-documents/${DOC_ID}/sign`)
-        .set("x-test-user-id", PROD_USER_ID)
-        .send({ password: PROD_PASSWORD });
+        .set("x-test-user-id", prodUserId)
+        .send({ password: "Change_Me_Now!5" });
 
       expect(res.status).toBe(403);
     });
@@ -222,7 +240,7 @@ describeIfDb("F-10 — Validation Documents", () => {
     it("returns 403 for PRODUCTION role", async () => {
       const res = await request(app)
         .get(`/api/validation-documents/${DOC_ID}/signature`)
-        .set("x-test-user-id", PROD_USER_ID);
+        .set("x-test-user-id", prodUserId);
       expect(res.status).toBe(403);
     });
   });

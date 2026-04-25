@@ -176,7 +176,7 @@ No module in Phase 1 may begin until **all** Phase 0 tickets are merged, platfor
 ```ts
 // shared/schema.ts (append)
 
-export const userRoleEnum = z.enum(["ADMIN", "QA", "PRODUCTION", "RECEIVING", "VIEWER"]);
+export const userRoleEnum = z.enum(["ADMIN", "QA", "PRODUCTION", "WAREHOUSE", "VIEWER"]);
 
 export const users = pgTable("erp_users", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -433,8 +433,8 @@ type Transition<TState extends string> = {
 };
 
 export const lotTransitions: Transition<LotStatus>[] = [
-  { from: "QUARANTINED", to: "SAMPLING", action: "BEGIN_SAMPLING", requiredRoles: ["QA", "RECEIVING"] },
-  { from: "SAMPLING",    to: "PENDING_QC", action: "SAMPLING_COMPLETE", requiredRoles: ["QA", "RECEIVING"] },
+  { from: "QUARANTINED", to: "SAMPLING", action: "BEGIN_SAMPLING", requiredRoles: ["QA", "WAREHOUSE"] },
+  { from: "SAMPLING",    to: "PENDING_QC", action: "SAMPLING_COMPLETE", requiredRoles: ["QA", "WAREHOUSE"] },
   { from: "PENDING_QC",  to: "APPROVED", action: "QC_APPROVE", requiredRoles: ["QA"], requiredSignatureMeaning: "QC_DISPOSITION" },
   { from: "PENDING_QC",  to: "REJECTED", action: "QC_REJECT", requiredRoles: ["QA"], requiredSignatureMeaning: "QC_DISPOSITION" },
   { from: "PENDING_QC",  to: "ON_HOLD", action: "QC_HOLD", requiredRoles: ["QA"], requiredSignatureMeaning: "QC_DISPOSITION" },

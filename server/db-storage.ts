@@ -1,4 +1,5 @@
 import { eq, ne, desc, asc, and, sql, gte, lte, inArray, getTableColumns, type SQL } from "drizzle-orm";
+import { computeZ14Plan } from "./lib/z14-sampling";
 import { db, type Tx } from "./db";
 import * as schema from "@shared/schema";
 import {
@@ -27,10 +28,14 @@ import {
   type BottleneckMaterial, type LowestCapacityProduct, type DashboardSupplyChain,
   type ReceivingRecord, type InsertReceivingRecord, type ReceivingRecordWithDetails,
   type CoaDocument, type InsertCoaDocument, type CoaDocumentWithDetails,
+  type LabTestResult, type InsertLabTestResult,
   type SupplierQualification, type InsertSupplierQualification, type SupplierQualificationWithDetails,
   type BatchProductionRecord, type InsertBpr, type BprStep, type InsertBprStep,
   type BprDeviation, type InsertBprDeviation, type BprWithDetails,
   type User, type UserResponse, type UserRole, type UserStatus,
+  type Lab, type InsertLab,
+  type LabQualificationWithDetails,
+  type ApprovedMaterial,
 } from "@shared/schema";
 import type {
   IStorage,
@@ -45,9 +50,91 @@ import type {
   LowStockItem,
   CreateUserInput,
   AuditFilters,
+  ApprovedMaterialWithDetails,
+  UserTask,
 } from "./storage";
 import { computeRoleDelta } from "./storage/users";
 import { assertNotLocked, assertValidTransition } from "./state/transitions";
+
+// ─── QC Workflow type derivation ──────────────────────────────────────────────
+
+type QcWorkflowType = "FULL_LAB_TEST" | "IDENTITY_CHECK" | "COA_REVIEW" | "EXEMPT";
+
+const IDENTITY_REQUIRED_WORKFLOWS: QcWorkflowType[] = ["FULL_LAB_TEST", "IDENTITY_CHECK"];
+
+// ─── Visual inspection gate ───────────────────────────────────────────────────
+
+function assertVisualInspectionComplete(record: {
+  containerConditionOk: string | null;
+  sealsIntact: string | null;
+  labelsMatch: string | null;
+  invoiceMatchesPo: string | null;
+}): void {
+  const missing: string[] = [];
+  if (record.containerConditionOk !== "true") missing.push("containerConditionOk");
+  if (record.sealsIntact !== "true") missing.push("sealsIntact");
+  if (record.labelsMatch !== "true") missing.push("labelsMatch");
+  if (record.invoiceMatchesPo !== "true") missing.push("invoiceMatchesPo");
+  if (missing.length > 0) {
+    throw Object.assign(
+      new Error(`Visual inspection incomplete. Required fields missing or not confirmed: ${missing.join(", ")}.`),
+      { status: 422 },
+    );
+  }
+}
+
+async function deriveWorkflowType(
+  productId: string | null | undefined,
+  supplierId: string | null | undefined,
+  tx: Tx,
+): Promise<{ qcWorkflowType: QcWorkflowType; requiresQualification: boolean }> {
+  if (!productId) return { qcWorkflowType: "COA_REVIEW", requiresQualification: false };
+
+  // Look up product category
+  const [product] = await tx
+    .select({ category: schema.products.category })
+    .from(schema.products)
+    .where(eq(schema.products.id, productId));
+
+  if (!product) {
+    throw Object.assign(
+      new Error(`Cannot derive QC workflow type: product not found for lot. Check that the lot has a valid productId.`),
+      { status: 422 },
+    );
+  }
+  const category = product.category;
+
+  if (category === "SECONDARY_PACKAGING") {
+    return { qcWorkflowType: "EXEMPT", requiresQualification: false };
+  }
+
+  if (category === "PRIMARY_PACKAGING" || category === "FINISHED_GOOD") {
+    return { qcWorkflowType: "COA_REVIEW", requiresQualification: false };
+  }
+
+  // ACTIVE_INGREDIENT or SUPPORTING_INGREDIENT — check approved_materials
+  if (!supplierId) {
+    return { qcWorkflowType: "FULL_LAB_TEST", requiresQualification: true };
+  }
+
+  const [approved] = await tx
+    .select({ id: schema.approvedMaterials.id })
+    .from(schema.approvedMaterials)
+    .where(
+      and(
+        eq(schema.approvedMaterials.productId, productId),
+        eq(schema.approvedMaterials.supplierId, supplierId),
+        eq(schema.approvedMaterials.isActive, true),
+      ),
+    )
+    .limit(1);
+
+  if (approved) {
+    return { qcWorkflowType: "IDENTITY_CHECK", requiresQualification: false };
+  }
+
+  return { qcWorkflowType: "FULL_LAB_TEST", requiresQualification: true };
+}
 
 export class DatabaseStorage implements IStorage {
 
@@ -347,7 +434,7 @@ export class DatabaseStorage implements IStorage {
   async receivePOLineItem(
     lineItemId: string,
     quantity: number,
-    lotNumber: string,
+    lotNumber: string | undefined,
     locationId: string,
     supplierName?: string,
     expirationDate?: string,
@@ -363,6 +450,80 @@ export class DatabaseStorage implements IStorage {
     if (!product) throw new Error("Product not found");
 
     const supplier = await this.getSupplier(po.supplierId);
+
+    // §111.68(a): SECONDARY_PACKAGING does not require identity testing — no lot number
+    // needed from the user. Auto-generate a unique reference so the receiving record is
+    // still traceable without burdening warehouse staff with a lot# they don't have.
+    if (!lotNumber) {
+      if (product.category !== "SECONDARY_PACKAGING") {
+        throw Object.assign(new Error("Lot number is required for this product category."), { status: 422 });
+      }
+      lotNumber = `NOLOT-${new Date().toISOString().slice(0, 10)}-${Math.random().toString(36).slice(2, 7)}`;
+    }
+
+    // §111.75: a lot is the unit of testing. Multiple deliveries of the same
+    // lot number do not trigger new testing — the lot was already tested.
+    const [existingLot] = await db
+      .select({ id: schema.lots.id, quarantineStatus: schema.lots.quarantineStatus })
+      .from(schema.lots)
+      .where(and(
+        eq(schema.lots.lotNumber, lotNumber),
+        eq(schema.lots.productId, lineItem.productId),
+      ));
+
+    if (existingLot) {
+      if (existingLot.quarantineStatus === "REJECTED") {
+        throw Object.assign(
+          new Error("Cannot receive additional quantity for a rejected lot without QA override."),
+          { status: 422 },
+        );
+      }
+      // Lot in-progress or approved — attach to existing lot, no new QC work needed.
+      // Insert directly (bypassing createReceivingRecord) to force qcWorkflowType=EXEMPT,
+      // since createReceivingRecord always re-derives the workflow from the category matrix.
+      // We intentionally do NOT sync lots.quarantineStatus here: for an APPROVED lot we must
+      // not regress it back to QUARANTINED, and for an in-progress lot the new EXEMPT receipt
+      // must not override the active workflow state. The existing lot's status is authoritative.
+      return db.transaction(async (tx) => {
+        const rcvId = await this.getNextReceivingIdentifier();
+        await tx.insert(schema.receivingRecords).values({
+          purchaseOrderId: po.id,
+          lotId: existingLot.id,
+          uniqueIdentifier: rcvId,
+          dateReceived: receivedDate ?? new Date().toISOString().slice(0, 10),
+          quantityReceived: String(quantity),
+          uom: lineItem.uom,
+          supplierLotNumber: lotNumber,
+          status: "QUARANTINED",
+          qcWorkflowType: "EXEMPT",
+          requiresQualification: false,
+        });
+        const transaction = await this.createTransaction({
+          lotId: existingLot.id,
+          locationId,
+          type: "PO_RECEIPT",
+          quantity: String(Math.abs(quantity)),
+          uom: lineItem.uom,
+          notes: `Received against PO ${po.poNumber} (existing lot)`,
+          performedBy: "admin",
+        });
+        const newReceivedQty = parseFloat(lineItem.quantityReceived) + Math.abs(quantity);
+        await tx.update(schema.poLineItems).set({ quantityReceived: String(newReceivedQty) }).where(eq(schema.poLineItems.id, lineItemId));
+        // Keep PO status in sync — same logic as normal flow path
+        const updatedLineItems = await tx.select().from(schema.poLineItems).where(eq(schema.poLineItems.purchaseOrderId, po.id));
+        const allFull = updatedLineItems.every(li => parseFloat(li.quantityReceived) >= parseFloat(li.quantityOrdered));
+        const someReceived = updatedLineItems.some(li => parseFloat(li.quantityReceived) > 0);
+        if (allFull) {
+          await this.updatePurchaseOrderStatus(po.id, "CLOSED");
+        } else if (someReceived) {
+          await this.updatePurchaseOrderStatus(po.id, "PARTIALLY_RECEIVED");
+        }
+        const [fullLot] = await tx.select().from(schema.lots).where(eq(schema.lots.id, existingLot.id));
+        return { lot: fullLot! as Lot, transaction };
+      });
+    }
+
+    // No existing lot — continue with normal flow (createLot + createReceivingRecord)
 
     // Create lot
     const lot = await this.createLot({
@@ -1394,44 +1555,225 @@ export class DatabaseStorage implements IStorage {
 
   async createReceivingRecord(data: InsertReceivingRecord, outerTx?: Tx): Promise<ReceivingRecord> {
     const run = async (tx: Tx) => {
-      const [record] = await tx.insert(schema.receivingRecords).values(data).returning();
-      if (data.status) {
-        await tx.update(schema.lots).set({ quarantineStatus: data.status }).where(eq(schema.lots.id, data.lotId));
+      // Fetch the lot to get productId for workflow determination
+      const [lot] = await tx
+        .select({ productId: schema.lots.productId })
+        .from(schema.lots)
+        .where(eq(schema.lots.id, data.lotId));
+
+      const { qcWorkflowType, requiresQualification } = await deriveWorkflowType(
+        lot?.productId ?? null,
+        data.supplierId ?? null,
+        tx,
+      );
+
+      let samplingPlan = null;
+      if (qcWorkflowType === "FULL_LAB_TEST" && data.quantityReceived !== null && data.quantityReceived !== undefined) {
+        const lotSize = Math.round(Number(data.quantityReceived));
+        if (lotSize > 0 && !isNaN(lotSize)) {
+          samplingPlan = computeZ14Plan(lotSize, 2.5);
+        }
       }
-      return record;
+
+      const [record] = await tx
+        .insert(schema.receivingRecords)
+        .values({ ...data, qcWorkflowType, requiresQualification, samplingPlan })
+        .returning();
+
+      await tx
+        .update(schema.lots)
+        .set({ quarantineStatus: data.status ?? "QUARANTINED" })
+        .where(eq(schema.lots.id, data.lotId));
+
+      return record!;
     };
     return outerTx ? run(outerTx) : db.transaction(run);
   }
 
-  async updateReceivingRecord(id: string, data: Partial<InsertReceivingRecord>, tx?: Tx): Promise<ReceivingRecord | undefined> {
-    const [row] = await (tx ?? db).update(schema.receivingRecords).set({ ...data, updatedAt: new Date() }).where(eq(schema.receivingRecords.id, id)).returning();
-    return row;
+  async updateReceivingRecord(
+    id: string,
+    data: Partial<InsertReceivingRecord> & { visualExamAt?: Date },
+    actorUserId: string,
+    outerTx?: Tx,
+  ): Promise<ReceivingRecord | undefined> {
+    const run = async (tx: Tx) => {
+      const [existing] = await tx
+        .select()
+        .from(schema.receivingRecords)
+        .where(eq(schema.receivingRecords.id, id));
+      if (!existing) return undefined;
+
+      assertNotLocked("receiving_record", existing.status);
+      if (data.status) {
+        assertValidTransition("receiving_record", existing.status, data.status);
+      }
+
+      const merged = { ...existing, ...data };
+
+      // Gate 1: QUARANTINED → SAMPLING requires complete visual inspection (FULL_LAB_TEST only)
+      if (
+        data.status === "SAMPLING" &&
+        existing.status === "QUARANTINED" &&
+        existing.qcWorkflowType === "FULL_LAB_TEST"
+      ) {
+        assertVisualInspectionComplete(merged);
+      }
+
+      // Gate 2: QUARANTINED → PENDING_QC requires complete visual inspection (IDENTITY_CHECK / COA_REVIEW)
+      if (
+        data.status === "PENDING_QC" &&
+        existing.status === "QUARANTINED" &&
+        (existing.qcWorkflowType === "IDENTITY_CHECK" || existing.qcWorkflowType === "COA_REVIEW")
+      ) {
+        assertVisualInspectionComplete(merged);
+      }
+
+      // F-06: Auto-set visualExamBy snapshot when visual inspection fields are being submitted
+      let visualExamBySnapshot: { userId: string | null; fullName: string; title: string | null } | undefined;
+      const isSubmittingInspection =
+        data.containerConditionOk || data.sealsIntact || data.labelsMatch || data.invoiceMatchesPo || data.visualExamAt;
+      if (isSubmittingInspection && !existing.visualExamBy && actorUserId) {
+        const [actor] = await tx
+          .select({ fullName: schema.users.fullName, title: schema.users.title })
+          .from(schema.users)
+          .where(eq(schema.users.id, actorUserId));
+        if (actor) {
+          visualExamBySnapshot = { userId: actorUserId, fullName: actor.fullName, title: actor.title ?? null };
+        }
+      }
+
+      const [updated] = await tx
+        .update(schema.receivingRecords)
+        .set({
+          ...data,
+          ...(visualExamBySnapshot ? { visualExamBy: visualExamBySnapshot } : {}),
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.receivingRecords.id, id))
+        .returning();
+
+      if (data.status) {
+        await tx
+          .update(schema.lots)
+          .set({ quarantineStatus: data.status })
+          .where(eq(schema.lots.id, existing.lotId));
+      }
+
+      return updated;
+    };
+    return outerTx ? run(outerTx) : db.transaction(run);
   }
 
   async qcReviewReceivingRecord(id: string, disposition: string, reviewedByUserId: string, notes?: string, outerTx?: Tx): Promise<ReceivingRecord | undefined> {
     const run = async (tx: Tx) => {
-      const [existing] = await tx.select().from(schema.receivingRecords).where(eq(schema.receivingRecords.id, id));
+      const [existing] = await tx
+        .select()
+        .from(schema.receivingRecords)
+        .where(eq(schema.receivingRecords.id, id));
       if (!existing) return undefined;
 
       assertNotLocked("receiving_record", existing.status);
 
-      const reviewer = await tx.select({ fullName: schema.users.fullName }).from(schema.users).where(eq(schema.users.id, reviewedByUserId));
-      const reviewerName = reviewer[0]?.fullName ?? reviewedByUserId;
-
-      const newStatus = disposition === "APPROVED" || disposition === "APPROVED_WITH_CONDITIONS" ? "APPROVED" : "REJECTED";
+      const newStatus =
+        disposition === "APPROVED" || disposition === "APPROVED_WITH_CONDITIONS" ? "APPROVED" : "REJECTED";
       assertValidTransition("receiving_record", existing.status, newStatus);
-      const [updated] = await tx.update(schema.receivingRecords).set({
-        status: newStatus,
-        qcDisposition: disposition,
-        qcReviewedBy: reviewerName,
-        qcReviewedAt: new Date(),
-        qcNotes: notes ?? existing.qcNotes,
-        updatedAt: new Date(),
-      }).where(eq(schema.receivingRecords.id, id)).returning();
 
-      await tx.update(schema.lots).set({ quarantineStatus: newStatus }).where(eq(schema.lots.id, existing.lotId));
+      // Gate 3: require at least one COA; reject if any lab-linked COA references a non-ACTIVE lab
+      if (newStatus === "APPROVED") {
+        const coas = await tx
+          .select({
+            id: schema.coaDocuments.id,
+            labId: schema.coaDocuments.labId,
+            identityConfirmed: schema.coaDocuments.identityConfirmed,
+          })
+          .from(schema.coaDocuments)
+          .where(eq(schema.coaDocuments.lotId, existing.lotId));
+        if (coas.length === 0) {
+          throw Object.assign(
+            new Error("Cannot approve: no COA document is linked to this lot. Attach a COA before approving."),
+            { status: 422 },
+          );
+        }
+        for (const coa of coas) {
+          // Supplier COAs (labId = null) are not required to reference the lab registry.
+          // Lab-linked COAs must come from an ACTIVE lab.
+          if (!coa.labId) continue; // supplier COA — no lab registry entry required
+          const [lab] = await tx
+            .select({ status: schema.labs.status })
+            .from(schema.labs)
+            .where(eq(schema.labs.id, coa.labId));
+          if (lab && lab.status !== "ACTIVE") {
+            throw Object.assign(
+              new Error(`Cannot approve: a COA on this lot is linked to a lab with status "${lab.status}". Update the lab status in Settings or remove the COA before approving.`),
+              { status: 422 },
+            );
+          }
+        }
 
-      return updated;
+        // Gate 3b: identity workflows require that at least one COA on this lot has identityConfirmed = "true"
+        if (IDENTITY_REQUIRED_WORKFLOWS.includes(existing.qcWorkflowType as QcWorkflowType)) {
+          const identityConfirmed = coas.some((c) => c.identityConfirmed === "true");
+          if (!identityConfirmed) {
+            throw Object.assign(
+              new Error(
+                "Cannot approve: this workflow requires identity testing but no COA on this lot has identity confirmed. " +
+                "Update the COA to mark identity as confirmed before approving.",
+              ),
+              { status: 422 },
+            );
+          }
+        }
+      }
+
+      // F-06: fetch full identity snapshot including title
+      const [reviewer] = await tx
+        .select({ fullName: schema.users.fullName, title: schema.users.title })
+        .from(schema.users)
+        .where(eq(schema.users.id, reviewedByUserId));
+      const qcReviewedBy = reviewer
+        ? { userId: reviewedByUserId, fullName: reviewer.fullName, title: reviewer.title ?? null }
+        : { userId: null, fullName: reviewedByUserId, title: null };
+
+      const [updated] = await tx
+        .update(schema.receivingRecords)
+        .set({
+          status: newStatus,
+          qcDisposition: disposition,
+          qcReviewedBy,
+          qcReviewedAt: new Date(),
+          qcNotes: notes ?? existing.qcNotes,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.receivingRecords.id, id))
+        .returning();
+
+      await tx
+        .update(schema.lots)
+        .set({ quarantineStatus: newStatus })
+        .where(eq(schema.lots.id, existing.lotId));
+
+      // Auto-create approved_materials entry on first approval of a qualification-required lot
+      if (newStatus === "APPROVED" && existing.requiresQualification && existing.supplierId) {
+        const [lot] = await tx
+          .select({ productId: schema.lots.productId })
+          .from(schema.lots)
+          .where(eq(schema.lots.id, existing.lotId));
+        if (lot?.productId) {
+          await tx
+            .insert(schema.approvedMaterials)
+            .values({
+              productId: lot.productId,
+              supplierId: existing.supplierId,
+              approvedByUserId: reviewedByUserId,
+            })
+            .onConflictDoUpdate({
+              target: [schema.approvedMaterials.productId, schema.approvedMaterials.supplierId],
+              set: { isActive: true, approvedByUserId: reviewedByUserId, approvedAt: new Date() },
+            });
+        }
+      }
+
+      return updated!;
     };
     return outerTx ? run(outerTx) : db.transaction(run);
   }
@@ -1496,6 +1838,52 @@ export class DatabaseStorage implements IStorage {
       const [existing] = await tx.select().from(schema.coaDocuments).where(eq(schema.coaDocuments.id, id));
       if (!existing) return undefined;
 
+      // Gate: lab must be ACTIVE to accept a COA
+      // Supplier COAs (labId = null) are accepted without lab-status check.
+      // Only COAs explicitly linked to a lab registry entry enforce the ACTIVE requirement.
+      if (accepted && existing.labId) {
+        const [lab] = await tx
+          .select({ status: schema.labs.status, type: schema.labs.type, name: schema.labs.name })
+          .from(schema.labs)
+          .where(eq(schema.labs.id, existing.labId));
+        if (lab && lab.status !== "ACTIVE") {
+          throw Object.assign(
+            new Error(`Cannot accept COA: the linked lab has status "${lab.status}". Only ACTIVE labs are accepted.`),
+            { status: 422 },
+          );
+        }
+        // T-07: Third-party labs must have a current qualification record.
+        if (lab && lab.type === "THIRD_PARTY") {
+          const [latestEvent] = await tx
+            .select({
+              eventType: schema.labQualifications.eventType,
+              nextRequalificationDue: schema.labQualifications.nextRequalificationDue,
+            })
+            .from(schema.labQualifications)
+            .where(eq(schema.labQualifications.labId, existing.labId))
+            .orderBy(desc(schema.labQualifications.performedAt))
+            .limit(1);
+
+          if (!latestEvent || latestEvent.eventType !== "QUALIFIED") {
+            throw Object.assign(
+              new Error(
+                `Cannot accept COA: lab "${lab.name}" has not been qualified. Qualify the lab before accepting COAs.`,
+              ),
+              { status: 422 },
+            );
+          }
+          const today = new Date().toISOString().slice(0, 10);
+          if (latestEvent.nextRequalificationDue && latestEvent.nextRequalificationDue < today) {
+            throw Object.assign(
+              new Error(
+                `Cannot accept COA: lab "${lab.name}" requalification is overdue (was due ${latestEvent.nextRequalificationDue}). Requalify the lab before accepting COAs.`,
+              ),
+              { status: 422 },
+            );
+          }
+        }
+      }
+
       const reviewer = await tx.select({ fullName: schema.users.fullName }).from(schema.users).where(eq(schema.users.id, reviewedByUserId));
       const reviewerName = reviewer[0]?.fullName ?? reviewedByUserId;
 
@@ -1513,6 +1901,30 @@ export class DatabaseStorage implements IStorage {
 
   async getCoasByLot(lotId: string): Promise<CoaDocumentWithDetails[]> {
     return this.getCoaDocuments({ lotId });
+  }
+
+  // ─── Lab Test Results (T-06) ────────────────────────
+
+  async addLabTestResult(coaId: string, data: InsertLabTestResult, userId: string, tx?: Tx): Promise<LabTestResult> {
+    const [result] = await (tx ?? db).insert(schema.labTestResults).values({
+      ...data,
+      coaDocumentId: coaId,
+      testedByUserId: userId,
+    }).returning();
+
+    if (!data.pass) {
+      await (tx ?? db).update(schema.coaDocuments)
+        .set({ overallResult: "FAIL" })
+        .where(eq(schema.coaDocuments.id, coaId));
+    }
+
+    return result!;
+  }
+
+  async getLabTestResults(coaId: string): Promise<LabTestResult[]> {
+    return db.select().from(schema.labTestResults)
+      .where(eq(schema.labTestResults.coaDocumentId, coaId))
+      .orderBy(schema.labTestResults.testedAt);
   }
 
   // ─── Supplier Qualifications ─────────────────────────
@@ -2019,5 +2431,342 @@ export class DatabaseStorage implements IStorage {
         ),
       )
       .orderBy(schema.electronicSignatures.signedAt);
+  }
+
+  // ─── Labs registry (R-01) ───────────────────────────────────────────────
+
+  async listLabs(): Promise<Lab[]> {
+    return db.select().from(schema.labs).orderBy(schema.labs.name);
+  }
+
+  async createLab(data: InsertLab): Promise<Lab> {
+    const [lab] = await db.insert(schema.labs).values(data).returning();
+    return lab!;
+  }
+
+  async updateLab(id: string, data: Partial<InsertLab>): Promise<Lab | undefined> {
+    const [lab] = await db
+      .update(schema.labs)
+      .set(data)
+      .where(eq(schema.labs.id, id))
+      .returning();
+    return lab;
+  }
+
+  async recordLabQualification(
+    labId: string,
+    userId: string,
+    method: string,
+    frequencyMonths: number,
+    notes: string | undefined,
+    requestId: string,
+    route: string,
+    tx: Tx,
+  ): Promise<schema.Lab> {
+    const [lab] = await tx.select().from(schema.labs).where(eq(schema.labs.id, labId));
+    if (!lab) throw Object.assign(new Error("Lab not found"), { status: 404 });
+    if (lab.type !== "THIRD_PARTY") {
+      throw Object.assign(new Error("Only THIRD_PARTY labs require formal qualification."), { status: 400 });
+    }
+
+    const today = new Date();
+    const dueDate = new Date(today);
+    dueDate.setMonth(dueDate.getMonth() + frequencyMonths);
+    const nextRequalificationDue = dueDate.toISOString().slice(0, 10);
+
+    await tx.insert(schema.labQualifications).values({
+      labId,
+      eventType: "QUALIFIED",
+      performedByUserId: userId,
+      qualificationMethod: method,
+      requalificationFrequencyMonths: frequencyMonths,
+      nextRequalificationDue,
+      notes: notes ?? null,
+    });
+
+    const [updated] = await tx
+      .update(schema.labs)
+      .set({ status: "ACTIVE" })
+      .where(eq(schema.labs.id, labId))
+      .returning();
+
+    await tx.insert(schema.auditTrail).values({
+      userId,
+      action: "LAB_QUALIFIED",
+      entityType: "lab",
+      entityId: labId,
+      after: { labName: lab.name, qualificationMethod: method, nextRequalificationDue, requalificationFrequencyMonths: frequencyMonths },
+      requestId,
+      route,
+    });
+
+    return updated!;
+  }
+
+  async recordLabDisqualification(
+    labId: string,
+    userId: string,
+    notes: string | undefined,
+    requestId: string,
+    route: string,
+    tx: Tx,
+  ): Promise<schema.Lab> {
+    const [lab] = await tx.select().from(schema.labs).where(eq(schema.labs.id, labId));
+    if (!lab) throw Object.assign(new Error("Lab not found"), { status: 404 });
+    if (lab.type !== "THIRD_PARTY") {
+      throw Object.assign(new Error("Only THIRD_PARTY labs can be disqualified via this workflow."), { status: 400 });
+    }
+
+    await tx.insert(schema.labQualifications).values({
+      labId,
+      eventType: "DISQUALIFIED",
+      performedByUserId: userId,
+      notes: notes ?? null,
+    });
+
+    const [updated] = await tx
+      .update(schema.labs)
+      .set({ status: "DISQUALIFIED" })
+      .where(eq(schema.labs.id, labId))
+      .returning();
+
+    await tx.insert(schema.auditTrail).values({
+      userId,
+      action: "LAB_DISQUALIFIED",
+      entityType: "lab",
+      entityId: labId,
+      after: { labName: lab.name, notes: notes ?? null },
+      requestId,
+      route,
+    });
+
+    return updated!;
+  }
+
+  async getLabQualificationHistory(labId: string): Promise<LabQualificationWithDetails[]> {
+    const rows = await db
+      .select({
+        id: schema.labQualifications.id,
+        labId: schema.labQualifications.labId,
+        eventType: schema.labQualifications.eventType,
+        performedByUserId: schema.labQualifications.performedByUserId,
+        performedAt: schema.labQualifications.performedAt,
+        qualificationMethod: schema.labQualifications.qualificationMethod,
+        requalificationFrequencyMonths: schema.labQualifications.requalificationFrequencyMonths,
+        nextRequalificationDue: schema.labQualifications.nextRequalificationDue,
+        notes: schema.labQualifications.notes,
+        performedByName: schema.users.fullName,
+      })
+      .from(schema.labQualifications)
+      .innerJoin(schema.users, eq(schema.labQualifications.performedByUserId, schema.users.id))
+      .where(eq(schema.labQualifications.labId, labId))
+      .orderBy(desc(schema.labQualifications.performedAt));
+    return rows;
+  }
+
+  // ─── Approved materials registry (R-01) ─────────────────────────────────
+
+  async listApprovedMaterials(): Promise<ApprovedMaterialWithDetails[]> {
+    const rows = await db
+      .select({
+        id: schema.approvedMaterials.id,
+        productId: schema.approvedMaterials.productId,
+        productName: schema.products.name,
+        productSku: schema.products.sku,
+        supplierId: schema.approvedMaterials.supplierId,
+        supplierName: schema.suppliers.name,
+        approvedByUserId: schema.approvedMaterials.approvedByUserId,
+        approvedByName: schema.users.fullName,
+        approvedAt: schema.approvedMaterials.approvedAt,
+        notes: schema.approvedMaterials.notes,
+        isActive: schema.approvedMaterials.isActive,
+      })
+      .from(schema.approvedMaterials)
+      .leftJoin(schema.products, eq(schema.approvedMaterials.productId, schema.products.id))
+      .leftJoin(schema.suppliers, eq(schema.approvedMaterials.supplierId, schema.suppliers.id))
+      .leftJoin(schema.users, eq(schema.approvedMaterials.approvedByUserId, schema.users.id))
+      .where(eq(schema.approvedMaterials.isActive, true))
+      .orderBy(schema.products.name);
+    return rows as ApprovedMaterialWithDetails[];
+  }
+
+  async revokeApprovedMaterial(id: string): Promise<ApprovedMaterial | undefined> {
+    const [row] = await db
+      .update(schema.approvedMaterials)
+      .set({ isActive: false })
+      .where(eq(schema.approvedMaterials.id, id))
+      .returning();
+    return row;
+  }
+
+  async isApprovedMaterial(productId: string, supplierId: string): Promise<boolean> {
+    const [row] = await db
+      .select({ id: schema.approvedMaterials.id })
+      .from(schema.approvedMaterials)
+      .where(
+        and(
+          eq(schema.approvedMaterials.productId, productId),
+          eq(schema.approvedMaterials.supplierId, supplierId),
+          eq(schema.approvedMaterials.isActive, true),
+        ),
+      )
+      .limit(1);
+    return !!row;
+  }
+
+  async createApprovedMaterial(
+    productId: string,
+    supplierId: string,
+    approvedByUserId: string,
+    notes?: string,
+    tx?: Tx,
+  ): Promise<ApprovedMaterial> {
+    const [row] = await (tx ?? db)
+      .insert(schema.approvedMaterials)
+      .values({ productId, supplierId, approvedByUserId, notes: notes ?? null })
+      .onConflictDoUpdate({
+        target: [schema.approvedMaterials.productId, schema.approvedMaterials.supplierId],
+        set: { isActive: true, approvedByUserId, approvedAt: new Date(), notes: notes ?? null },
+      })
+      .returning();
+    return row!;
+  }
+
+  // ─── User tasks (R-01) ─────────────────────────────────
+
+  async getUserTasks(_userId: string, roles: string[]): Promise<UserTask[]> {
+    // _userId reserved for future per-user scoped task types; currently returns all active records for the role.
+    const tasks: UserTask[] = [];
+    // ADMIN gets LAB_TECH, QA and WAREHOUSE tasks. No deduplication risk: LAB_TECH queries
+    // FULL_LAB_TEST in QUARANTINED/SAMPLING; QA queries PENDING_QC; WAREHOUSE queries
+    // IDENTITY_CHECK/QUARANTINED + REJECTED. These are disjoint by qcWorkflowType/status
+    // combinations under current state machine rules.
+    const isLabTech = roles.includes("LAB_TECH") || roles.includes("ADMIN");
+    const isQa = roles.includes("QA") || roles.includes("ADMIN");
+    const isWarehouse = roles.includes("WAREHOUSE") || roles.includes("ADMIN");
+
+    const baseSelect = {
+      id: schema.receivingRecords.id,
+      receivingIdentifier: schema.receivingRecords.uniqueIdentifier,
+      status: schema.receivingRecords.status,
+      qcWorkflowType: schema.receivingRecords.qcWorkflowType,
+      requiresQualification: schema.receivingRecords.requiresQualification,
+      quantityReceived: schema.receivingRecords.quantityReceived,
+      uom: schema.receivingRecords.uom,
+      dateReceived: schema.receivingRecords.dateReceived,
+      materialName: schema.products.name,
+      supplierName: schema.suppliers.name,
+    };
+
+    // §111.12(c): LAB_TECH performs sampling and lab tests; QA makes the final disposition.
+    if (isLabTech) {
+      const labTestRows = await db
+        .select(baseSelect)
+        .from(schema.receivingRecords)
+        .leftJoin(schema.lots, eq(schema.receivingRecords.lotId, schema.lots.id))
+        .leftJoin(schema.products, eq(schema.lots.productId, schema.products.id))
+        .leftJoin(schema.suppliers, eq(schema.receivingRecords.supplierId, schema.suppliers.id))
+        .where(
+          and(
+            eq(schema.receivingRecords.qcWorkflowType, "FULL_LAB_TEST"),
+            inArray(schema.receivingRecords.status, ["QUARANTINED", "SAMPLING"]),
+          ),
+        );
+
+      for (const row of labTestRows) {
+        tasks.push({
+          id: `lab-${row.id}`,
+          taskType: row.requiresQualification ? "QUALIFICATION_REQUIRED" : "LAB_TEST_REQUIRED",
+          receivingRecordId: row.id,
+          receivingIdentifier: row.receivingIdentifier,
+          materialName: row.materialName ?? null,
+          supplierName: row.supplierName ?? null,
+          quantityReceived: row.quantityReceived ?? null,
+          uom: row.uom ?? null,
+          dateReceived: row.dateReceived ?? null,
+          isUrgent: !!row.requiresQualification,
+        });
+      }
+    }
+
+    if (isQa) {
+      const pendingQcRows = await db
+        .select(baseSelect)
+        .from(schema.receivingRecords)
+        .leftJoin(schema.lots, eq(schema.receivingRecords.lotId, schema.lots.id))
+        .leftJoin(schema.products, eq(schema.lots.productId, schema.products.id))
+        .leftJoin(schema.suppliers, eq(schema.receivingRecords.supplierId, schema.suppliers.id))
+        .where(eq(schema.receivingRecords.status, "PENDING_QC"));
+
+      for (const row of pendingQcRows) {
+        tasks.push({
+          id: `qc-${row.id}`,
+          taskType: "PENDING_QC",
+          receivingRecordId: row.id,
+          receivingIdentifier: row.receivingIdentifier,
+          materialName: row.materialName ?? null,
+          supplierName: row.supplierName ?? null,
+          quantityReceived: row.quantityReceived ?? null,
+          uom: row.uom ?? null,
+          dateReceived: row.dateReceived ?? null,
+          isUrgent: false,
+        });
+      }
+    }
+
+    if (isWarehouse) {
+      const identityCheckRows = await db
+        .select(baseSelect)
+        .from(schema.receivingRecords)
+        .leftJoin(schema.lots, eq(schema.receivingRecords.lotId, schema.lots.id))
+        .leftJoin(schema.products, eq(schema.lots.productId, schema.products.id))
+        .leftJoin(schema.suppliers, eq(schema.receivingRecords.supplierId, schema.suppliers.id))
+        .where(
+          and(
+            eq(schema.receivingRecords.qcWorkflowType, "IDENTITY_CHECK"),
+            eq(schema.receivingRecords.status, "QUARANTINED"),
+          ),
+        );
+
+      for (const row of identityCheckRows) {
+        tasks.push({
+          id: `id-check-${row.id}`,
+          taskType: "IDENTITY_CHECK_REQUIRED",
+          receivingRecordId: row.id,
+          receivingIdentifier: row.receivingIdentifier,
+          materialName: row.materialName ?? null,
+          supplierName: row.supplierName ?? null,
+          quantityReceived: row.quantityReceived ?? null,
+          uom: row.uom ?? null,
+          dateReceived: row.dateReceived ?? null,
+          isUrgent: false,
+        });
+      }
+
+      const rejectedRows = await db
+        .select(baseSelect)
+        .from(schema.receivingRecords)
+        .leftJoin(schema.lots, eq(schema.receivingRecords.lotId, schema.lots.id))
+        .leftJoin(schema.products, eq(schema.lots.productId, schema.products.id))
+        .leftJoin(schema.suppliers, eq(schema.receivingRecords.supplierId, schema.suppliers.id))
+        .where(eq(schema.receivingRecords.status, "REJECTED"));
+
+      for (const row of rejectedRows) {
+        tasks.push({
+          id: `rejected-${row.id}`,
+          taskType: "REJECTED_LOT",
+          receivingRecordId: row.id,
+          receivingIdentifier: row.receivingIdentifier,
+          materialName: row.materialName ?? null,
+          supplierName: row.supplierName ?? null,
+          quantityReceived: row.quantityReceived ?? null,
+          uom: row.uom ?? null,
+          dateReceived: row.dateReceived ?? null,
+          isUrgent: true,
+        });
+      }
+    }
+
+    return tasks;
   }
 }
