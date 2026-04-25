@@ -33,6 +33,15 @@ beforeAll(async () => {
 
   const [la] = await db.insert(schema.labs).values({ name: `ActiveLab-${Date.now()}`, type: "THIRD_PARTY", status: "ACTIVE" }).returning();
   labActive = la!.id;
+  // T-07: THIRD_PARTY labs need a current qualification record for Gate 3c.
+  await db.insert(schema.labQualifications).values({
+    labId: labActive,
+    eventType: "QUALIFIED",
+    performedByUserId: adminId,
+    qualificationMethod: "ACCREDITATION_REVIEW",
+    requalificationFrequencyMonths: 24,
+    nextRequalificationDue: "2099-01-01",
+  });
   const [li] = await db.insert(schema.labs).values({ name: `InactiveLab-${Date.now()}`, type: "THIRD_PARTY", status: "INACTIVE" }).returning();
   labInactive = li!.id;
   const [ld] = await db.insert(schema.labs).values({ name: `DisqualLab-${Date.now()}`, type: "THIRD_PARTY", status: "DISQUALIFIED" }).returning();
@@ -57,6 +66,7 @@ afterAll(async () => {
   for (const id of seededSupplierIds) {
     await db.delete(schema.suppliers).where(eq(schema.suppliers.id, id));
   }
+  await db.delete(schema.labQualifications).where(eq(schema.labQualifications.labId, labActive)).catch(() => {});
   await db.delete(schema.labs).where(eq(schema.labs.id, labActive));
   await db.delete(schema.labs).where(eq(schema.labs.id, labInactive));
   await db.delete(schema.labs).where(eq(schema.labs.id, labDisqualified));
