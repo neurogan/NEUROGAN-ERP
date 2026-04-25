@@ -99,6 +99,13 @@
       "when": 1745500500000,
       "tag": "0013_cleanup_placeholder_users",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1745500600000,
+      "tag": "0014_drop_qms_legacy_tables",
+      "breakpoints": true
     }
   ]
 }

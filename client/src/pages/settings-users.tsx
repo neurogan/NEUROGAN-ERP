@@ -126,6 +126,7 @@ export default function SettingsUsers() {
   );
   const [editingUser, setEditingUser] = useState<UserRow | null>(null);
   const [confirmDisable, setConfirmDisable] = useState<UserRow | null>(null);
+  const [showDisabled, setShowDisabled] = useState(false);
 
   const {
     data: users,
@@ -247,9 +248,19 @@ export default function SettingsUsers() {
             Administer users and their roles. ADMIN only. 21 CFR Part 11 §11.10(d)/(g).
           </p>
         </div>
-        <Button size="sm" onClick={() => setCreateOpen(true)} data-testid="button-create-user">
-          <Plus className="h-3.5 w-3.5 mr-1.5" /> Create user
-        </Button>
+        <div className="flex items-center gap-3">
+          <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer select-none">
+            <Checkbox
+              checked={showDisabled}
+              onCheckedChange={(c) => setShowDisabled(!!c)}
+              data-testid="checkbox-show-disabled"
+            />
+            Show disabled
+          </label>
+          <Button size="sm" onClick={() => setCreateOpen(true)} data-testid="button-create-user">
+            <Plus className="h-3.5 w-3.5 mr-1.5" /> Create user
+          </Button>
+        </div>
       </div>
 
       <div className="rounded-md border border-border bg-card">
@@ -275,8 +286,8 @@ export default function SettingsUsers() {
                   ))}
                 </TableRow>
               ))
-            ) : users && users.length > 0 ? (
-              users.map((u) => (
+            ) : (users ?? []).filter((u) => showDisabled || u.status === "ACTIVE").length > 0 ? (
+              (users ?? []).filter((u) => showDisabled || u.status === "ACTIVE").map((u) => (
                 <TableRow key={u.id} data-testid={`row-user-${u.id}`}>
                   <TableCell className="font-medium">{u.fullName}</TableCell>
                   <TableCell className="text-sm">{u.email}</TableCell>
