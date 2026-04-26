@@ -154,14 +154,14 @@ describeIfDb("OOS investigation storage", () => {
 
     it("closeOosInvestigation REJECTED flips lot to REJECTED", async () => {
       await db.transaction((tx) => storage.assignOosLeadInvestigator(inv.id, qaUser.id, qaUser.id, "rid-l", "POST /a", tx));
-      await db.transaction(async (tx) => {
-        await storage.closeOosInvestigation(
-          inv.id,
-          { disposition: "REJECTED", dispositionReason: "Confirmed OOS, lot fails spec", leadInvestigatorUserId: qaUser.id },
-          qaUser.id, "rid-c", "POST /close", tx,
-        );
-        await storage.setOosClosureSignature(inv.id, signatureId, tx);
-      });
+      // Step 1: close inside transaction (no signature yet)
+      await db.transaction((tx) => storage.closeOosInvestigation(
+        inv.id,
+        { disposition: "REJECTED", dispositionReason: "Confirmed OOS, lot fails spec", leadInvestigatorUserId: qaUser.id },
+        qaUser.id, "rid-c", "POST /close", tx,
+      ));
+      // Step 2: finalize with signature
+      await storage.finalizeOosClosure(inv.id, signatureId);
       const [closed] = await db.select().from(schema.oosInvestigations).where(eq(schema.oosInvestigations.id, inv.id));
       expect(closed.status).toBe("CLOSED");
       expect(closed.disposition).toBe("REJECTED");
@@ -181,6 +181,7 @@ describeIfDb("OOS investigation storage", () => {
 
     it("closeOosInvestigation RECALL with full details persists recall fields", async () => {
       await db.transaction((tx) => storage.assignOosLeadInvestigator(inv.id, qaUser.id, qaUser.id, "rid-l", "POST /a", tx));
+      // Step 1: close inside transaction (no signature yet)
       await db.transaction((tx) => storage.closeOosInvestigation(
         inv.id,
         {
@@ -197,15 +198,20 @@ describeIfDb("OOS investigation storage", () => {
         },
         qaUser.id, "rid-c", "POST /close", tx,
       ));
+      // Step 2: finalize with signature
+      await storage.finalizeOosClosure(inv.id, signatureId);
       const [closed] = await db.select().from(schema.oosInvestigations).where(eq(schema.oosInvestigations.id, inv.id));
       expect(closed.recallClass).toBe("II");
       expect(closed.recallDistributionScope).toContain("4 distributors");
     });
 
     it("markOosNoInvestigationNeeded fast-path closure", async () => {
+      // Step 1: set closure fields (no signature yet)
       await db.transaction((tx) => storage.markOosNoInvestigationNeeded(
         inv.id, "LAB_ERROR", "Operator pipetting error during sample prep", qaUser.id, qaUser.id, "rid-n", "POST /n", tx,
       ));
+      // Step 2: finalize with signature
+      await storage.finalizeOosClosure(inv.id, signatureId);
       const [closed] = await db.select().from(schema.oosInvestigations).where(eq(schema.oosInvestigations.id, inv.id));
       expect(closed.status).toBe("CLOSED");
       expect(closed.disposition).toBe("NO_INVESTIGATION_NEEDED");
@@ -222,6 +228,7 @@ describeIfDb("OOS investigation storage", () => {
         { disposition: "APPROVED", dispositionReason: "retest passed", leadInvestigatorUserId: qaUser.id },
         qaUser.id, "rid-c1", "POST /close", tx,
       ));
+      // After step 1, closedAt is set — second attempt should fail even before finalize
       await expect(db.transaction((tx) => storage.closeOosInvestigation(
         inv.id,
         { disposition: "APPROVED", dispositionReason: "again", leadInvestigatorUserId: qaUser.id },

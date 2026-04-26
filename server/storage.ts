@@ -318,7 +318,7 @@ export interface IStorage {
   clearOosRetestPending(investigationId: string, actingUserId: string, requestId: string, route: string, tx: Tx): Promise<OosInvestigation>;
   closeOosInvestigation(investigationId: string, payload: { disposition: "APPROVED" | "REJECTED" | "RECALL"; dispositionReason: string; leadInvestigatorUserId: string; recallDetails?: { class: OosRecallClass; distributionScope: string; fdaNotificationDate?: Date; customerNotificationDate?: Date; recoveryTargetDate?: Date; affectedLotIds?: string[]; }; }, closedByUserId: string, requestId: string, route: string, tx: Tx): Promise<OosInvestigation>;
   markOosNoInvestigationNeeded(investigationId: string, reason: OosNoInvestigationReason, reasonNarrative: string, leadInvestigatorUserId: string, closedByUserId: string, requestId: string, route: string, tx: Tx): Promise<OosInvestigation>;
-  setOosClosureSignature(investigationId: string, signatureId: string, tx: Tx): Promise<void>;
+  finalizeOosClosure(investigationId: string, signatureId: string): Promise<OosInvestigation>;
 
   // Supplier Qualifications
   getSupplierQualifications(supplierId?: string): Promise<SupplierQualificationWithDetails[]>;

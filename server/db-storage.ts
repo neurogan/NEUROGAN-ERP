@@ -2172,7 +2172,9 @@ export class DatabaseStorage implements IStorage {
   ): Promise<schema.OosInvestigation> {
     const [existing] = await tx.select().from(schema.oosInvestigations).where(eq(schema.oosInvestigations.id, investigationId));
     if (!existing) throw Object.assign(new Error("Investigation not found"), { status: 404 });
-    if (existing.status === "CLOSED") throw Object.assign(new Error("Investigation already closed"), { status: 409 });
+    if (existing.status === "CLOSED" || existing.closedAt !== null) {
+      throw Object.assign(new Error("Investigation already closed"), { status: 409 });
+    }
     if (!payload.leadInvestigatorUserId) throw Object.assign(new Error("lead investigator required for closure"), { status: 422 });
     if (!payload.dispositionReason) throw Object.assign(new Error("dispositionReason required"), { status: 422 });
     if (payload.disposition === "RECALL" && !payload.recallDetails?.class) {
@@ -2187,7 +2189,6 @@ export class DatabaseStorage implements IStorage {
     const [updated] = await tx
       .update(schema.oosInvestigations)
       .set({
-        status: "CLOSED",
         disposition: payload.disposition,
         dispositionReason: payload.dispositionReason,
         leadInvestigatorUserId: payload.leadInvestigatorUserId,
@@ -2214,7 +2215,7 @@ export class DatabaseStorage implements IStorage {
     await tx.insert(schema.auditTrail).values({
       userId: closedByUserId, action: "OOS_CLOSED", entityType: "oos_investigation", entityId: investigationId,
       before: { status: existing.status, disposition: existing.disposition },
-      after: { status: "CLOSED", disposition: payload.disposition, dispositionReason: payload.dispositionReason },
+      after: { disposition: payload.disposition, dispositionReason: payload.dispositionReason },
       requestId, route,
     });
 
@@ -2233,14 +2234,15 @@ export class DatabaseStorage implements IStorage {
   ): Promise<schema.OosInvestigation> {
     const [existing] = await tx.select().from(schema.oosInvestigations).where(eq(schema.oosInvestigations.id, investigationId));
     if (!existing) throw Object.assign(new Error("Investigation not found"), { status: 404 });
-    if (existing.status === "CLOSED") throw Object.assign(new Error("Investigation already closed"), { status: 409 });
+    if (existing.status === "CLOSED" || existing.closedAt !== null) {
+      throw Object.assign(new Error("Investigation already closed"), { status: 409 });
+    }
     if (!leadInvestigatorUserId) throw Object.assign(new Error("lead investigator required for closure"), { status: 422 });
     if (!reasonNarrative) throw Object.assign(new Error("reasonNarrative required"), { status: 422 });
 
     const [updated] = await tx
       .update(schema.oosInvestigations)
       .set({
-        status: "CLOSED",
         disposition: "NO_INVESTIGATION_NEEDED",
         dispositionReason: reasonNarrative,
         noInvestigationReason: reason,
@@ -2254,19 +2256,22 @@ export class DatabaseStorage implements IStorage {
 
     await tx.insert(schema.auditTrail).values({
       userId: closedByUserId, action: "OOS_CLOSED", entityType: "oos_investigation", entityId: investigationId,
-      before: { status: existing.status }, after: { status: "CLOSED", disposition: "NO_INVESTIGATION_NEEDED", noInvestigationReason: reason },
+      before: { status: existing.status }, after: { disposition: "NO_INVESTIGATION_NEEDED", noInvestigationReason: reason },
       requestId, route,
     });
 
     return updated!;
   }
 
-  async setOosClosureSignature(investigationId: string, signatureId: string, tx: Tx): Promise<void> {
-    if (!signatureId) throw Object.assign(new Error("signatureId is required"), { status: 500 });
-    await tx
+  async finalizeOosClosure(investigationId: string, signatureId: string): Promise<schema.OosInvestigation> {
+    if (!signatureId) throw Object.assign(new Error("signatureId required for closure finalization"), { status: 422 });
+    const [updated] = await db
       .update(schema.oosInvestigations)
-      .set({ closureSignatureId: signatureId })
-      .where(eq(schema.oosInvestigations.id, investigationId));
+      .set({ status: "CLOSED", closureSignatureId: signatureId, updatedAt: new Date() })
+      .where(eq(schema.oosInvestigations.id, investigationId))
+      .returning();
+    if (!updated) throw Object.assign(new Error("Investigation not found"), { status: 404 });
+    return updated;
   }
 
   // ─── Supplier Qualifications ─────────────────────────
