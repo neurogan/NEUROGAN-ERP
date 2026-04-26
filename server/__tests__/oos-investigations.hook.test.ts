@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterAll } from "vitest";
 import { storage } from "../storage";
 import { db } from "../db";
 import * as schema from "@shared/schema";
@@ -12,6 +12,23 @@ describeIfDb("addLabTestResult OOS hook", () => {
   let qaUser: schema.User;
   let lotId: string;
   let coaId: string;
+
+  afterAll(async () => {
+    await db.delete(schema.oosInvestigationTestResults);
+    await db.update(schema.oosInvestigations).set({ closureSignatureId: null });
+    await db.delete(schema.oosInvestigations);
+    await db.delete(schema.oosInvestigationCounter);
+    await db.delete(schema.labTestResults);
+    await db.update(schema.validationDocuments).set({ signatureId: null });
+    await db.delete(schema.electronicSignatures);
+    await db.delete(schema.coaDocuments);
+    await db.delete(schema.auditTrail);
+    await db.delete(schema.passwordHistory);
+    await db.delete(schema.userRoles);
+    await db.delete(schema.users);
+    await db.delete(schema.lots);
+    await db.delete(schema.products);
+  });
 
   beforeEach(async () => {
     [qaUser] = await db.insert(schema.users).values({

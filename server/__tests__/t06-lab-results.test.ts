@@ -84,6 +84,12 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (!dbUrl) return;
+  // The OOS hook in addLabTestResult auto-creates investigations + junction
+  // rows when pass=false. Clean those first so labTestResults can be deleted.
+  await db.delete(schema.oosInvestigationTestResults);
+  await db.update(schema.oosInvestigations).set({ closureSignatureId: null });
+  await db.delete(schema.oosInvestigations);
+  await db.delete(schema.oosInvestigationCounter);
   // Delete lab test results first (FK child)
   for (const id of seededResultIds) {
     await db.delete(schema.labTestResults).where(eq(schema.labTestResults.id, id));

@@ -31,11 +31,15 @@ describeIfDb("OOS investigation routes", () => {
     await db.delete(schema.oosInvestigations);
     await db.delete(schema.oosInvestigationCounter);
     await db.delete(schema.labTestResults);
+    await db.update(schema.validationDocuments).set({ signatureId: null });
+    await db.delete(schema.electronicSignatures);
     await db.delete(schema.coaDocuments);
-    await db.delete(schema.lots);
-    await db.delete(schema.products);
+    await db.delete(schema.auditTrail);
+    await db.delete(schema.passwordHistory);
     await db.delete(schema.userRoles);
     await db.delete(schema.users);
+    await db.delete(schema.lots);
+    await db.delete(schema.products);
   });
 
   beforeEach(async () => {
