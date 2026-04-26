@@ -1620,13 +1620,7 @@ export async function registerRoutes(
     async (req, res, next) => {
       try {
         const { leadInvestigatorUserId } = oosAssignLeadBodySchema.parse(req.body);
-        const updated = await withAudit(
-          { userId: req.user!.id, action: "UPDATE", entityType: "oos_investigation",
-            entityId: req.params.id, before: null,
-            route: `${req.method} ${req.path}`, requestId: req.requestId,
-            meta: { subtype: "ASSIGN_LEAD_INVESTIGATOR" } },
-          (tx) => storage.assignOosLeadInvestigator(req.params.id, leadInvestigatorUserId, req.user!.id, req.requestId, `${req.method} ${req.path}`, tx),
-        );
+        const updated = await db.transaction((tx) => storage.assignOosLeadInvestigator(req.params.id, leadInvestigatorUserId, req.user!.id, req.requestId, `${req.method} ${req.path}`, tx));
         res.json(updated);
       } catch (err) { next(err); }
     },
@@ -1637,13 +1631,7 @@ export async function registerRoutes(
     requireAuth, requireRole("QA", "ADMIN"),
     async (req, res, next) => {
       try {
-        const updated = await withAudit(
-          { userId: req.user!.id, action: "UPDATE", entityType: "oos_investigation",
-            entityId: req.params.id, before: null,
-            route: `${req.method} ${req.path}`, requestId: req.requestId,
-            meta: { subtype: "RETEST_PENDING_SET" } },
-          (tx) => storage.setOosRetestPending(req.params.id, req.user!.id, req.requestId, `${req.method} ${req.path}`, tx),
-        );
+        const updated = await db.transaction((tx) => storage.setOosRetestPending(req.params.id, req.user!.id, req.requestId, `${req.method} ${req.path}`, tx));
         res.json(updated);
       } catch (err) { next(err); }
     },
@@ -1654,13 +1642,7 @@ export async function registerRoutes(
     requireAuth, requireRole("QA", "ADMIN"),
     async (req, res, next) => {
       try {
-        const updated = await withAudit(
-          { userId: req.user!.id, action: "UPDATE", entityType: "oos_investigation",
-            entityId: req.params.id, before: null,
-            route: `${req.method} ${req.path}`, requestId: req.requestId,
-            meta: { subtype: "RETEST_PENDING_CLEARED" } },
-          (tx) => storage.clearOosRetestPending(req.params.id, req.user!.id, req.requestId, `${req.method} ${req.path}`, tx),
-        );
+        const updated = await db.transaction((tx) => storage.clearOosRetestPending(req.params.id, req.user!.id, req.requestId, `${req.method} ${req.path}`, tx));
         res.json(updated);
       } catch (err) { next(err); }
     },
@@ -1717,7 +1699,8 @@ export async function registerRoutes(
           ))
           .orderBy(desc(schema.electronicSignatures.signedAt))
           .limit(1);
-        const updated = await storage.finalizeOosClosure(req.params.id, sig!.id);
+        if (!sig) return next(Object.assign(new Error("Signature row not found after performSignature — closure not finalized"), { status: 500 }));
+        const updated = await storage.finalizeOosClosure(req.params.id, sig.id);
         res.json(updated);
       } catch (err) { next(err); }
     },
@@ -1759,7 +1742,8 @@ export async function registerRoutes(
           ))
           .orderBy(desc(schema.electronicSignatures.signedAt))
           .limit(1);
-        const updated = await storage.finalizeOosClosure(req.params.id, sig!.id);
+        if (!sig) return next(Object.assign(new Error("Signature row not found after performSignature — closure not finalized"), { status: 500 }));
+        const updated = await storage.finalizeOosClosure(req.params.id, sig.id);
         res.json(updated);
       } catch (err) { next(err); }
     },

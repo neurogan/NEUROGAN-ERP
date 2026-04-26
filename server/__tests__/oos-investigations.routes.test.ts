@@ -131,6 +131,34 @@ describeIfDb("OOS investigation routes", () => {
     expect(inv.status).toBe("OPEN");
   });
 
+  it("POST .../close on already-closed investigation returns 409", async () => {
+    // First close successfully
+    await request(app)
+      .post(`/api/oos-investigations/${investigationId}/assign-lead`)
+      .set("x-test-user-id", qaUser.id)
+      .send({ leadInvestigatorUserId: qaUser.id });
+    await request(app)
+      .post(`/api/oos-investigations/${investigationId}/close`)
+      .set("x-test-user-id", qaUser.id)
+      .send({
+        disposition: "APPROVED",
+        dispositionReason: "Lab error confirmed, lot passes spec",
+        leadInvestigatorUserId: qaUser.id,
+        signaturePassword: PASS,
+      });
+    // Attempt to close again — should return 409
+    const res = await request(app)
+      .post(`/api/oos-investigations/${investigationId}/close`)
+      .set("x-test-user-id", qaUser.id)
+      .send({
+        disposition: "APPROVED",
+        dispositionReason: "Duplicate close attempt",
+        leadInvestigatorUserId: qaUser.id,
+        signaturePassword: PASS,
+      });
+    expect(res.status).toBe(409);
+  });
+
   it("POST .../mark-no-investigation-needed closes with NO_INVESTIGATION_NEEDED", async () => {
     const res = await request(app)
       .post(`/api/oos-investigations/${investigationId}/mark-no-investigation-needed`)
