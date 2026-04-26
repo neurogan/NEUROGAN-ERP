@@ -26,6 +26,7 @@ import {
   type UserResponse,
   type UserRole,
 } from "@shared/schema";
+import * as schema from "@shared/schema";
 import { z, ZodError } from "zod";
 import { requireAuth, requireRole, requireRoleOrSelf, rejectIdentityInBody } from "./auth/middleware";
 import { performSignature } from "./signatures/signatures";
@@ -35,6 +36,8 @@ import { withAudit } from "./audit/audit";
 import { auditRouter } from "./audit/audit-routes";
 import { signatureRouter } from "./signatures/signature-routes";
 import { validationRouter } from "./validation/validation-routes";
+import { db } from "./db";
+import { eq, and, desc } from "drizzle-orm";
 
 function formatZodError(error: ZodError): string {
   return error.errors.map(e => `${e.path.join(".")}: ${e.message}`).join(", ");
@@ -1552,6 +1555,197 @@ export async function registerRoutes(
       } catch (err) {
         next(err);
       }
+    },
+  );
+
+  // ─── OOS investigations (T-08 §111.113 / §111.123 / SOP-QC-006) ───────
+
+  const oosListQuerySchema = z.object({
+    status: z.enum(["OPEN", "RETEST_PENDING", "CLOSED", "ALL"]).optional(),
+    lotId: z.string().optional(),
+    dateFrom: z.string().optional(),
+    dateTo: z.string().optional(),
+  });
+
+  const oosCloseBodySchema = z.object({
+    disposition: z.enum(["APPROVED", "REJECTED", "RECALL"]),
+    dispositionReason: z.string().min(1),
+    leadInvestigatorUserId: z.string().uuid(),
+    recallDetails: z.object({
+      class: z.enum(["I", "II", "III"]),
+      distributionScope: z.string().min(1),
+      fdaNotificationDate: z.string().optional(),
+      customerNotificationDate: z.string().optional(),
+      recoveryTargetDate: z.string().optional(),
+      affectedLotIds: z.array(z.string()).optional(),
+    }).optional(),
+    signaturePassword: z.string().min(1),
+  });
+
+  const oosNoInvestigationBodySchema = z.object({
+    reason: z.enum(["LAB_ERROR", "SAMPLE_INVALID", "INSTRUMENT_OUT_OF_CALIBRATION", "OTHER"]),
+    reasonNarrative: z.string().min(1),
+    leadInvestigatorUserId: z.string().uuid(),
+    signaturePassword: z.string().min(1),
+  });
+
+  const oosAssignLeadBodySchema = z.object({
+    leadInvestigatorUserId: z.string().uuid(),
+  });
+
+  app.get("/api/oos-investigations", requireAuth, async (req, res, next) => {
+    try {
+      const q = oosListQuerySchema.parse(req.query);
+      const items = await storage.listOosInvestigations({
+        status: q.status,
+        lotId: q.lotId,
+        dateFrom: q.dateFrom ? new Date(q.dateFrom) : undefined,
+        dateTo: q.dateTo ? new Date(q.dateTo) : undefined,
+      });
+      res.json(items);
+    } catch (err) { next(err); }
+  });
+
+  app.get<{ id: string }>("/api/oos-investigations/:id", requireAuth, async (req, res, next) => {
+    try {
+      const detail = await storage.getOosInvestigationById(req.params.id);
+      if (!detail) return res.status(404).json({ message: "OOS investigation not found" });
+      res.json(detail);
+    } catch (err) { next(err); }
+  });
+
+  app.post<{ id: string }>(
+    "/api/oos-investigations/:id/assign-lead",
+    requireAuth, requireRole("QA", "ADMIN"), rejectIdentityInBody(["assignedByUserId"]),
+    async (req, res, next) => {
+      try {
+        const { leadInvestigatorUserId } = oosAssignLeadBodySchema.parse(req.body);
+        const updated = await db.transaction((tx) => storage.assignOosLeadInvestigator(req.params.id, leadInvestigatorUserId, req.user!.id, req.requestId, `${req.method} ${req.path}`, tx));
+        res.json(updated);
+      } catch (err) { next(err); }
+    },
+  );
+
+  app.post<{ id: string }>(
+    "/api/oos-investigations/:id/retest-pending",
+    requireAuth, requireRole("QA", "ADMIN"),
+    async (req, res, next) => {
+      try {
+        const updated = await db.transaction((tx) => storage.setOosRetestPending(req.params.id, req.user!.id, req.requestId, `${req.method} ${req.path}`, tx));
+        res.json(updated);
+      } catch (err) { next(err); }
+    },
+  );
+
+  app.post<{ id: string }>(
+    "/api/oos-investigations/:id/clear-retest",
+    requireAuth, requireRole("QA", "ADMIN"),
+    async (req, res, next) => {
+      try {
+        const updated = await db.transaction((tx) => storage.clearOosRetestPending(req.params.id, req.user!.id, req.requestId, `${req.method} ${req.path}`, tx));
+        res.json(updated);
+      } catch (err) { next(err); }
+    },
+  );
+
+  app.post<{ id: string }>(
+    "/api/oos-investigations/:id/close",
+    requireAuth, requireRole("QA", "ADMIN"), rejectIdentityInBody(["closedByUserId"]),
+    async (req, res, next) => {
+      try {
+        const body = oosCloseBodySchema.parse(req.body);
+        const recall = body.recallDetails;
+        // Step 1: performSignature calls fn(tx) first, then inserts signature
+        await performSignature(
+          {
+            userId: req.user!.id,
+            password: body.signaturePassword,
+            meaning: "OOS_INVESTIGATION_CLOSE",
+            entityType: "oos_investigation",
+            entityId: req.params.id,
+            commentary: body.dispositionReason,
+            recordSnapshot: { disposition: body.disposition, recallClass: recall?.class },
+            route: `${req.method} ${req.path}`,
+            requestId: req.requestId,
+          },
+          async (tx) => {
+            return storage.closeOosInvestigation(
+              req.params.id,
+              {
+                disposition: body.disposition,
+                dispositionReason: body.dispositionReason,
+                leadInvestigatorUserId: body.leadInvestigatorUserId,
+                recallDetails: recall ? {
+                  class: recall.class,
+                  distributionScope: recall.distributionScope,
+                  fdaNotificationDate: recall.fdaNotificationDate ? new Date(recall.fdaNotificationDate) : undefined,
+                  customerNotificationDate: recall.customerNotificationDate ? new Date(recall.customerNotificationDate) : undefined,
+                  recoveryTargetDate: recall.recoveryTargetDate ? new Date(recall.recoveryTargetDate) : undefined,
+                  affectedLotIds: recall.affectedLotIds,
+                } : undefined,
+              },
+              req.user!.id, req.requestId, `${req.method} ${req.path}`, tx,
+            );
+          },
+        );
+        // Step 2: signature row now committed — finalize the closure
+        const [sig] = await db
+          .select({ id: schema.electronicSignatures.id })
+          .from(schema.electronicSignatures)
+          .where(and(
+            eq(schema.electronicSignatures.entityType, "oos_investigation"),
+            eq(schema.electronicSignatures.entityId, req.params.id),
+            eq(schema.electronicSignatures.requestId, req.requestId),
+          ))
+          .orderBy(desc(schema.electronicSignatures.signedAt))
+          .limit(1);
+        if (!sig) return next(Object.assign(new Error("Signature row not found after performSignature — closure not finalized"), { status: 500 }));
+        const updated = await storage.finalizeOosClosure(req.params.id, sig.id);
+        res.json(updated);
+      } catch (err) { next(err); }
+    },
+  );
+
+  app.post<{ id: string }>(
+    "/api/oos-investigations/:id/mark-no-investigation-needed",
+    requireAuth, requireRole("QA", "ADMIN"), rejectIdentityInBody(["closedByUserId"]),
+    async (req, res, next) => {
+      try {
+        const body = oosNoInvestigationBodySchema.parse(req.body);
+        await performSignature(
+          {
+            userId: req.user!.id,
+            password: body.signaturePassword,
+            meaning: "OOS_INVESTIGATION_CLOSE",
+            entityType: "oos_investigation",
+            entityId: req.params.id,
+            commentary: body.reasonNarrative,
+            recordSnapshot: { disposition: "NO_INVESTIGATION_NEEDED", reason: body.reason },
+            route: `${req.method} ${req.path}`,
+            requestId: req.requestId,
+          },
+          async (tx) => {
+            return storage.markOosNoInvestigationNeeded(
+              req.params.id, body.reason, body.reasonNarrative,
+              body.leadInvestigatorUserId, req.user!.id,
+              req.requestId, `${req.method} ${req.path}`, tx,
+            );
+          },
+        );
+        const [sig] = await db
+          .select({ id: schema.electronicSignatures.id })
+          .from(schema.electronicSignatures)
+          .where(and(
+            eq(schema.electronicSignatures.entityType, "oos_investigation"),
+            eq(schema.electronicSignatures.entityId, req.params.id),
+            eq(schema.electronicSignatures.requestId, req.requestId),
+          ))
+          .orderBy(desc(schema.electronicSignatures.signedAt))
+          .limit(1);
+        if (!sig) return next(Object.assign(new Error("Signature row not found after performSignature — closure not finalized"), { status: 500 }));
+        const updated = await storage.finalizeOosClosure(req.params.id, sig.id);
+        res.json(updated);
+      } catch (err) { next(err); }
     },
   );
 

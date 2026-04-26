@@ -4,6 +4,7 @@ import {
   varchar,
   decimal,
   timestamp,
+  date,
   pgEnum,
   uuid,
   integer,
@@ -798,6 +799,8 @@ export const auditActionEnum = z.enum([
   "LAB_RESULT_ADDED",
   "LAB_QUALIFIED",
   "LAB_DISQUALIFIED",
+  "OOS_OPENED",
+  "OOS_CLOSED",
 ]);
 export type AuditAction = z.infer<typeof auditActionEnum>;
 
@@ -846,6 +849,7 @@ export const signatureMeaningEnum = z.enum([
   "SPEC_APPROVAL",
   "LAB_APPROVAL",
   "LAB_DISQUALIFICATION",
+  "OOS_INVESTIGATION_CLOSE",
 ]);
 export type SignatureMeaning = z.infer<typeof signatureMeaningEnum>;
 
@@ -945,3 +949,90 @@ export const insertLabQualificationSchema = createInsertSchema(labQualifications
 export type LabQualification = typeof labQualifications.$inferSelect;
 export type InsertLabQualification = z.infer<typeof insertLabQualificationSchema>;
 export type LabQualificationWithDetails = LabQualification & { performedByName: string };
+
+// ─── T-08 OOS investigations ──────────────────────────────────────────────
+
+export const oosStatusEnum = z.enum(["OPEN", "RETEST_PENDING", "CLOSED"]);
+export type OosStatus = z.infer<typeof oosStatusEnum>;
+
+export const oosDispositionEnum = z.enum(["APPROVED", "REJECTED", "RECALL", "NO_INVESTIGATION_NEEDED"]);
+export type OosDisposition = z.infer<typeof oosDispositionEnum>;
+
+export const oosNoInvestigationReasonEnum = z.enum([
+  "LAB_ERROR", "SAMPLE_INVALID", "INSTRUMENT_OUT_OF_CALIBRATION", "OTHER",
+]);
+export type OosNoInvestigationReason = z.infer<typeof oosNoInvestigationReasonEnum>;
+
+export const oosRecallClassEnum = z.enum(["I", "II", "III"]);
+export type OosRecallClass = z.infer<typeof oosRecallClassEnum>;
+
+export const oosInvestigations = pgTable("erp_oos_investigations", {
+  id:                              uuid("id").primaryKey().defaultRandom(),
+  oosNumber:                       text("oos_number").notNull().unique(),
+  coaDocumentId:                   varchar("coa_document_id").notNull().references(() => coaDocuments.id),
+  lotId:                           varchar("lot_id").notNull().references(() => lots.id),
+  status:                          text("status").$type<OosStatus>().notNull().default("OPEN"),
+  disposition:                     text("disposition").$type<OosDisposition | null>(),
+  dispositionReason:               text("disposition_reason"),
+  noInvestigationReason:           text("no_investigation_reason").$type<OosNoInvestigationReason | null>(),
+  recallClass:                     text("recall_class").$type<OosRecallClass | null>(),
+  recallDistributionScope:         text("recall_distribution_scope"),
+  recallFdaNotificationDate:       date("recall_fda_notification_date"),
+  recallCustomerNotificationDate:  date("recall_customer_notification_date"),
+  recallRecoveryTargetDate:        date("recall_recovery_target_date"),
+  recallAffectedLotIds:            varchar("recall_affected_lot_ids").array(),
+  leadInvestigatorUserId:          uuid("lead_investigator_user_id").references(() => users.id),
+  autoCreatedAt:                   timestamp("auto_created_at", { withTimezone: true }).notNull().defaultNow(),
+  closedByUserId:                  uuid("closed_by_user_id").references(() => users.id),
+  closedAt:                        timestamp("closed_at", { withTimezone: true }),
+  closureSignatureId:              uuid("closure_signature_id").references(() => electronicSignatures.id),
+  createdAt:                       timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt:                       timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type OosInvestigation = typeof oosInvestigations.$inferSelect;
+export const insertOosInvestigationSchema = createInsertSchema(oosInvestigations);
+export type InsertOosInvestigation = z.infer<typeof insertOosInvestigationSchema>;
+
+export type OosInvestigationDetail = OosInvestigation & {
+  lotNumber: string | null;
+  coaDocumentNumber: string | null;
+  testResults: Array<{
+    id: string;
+    analyteName: string;
+    resultValue: string;
+    specMin: string | null;
+    specMax: string | null;
+    pass: boolean;
+    testedAt: Date;
+    testedByUserId: string;
+    testedByName: string | null;
+    notes: string | null;
+  }>;
+  leadInvestigatorName: string | null;
+  closedByName: string | null;
+};
+
+export type OosInvestigationSummary = {
+  id: string;
+  oosNumber: string;
+  lotId: string;
+  lotNumber: string | null;
+  coaDocumentId: string;
+  status: OosStatus;
+  disposition: OosDisposition | null;
+  autoCreatedAt: Date;
+  closedAt: Date | null;
+};
+
+export const oosInvestigationTestResults = pgTable("erp_oos_investigation_test_results", {
+  investigationId:  uuid("investigation_id").notNull().references(() => oosInvestigations.id, { onDelete: "cascade" }),
+  labTestResultId:  uuid("lab_test_result_id").notNull().references(() => labTestResults.id),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.investigationId, t.labTestResultId] }),
+}));
+
+export const oosInvestigationCounter = pgTable("erp_oos_investigation_counter", {
+  year:    integer("year").primaryKey(),
+  lastSeq: integer("last_seq").notNull().default(0),
+});

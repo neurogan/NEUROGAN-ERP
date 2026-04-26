@@ -24,6 +24,7 @@ import BatchPrint from "@/pages/batch-print";
 import SkuManager from "@/pages/sku-manager";
 import Login from "@/pages/login";
 import ValidationDetail from "@/pages/quality/ValidationDetail";
+import OosInvestigations from "@/pages/OosInvestigations";
 import { useAuth, useLogout } from "@/lib/auth";
 import { InactivityWarning } from "@/components/InactivityWarning";
 
@@ -41,6 +42,7 @@ const navItems: NavItem[] = [
   { href: "/receiving", label: "Receiving" },
   { href: "/production", label: "Production" },
   { href: "/transactions", label: "Transactions" },
+  { href: "/oos-investigations", label: "OOS", requiredRoles: ["QA", "ADMIN"] },
 ];
 
 function ThemeToggle() {
@@ -177,6 +179,7 @@ function AppLayout() {
           <Route path="/settings/validation/:id" component={ValidationDetail} />
           <Route path="/settings/users" component={SettingsUsers} />
           <Route path="/settings" component={Settings} />
+          <Route path="/oos-investigations" component={OosInvestigations} />
           <Route path="/profile/rotate-password" component={Profile} />
           <Route path="/profile" component={Profile} />
           <Route component={NotFound} />

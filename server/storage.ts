@@ -34,6 +34,12 @@ import {
   type Lab, type InsertLab,
   type LabQualificationWithDetails,
   type ApprovedMaterial,
+  type OosInvestigation,
+  type OosInvestigationDetail,
+  type OosInvestigationSummary,
+  type OosStatus,
+  type OosRecallClass,
+  type OosNoInvestigationReason,
 } from "@shared/schema";
 import type { Tx } from "./db";
 
@@ -302,6 +308,17 @@ export interface IStorage {
   // Lab Test Results (T-06)
   addLabTestResult(coaId: string, data: InsertLabTestResult, userId: string, tx?: Tx): Promise<LabTestResult>;
   getLabTestResults(coaId: string): Promise<LabTestResult[]>;
+
+  // OOS investigations (T-08)
+  getOrCreateOpenOosInvestigation(coaDocumentId: string, lotId: string, labTestResultId: string, userId: string, requestId: string, route: string, tx: Tx): Promise<OosInvestigation>;
+  getOosInvestigationById(id: string): Promise<OosInvestigationDetail | null>;
+  listOosInvestigations(filters: { status?: OosStatus | "ALL"; lotId?: string; dateFrom?: Date; dateTo?: Date }): Promise<OosInvestigationSummary[]>;
+  assignOosLeadInvestigator(investigationId: string, leadUserId: string, actingUserId: string, requestId: string, route: string, tx: Tx): Promise<OosInvestigation>;
+  setOosRetestPending(investigationId: string, actingUserId: string, requestId: string, route: string, tx: Tx): Promise<OosInvestigation>;
+  clearOosRetestPending(investigationId: string, actingUserId: string, requestId: string, route: string, tx: Tx): Promise<OosInvestigation>;
+  closeOosInvestigation(investigationId: string, payload: { disposition: "APPROVED" | "REJECTED" | "RECALL"; dispositionReason: string; leadInvestigatorUserId: string; recallDetails?: { class: OosRecallClass; distributionScope: string; fdaNotificationDate?: Date; customerNotificationDate?: Date; recoveryTargetDate?: Date; affectedLotIds?: string[]; }; }, closedByUserId: string, requestId: string, route: string, tx: Tx): Promise<OosInvestigation>;
+  markOosNoInvestigationNeeded(investigationId: string, reason: OosNoInvestigationReason, reasonNarrative: string, leadInvestigatorUserId: string, closedByUserId: string, requestId: string, route: string, tx: Tx): Promise<OosInvestigation>;
+  finalizeOosClosure(investigationId: string, signatureId: string): Promise<OosInvestigation>;
 
   // Supplier Qualifications
   getSupplierQualifications(supplierId?: string): Promise<SupplierQualificationWithDetails[]>;

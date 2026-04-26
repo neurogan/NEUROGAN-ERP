@@ -45,6 +45,7 @@ const MEANING_VERB: Record<SignatureMeaning, string> = {
   SPEC_APPROVAL: "approved specification for",
   LAB_APPROVAL: "approved laboratory result for",
   LAB_DISQUALIFICATION: "disqualified laboratory",
+  OOS_INVESTIGATION_CLOSE: "closed OOS investigation for",
 };
 
 // Performs the signature ceremony then calls fn(tx) for the state change —

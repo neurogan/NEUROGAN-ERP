@@ -84,6 +84,12 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (!dbUrl) return;
+  // The OOS hook in addLabTestResult auto-creates investigations + junction
+  // rows when pass=false. Clean those first so labTestResults can be deleted.
+  await db.delete(schema.oosInvestigationTestResults);
+  await db.update(schema.oosInvestigations).set({ closureSignatureId: null });
+  await db.delete(schema.oosInvestigations);
+  await db.delete(schema.oosInvestigationCounter);
   // Delete lab test results first (FK child)
   for (const id of seededResultIds) {
     await db.delete(schema.labTestResults).where(eq(schema.labTestResults.id, id));
@@ -91,6 +97,12 @@ afterAll(async () => {
   // Delete any remaining results for this COA (e.g. inserted via storage)
   await db.delete(schema.labTestResults).where(eq(schema.labTestResults.coaDocumentId, coaId));
   await db.delete(schema.auditTrail).where(eq(schema.auditTrail.entityType, "lab_test_result"));
+  // OOS hook also writes audit rows for oos_investigation entityType — clean those too
+  await db.delete(schema.auditTrail).where(eq(schema.auditTrail.entityType, "oos_investigation"));
+  // And any remaining audit rows for the test users (covers other entityTypes)
+  await db.delete(schema.auditTrail).where(eq(schema.auditTrail.userId, labTechId));
+  await db.delete(schema.auditTrail).where(eq(schema.auditTrail.userId, warehouseId));
+  await db.delete(schema.auditTrail).where(eq(schema.auditTrail.userId, adminId));
   // COA documents, lots, products, suppliers — use a broad cleanup
   await db.delete(schema.coaDocuments).where(eq(schema.coaDocuments.lotId,
     (await db.select({ id: schema.lots.id }).from(schema.lots)
