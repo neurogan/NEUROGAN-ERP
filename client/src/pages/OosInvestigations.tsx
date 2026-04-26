@@ -88,30 +88,35 @@ export default function OosInvestigations() {
     mutationFn: ({ id, leadInvestigatorUserId }: { id: string; leadInvestigatorUserId: string }) =>
       apiRequest("POST", `/api/oos-investigations/${id}/assign-lead`, { leadInvestigatorUserId }).then(r => r.json()),
     onSuccess: () => { refetchAll(); toast({ title: "Lead investigator assigned" }); },
+    onError: (err: Error) => toast({ title: "Action failed", description: err.message, variant: "destructive" }),
   });
 
   const setRetestPending = useMutation({
     mutationFn: (id: string) =>
       apiRequest("POST", `/api/oos-investigations/${id}/retest-pending`, {}).then(r => r.json()),
     onSuccess: () => { refetchAll(); toast({ title: "Retest pending" }); },
+    onError: (err: Error) => toast({ title: "Action failed", description: err.message, variant: "destructive" }),
   });
 
   const clearRetest = useMutation({
     mutationFn: (id: string) =>
       apiRequest("POST", `/api/oos-investigations/${id}/clear-retest`, {}).then(r => r.json()),
     onSuccess: () => { refetchAll(); toast({ title: "Retest cleared" }); },
+    onError: (err: Error) => toast({ title: "Action failed", description: err.message, variant: "destructive" }),
   });
 
   const closeInvestigation = useMutation({
-    mutationFn: (body: unknown) =>
-      apiRequest("POST", `/api/oos-investigations/${openInvestigationId}/close`, body).then(r => r.json()),
+    mutationFn: ({ id, ...body }: { id: string; [key: string]: unknown }) =>
+      apiRequest("POST", `/api/oos-investigations/${id}/close`, body).then(r => r.json()),
     onSuccess: () => { refetchAll(); setCloseMode("none"); setOpenInvestigationId(null); toast({ title: "Investigation closed" }); },
+    onError: (err: Error) => toast({ title: "Failed to close investigation", description: err.message, variant: "destructive" }),
   });
 
   const markNoInvestigation = useMutation({
-    mutationFn: (body: unknown) =>
-      apiRequest("POST", `/api/oos-investigations/${openInvestigationId}/mark-no-investigation-needed`, body).then(r => r.json()),
+    mutationFn: ({ id, ...body }: { id: string; [key: string]: unknown }) =>
+      apiRequest("POST", `/api/oos-investigations/${id}/mark-no-investigation-needed`, body).then(r => r.json()),
     onSuccess: () => { refetchAll(); setCloseMode("none"); setOpenInvestigationId(null); toast({ title: "Marked as no investigation needed" }); },
+    onError: (err: Error) => toast({ title: "Failed to mark no investigation needed", description: err.message, variant: "destructive" }),
   });
 
   // Render filter bar + table
@@ -151,7 +156,8 @@ export default function OosInvestigations() {
           )}
           {investigations.map((i) => {
             const opened = new Date(i.autoCreatedAt);
-            const daysOpen = Math.floor((Date.now() - opened.getTime()) / 86400000);
+            const closed = i.closedAt ? new Date(i.closedAt) : null;
+            const daysOpen = Math.floor(((closed ?? new Date()).getTime() - opened.getTime()) / 86400000);
             return (
               <TableRow key={i.id}>
                 <TableCell>{i.oosNumber}</TableCell>
@@ -220,7 +226,19 @@ export default function OosInvestigations() {
                   <section>
                     <h3 className="font-medium mb-2">Closure</h3>
                     <p>Disposition: <Badge>{detail.disposition}</Badge></p>
-                    <p>Reason: {detail.dispositionReason}</p>
+                    <p>Reason: {detail.dispositionReason ?? detail.noInvestigationReason}</p>
+                    {detail.recallClass && (
+                      <div className="mt-2 border rounded p-2 bg-amber-50 space-y-1 text-sm">
+                        <p><strong>Recall class:</strong> {detail.recallClass}</p>
+                        {detail.recallDistributionScope && <p><strong>Scope:</strong> {detail.recallDistributionScope}</p>}
+                        {detail.recallFdaNotificationDate && <p><strong>FDA notification:</strong> {new Date(detail.recallFdaNotificationDate).toLocaleDateString()}</p>}
+                        {detail.recallCustomerNotificationDate && <p><strong>Customer notification:</strong> {new Date(detail.recallCustomerNotificationDate).toLocaleDateString()}</p>}
+                        {detail.recallRecoveryTargetDate && <p><strong>Recovery target:</strong> {new Date(detail.recallRecoveryTargetDate).toLocaleDateString()}</p>}
+                        {detail.recallAffectedLotIds && detail.recallAffectedLotIds.length > 0 && (
+                          <p><strong>Affected lots:</strong> {detail.recallAffectedLotIds.join(", ")}</p>
+                        )}
+                      </div>
+                    )}
                     <p>Closed by: {detail.closedByName} · {detail.closedAt && new Date(detail.closedAt).toLocaleString()}</p>
                   </section>
                 )}
@@ -235,7 +253,8 @@ export default function OosInvestigations() {
         open={closeMode === "close"}
         onOpenChange={(o) => !o && setCloseMode("none")}
         leadUserId={detail?.leadInvestigatorUserId ?? null}
-        onSubmit={(body) => closeInvestigation.mutate(body)}
+        investigationId={openInvestigationId}
+        onSubmit={(body) => closeInvestigation.mutate(body as { id: string; [key: string]: unknown })}
         pending={closeInvestigation.isPending}
       />
 
@@ -244,16 +263,18 @@ export default function OosInvestigations() {
         open={closeMode === "no-investigation"}
         onOpenChange={(o) => !o && setCloseMode("none")}
         leadUserId={detail?.leadInvestigatorUserId ?? user?.id ?? null}
-        onSubmit={(body) => markNoInvestigation.mutate(body)}
+        investigationId={openInvestigationId}
+        onSubmit={(body) => markNoInvestigation.mutate(body as { id: string; [key: string]: unknown })}
         pending={markNoInvestigation.isPending}
       />
     </div>
   );
 }
 
-function CloseInvestigationModal({ open, onOpenChange, leadUserId, onSubmit, pending }: {
+function CloseInvestigationModal({ open, onOpenChange, leadUserId, investigationId, onSubmit, pending }: {
   open: boolean; onOpenChange: (o: boolean) => void;
   leadUserId: string | null;
+  investigationId: string | null;
   onSubmit: (body: unknown) => void; pending: boolean;
 }) {
   const [disposition, setDisposition] = useState<"APPROVED" | "REJECTED" | "RECALL">("APPROVED");
@@ -267,7 +288,20 @@ function CloseInvestigationModal({ open, onOpenChange, leadUserId, onSubmit, pen
   const [password, setPassword] = useState("");
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={(o) => {
+      if (!o) {
+        setDisposition("APPROVED");
+        setReason("");
+        setRecallClass("II");
+        setDistributionScope("");
+        setFdaNot("");
+        setCustNot("");
+        setRecovTarget("");
+        setAffectedLots("");
+        setPassword("");
+      }
+      onOpenChange(o);
+    }}>
       <DialogContent>
         <DialogHeader><DialogTitle>Close OOS Investigation</DialogTitle></DialogHeader>
         <div className="space-y-3">
@@ -313,12 +347,13 @@ function CloseInvestigationModal({ open, onOpenChange, leadUserId, onSubmit, pen
           )}
           <div>
             <Label>Your password (e-signature)</Label>
-            <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+            <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required />
           </div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button disabled={pending || !leadUserId || !reason || !password} onClick={() => onSubmit({
+            id: investigationId,
             disposition, dispositionReason: reason,
             leadInvestigatorUserId: leadUserId,
             recallDetails: disposition === "RECALL" ? {
@@ -336,9 +371,10 @@ function CloseInvestigationModal({ open, onOpenChange, leadUserId, onSubmit, pen
   );
 }
 
-function NoInvestigationNeededModal({ open, onOpenChange, leadUserId, onSubmit, pending }: {
+function NoInvestigationNeededModal({ open, onOpenChange, leadUserId, investigationId, onSubmit, pending }: {
   open: boolean; onOpenChange: (o: boolean) => void;
   leadUserId: string | null;
+  investigationId: string | null;
   onSubmit: (body: unknown) => void; pending: boolean;
 }) {
   const [reason, setReason] = useState<"LAB_ERROR" | "SAMPLE_INVALID" | "INSTRUMENT_OUT_OF_CALIBRATION" | "OTHER">("LAB_ERROR");
@@ -346,7 +382,14 @@ function NoInvestigationNeededModal({ open, onOpenChange, leadUserId, onSubmit, 
   const [password, setPassword] = useState("");
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={(o) => {
+      if (!o) {
+        setReason("LAB_ERROR");
+        setNarrative("");
+        setPassword("");
+      }
+      onOpenChange(o);
+    }}>
       <DialogContent>
         <DialogHeader><DialogTitle>Mark "No Investigation Needed"</DialogTitle></DialogHeader>
         <div className="space-y-3">
@@ -368,12 +411,13 @@ function NoInvestigationNeededModal({ open, onOpenChange, leadUserId, onSubmit, 
           </div>
           <div>
             <Label>Your password (e-signature)</Label>
-            <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+            <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required />
           </div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button disabled={pending || !leadUserId || !narrative || !password} onClick={() => onSubmit({
+            id: investigationId,
             reason, reasonNarrative: narrative,
             leadInvestigatorUserId: leadUserId,
             signaturePassword: password,
