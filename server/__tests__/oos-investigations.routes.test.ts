@@ -33,7 +33,7 @@ describeIfDb("OOS investigation routes", () => {
       passwordHash: await hashPassword(PASS),
       status: "ACTIVE",
     }).returning();
-    await db.insert(schema.userRoles).values({ userId: qaUser.id, role: "QA" });
+    await db.insert(schema.userRoles).values({ userId: qaUser.id, role: "QA", grantedByUserId: qaUser.id });
 
     [labTechUser] = await db.insert(schema.users).values({
       email: `lt-${Date.now()}@test.local`,
@@ -41,7 +41,7 @@ describeIfDb("OOS investigation routes", () => {
       passwordHash: await hashPassword(PASS),
       status: "ACTIVE",
     }).returning();
-    await db.insert(schema.userRoles).values({ userId: labTechUser.id, role: "LAB_TECH" });
+    await db.insert(schema.userRoles).values({ userId: labTechUser.id, role: "LAB_TECH", grantedByUserId: labTechUser.id });
 
     const [product] = await db.insert(schema.products).values({ sku: `P-${Date.now()}`, name: "P" }).returning();
     const [lot] = await db.insert(schema.lots).values({

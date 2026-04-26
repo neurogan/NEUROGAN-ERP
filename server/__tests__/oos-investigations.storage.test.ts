@@ -29,7 +29,7 @@ describeIfDb("OOS investigation storage", () => {
       passwordHash: await hashPassword("Test1234!Password"),
       status: "ACTIVE",
     }).returning();
-    await db.insert(schema.userRoles).values({ userId: qaUser.id, role: "QA" });
+    await db.insert(schema.userRoles).values({ userId: qaUser.id, role: "QA", grantedByUserId: qaUser.id });
 
     const [product] = await db.insert(schema.products).values({ sku: `P-${Date.now()}`, name: "Test Product" }).returning();
     const [lot] = await db.insert(schema.lots).values({
