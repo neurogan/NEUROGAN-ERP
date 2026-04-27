@@ -40,6 +40,7 @@ import { validationRouter } from "./validation/validation-routes";
 import { db } from "./db";
 import { eq, and, desc } from "drizzle-orm";
 import * as equipmentStorage from "./storage/equipment";
+import * as cleaningStorage from "./storage/cleaning-line-clearance";
 
 function formatZodError(error: ZodError): string {
   return error.errors.map(e => `${e.path.join(".")}: ${e.message}`).join(", ");
@@ -1807,6 +1808,82 @@ export async function registerRoutes(
       try {
         const status = await equipmentStorage.getCalibrationStatus(req.params.id);
         res.json(status);
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
+
+  // ─── Equipment cleaning logs (R-03 Task 6: F-05 dual-verification) ───
+  //
+  // Role gating: requireAuth only. The F-05 gate (cleaner ≠ verifier) is the
+  // real access control here — anyone authenticated can record a cleaning,
+  // but the storage-level check + DB CHECK constraint ensure two distinct
+  // users sign off.
+
+  app.post<{ id: string }>(
+    "/api/equipment/:id/cleaning-logs",
+    requireAuth,
+    async (req, res, next) => {
+      try {
+        const body = req.body as {
+          cleanedByUserId?: string;
+          verifiedByUserId?: string;
+          method?: string;
+          priorProductId?: string;
+          nextProductId?: string;
+          notes?: string;
+          signaturePassword?: string;
+          commentary?: string;
+        };
+        if (!body.cleanedByUserId || typeof body.cleanedByUserId !== "string") {
+          return res.status(400).json({ message: "cleanedByUserId is required" });
+        }
+        if (!body.verifiedByUserId || typeof body.verifiedByUserId !== "string") {
+          return res.status(400).json({ message: "verifiedByUserId is required" });
+        }
+        if (!body.signaturePassword) {
+          return res.status(400).json({
+            code: "SIGNATURE_REQUIRED",
+            message: "signaturePassword is required to record cleaning",
+          });
+        }
+        const log = await cleaningStorage.createCleaningLog(
+          req.params.id,
+          req.user!.id,
+          {
+            cleanedByUserId: body.cleanedByUserId,
+            verifiedByUserId: body.verifiedByUserId,
+            method: body.method,
+            priorProductId: body.priorProductId,
+            nextProductId: body.nextProductId,
+            notes: body.notes,
+            signaturePassword: body.signaturePassword,
+            commentary: body.commentary,
+          },
+          req.requestId,
+          `${req.method} ${req.path}`,
+        );
+        res.status(201).json(log);
+      } catch (err) {
+        const e = err as { status?: number; code?: string; message?: string };
+        if (e.status === 404) return res.status(404).json({ message: e.message ?? "Equipment not found" });
+        if (e.status === 409) return res.status(409).json({ code: e.code, message: e.message });
+        if (e.status === 423) return res.status(423).json({ error: { code: e.code, message: e.message } });
+        if (e.status === 401) return res.status(401).json({ error: { code: e.code, message: e.message } });
+        if (e.status === 400) return res.status(400).json({ code: e.code, message: e.message });
+        next(err);
+      }
+    },
+  );
+
+  app.get<{ id: string }>(
+    "/api/equipment/:id/cleaning-logs",
+    requireAuth,
+    async (req, res, next) => {
+      try {
+        const list = await cleaningStorage.listCleaningLogs(req.params.id);
+        res.json(list);
       } catch (err) {
         next(err);
       }
