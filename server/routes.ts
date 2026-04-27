@@ -1667,6 +1667,9 @@ export async function registerRoutes(
         const e = err as { status?: number; code?: string; message?: string };
         if (e.status === 404) return res.status(404).json({ message: e.message ?? "Equipment not found" });
         if (e.status === 400) return res.status(400).json({ code: e.code, message: e.message });
+        if (e.status === 401 || e.status === 423) {
+          return res.status(e.status).json({ error: { code: e.code, message: e.message } });
+        }
         next(err);
       }
     },
