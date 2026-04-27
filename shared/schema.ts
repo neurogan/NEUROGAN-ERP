@@ -894,6 +894,14 @@ export const auditActionEnum = z.enum([
   "LAB_DISQUALIFIED",
   "OOS_OPENED",
   "OOS_CLOSED",
+  "EQUIPMENT_CREATED",
+  "EQUIPMENT_RETIRED",
+  "EQUIPMENT_QUALIFIED",
+  "EQUIPMENT_DISQUALIFIED",
+  "CALIBRATION_LOGGED",
+  "CLEANING_LOGGED",
+  "LINE_CLEARANCE_LOGGED",
+  "START_BLOCKED",
 ]);
 export type AuditAction = z.infer<typeof auditActionEnum>;
 
@@ -943,6 +951,11 @@ export const signatureMeaningEnum = z.enum([
   "LAB_APPROVAL",
   "LAB_DISQUALIFICATION",
   "OOS_INVESTIGATION_CLOSE",
+  "EQUIPMENT_QUALIFIED",
+  "EQUIPMENT_DISQUALIFIED",
+  "CALIBRATION_RECORDED",
+  "CLEANING_VERIFIED",
+  "LINE_CLEARANCE",
 ]);
 export type SignatureMeaning = z.infer<typeof signatureMeaningEnum>;
 
