@@ -738,6 +738,9 @@ export async function registerRoutes(
       if (e.code === "USE_START_ENDPOINT") {
         return res.status(400).json({ code: e.code, message: e.message });
       }
+      if (e.code === "LOT_NOT_APPROVED") {
+        return res.status(400).json({ code: e.code, message: e.message });
+      }
       if (typeof e.status === "number") {
         return res.status(e.status).json({ message: e.message });
       }

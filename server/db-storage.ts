@@ -769,7 +769,10 @@ export class DatabaseStorage implements IStorage {
     for (const input of batchInputs) {
       const lot = await this.getLot(input.lotId);
       if (lot && lot.quarantineStatus && lot.quarantineStatus !== "APPROVED") {
-        throw new Error(`Lot ${lot.lotNumber} is ${lot.quarantineStatus} and cannot be used in production. Only APPROVED lots can be used.`);
+        throw Object.assign(
+          new Error(`Lot ${lot.lotNumber} is ${lot.quarantineStatus} and cannot be used in production. Only APPROVED lots can be used.`),
+          { status: 400, code: "LOT_NOT_APPROVED" },
+        );
       }
     }
 

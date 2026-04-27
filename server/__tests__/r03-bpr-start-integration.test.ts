@@ -15,7 +15,7 @@ import { hashPassword } from "../auth/password";
 //  2. CALIBRATION_OVERDUE → 409 + START_BLOCKED audit row
 //  3. EQUIPMENT_LIST_EMPTY → 409
 //  4. PATCH /:id status=IN_PROGRESS → 400 USE_START_ENDPOINT
-//  5. Audit row persists despite transaction rollback (the plan-defect fix)
+//  5. Two failed gate attempts each persist a START_BLOCKED audit row
 
 const dbUrl = process.env.DATABASE_URL;
 const describeIfDb = dbUrl ? describe : describe.skip;
@@ -31,11 +31,14 @@ let app: Express;
 let adminId: string;
 let qaId: string;
 let prodId: string;
+let whId: string;
 let productAId: string;
 
 const createdBatchIds: string[] = [];
 const createdEquipmentIds: string[] = [];
 const createdProductIds: string[] = [];
+const createdLotIds: string[] = [];
+const createdLocationIds: string[] = [];
 
 async function makeEquipment(suffix: string): Promise<string> {
   const tag = `R03S-${suffix}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
@@ -148,6 +151,18 @@ beforeAll(async () => {
   prodId = pp!.id;
   await db.insert(schema.userRoles).values({ userId: prodId, role: "PRODUCTION", grantedByUserId: adminId });
 
+  const [wh] = await db
+    .insert(schema.users)
+    .values({
+      email: `r03s-wh-${sfx}@t.com`,
+      fullName: "R03S WH",
+      passwordHash: await hashPassword(VALID_PASSWORD),
+      createdByUserId: adminId,
+    })
+    .returning();
+  whId = wh!.id;
+  await db.insert(schema.userRoles).values({ userId: whId, role: "WAREHOUSE", grantedByUserId: adminId });
+
   productAId = await makeProduct("A");
 });
 
@@ -161,6 +176,10 @@ afterAll(async () => {
     await db
       .delete(schema.productionBatchEquipmentUsed)
       .where(eq(schema.productionBatchEquipmentUsed.productionBatchId, bid))
+      .catch(() => {});
+    await db
+      .delete(schema.productionInputs)
+      .where(eq(schema.productionInputs.batchId, bid))
       .catch(() => {});
     await db
       .delete(schema.auditTrail)
@@ -198,13 +217,25 @@ afterAll(async () => {
       .where(inArray(schema.productionBatches.id, createdBatchIds))
       .catch(() => {});
   }
+  if (createdLotIds.length > 0) {
+    await db
+      .delete(schema.lots)
+      .where(inArray(schema.lots.id, createdLotIds))
+      .catch(() => {});
+  }
   if (createdProductIds.length > 0) {
     await db
       .delete(schema.products)
       .where(inArray(schema.products.id, createdProductIds))
       .catch(() => {});
   }
-  for (const uid of [adminId, qaId, prodId]) {
+  if (createdLocationIds.length > 0) {
+    await db
+      .delete(schema.locations)
+      .where(inArray(schema.locations.id, createdLocationIds))
+      .catch(() => {});
+  }
+  for (const uid of [adminId, qaId, prodId, whId]) {
     await db.delete(schema.auditTrail).where(eq(schema.auditTrail.userId, uid)).catch(() => {});
     await db
       .delete(schema.electronicSignatures)
@@ -250,9 +281,14 @@ describeIfDb("R-03 BPR start endpoint (integration)", () => {
       .where(eq(schema.batchProductionRecords.productionBatchId, batchId));
     expect(bprs).toHaveLength(1);
     expect(bprs[0]!.status).toBe("IN_PROGRESS");
+    expect(bprs[0]!.productId).toBe(productAId);
+    expect(bprs[0]!.batchNumber).toBe(batchRow!.batchNumber);
+    // theoreticalYield mirrors plannedQuantity from makeDraftBatch ("100");
+    // drizzle returns postgres numeric as string, so equality is on the string form.
+    expect(bprs[0]!.theoreticalYield).toBe("100");
   });
 
-  it("CALIBRATION_OVERDUE: 409, batch unchanged, no BPR, audit row persists despite rollback", async () => {
+  it("CALIBRATION_OVERDUE: 409, batch unchanged, no BPR, START_BLOCKED audit row written", async () => {
     const equipId = await makeEquipment("cal-overdue");
     // Schedule with nextDueAt in the past
     await db.insert(schema.calibrationSchedules).values({
@@ -294,7 +330,7 @@ describeIfDb("R-03 BPR start endpoint (integration)", () => {
       .where(eq(schema.productionBatchEquipmentUsed.productionBatchId, batchId));
     expect(eqUsed).toHaveLength(0);
 
-    // Audit row persists despite the gate failure (plan-defect fix verified)
+    // START_BLOCKED audit row written for the failed gate attempt
     const audits = await db
       .select()
       .from(schema.auditTrail)
@@ -334,6 +370,93 @@ describeIfDb("R-03 BPR start endpoint (integration)", () => {
     expect(audits).toHaveLength(1);
   });
 
+  it("POST /start as WAREHOUSE-only user → 403", async () => {
+    // requireRole("PRODUCTION", "QA", "ADMIN") rejects WAREHOUSE.
+    const batchId = await makeDraftBatch(productAId);
+    const equipId = await makeEquipment("wh-403");
+    await createSchedule(equipId, 30);
+    await qualifyAll(equipId);
+
+    const res = await request(app)
+      .post(`/api/production-batches/${batchId}/start`)
+      .set("x-test-user-id", whId)
+      .send({ equipmentIds: [equipId] });
+
+    expect(res.status).toBe(403);
+
+    // Batch must remain DRAFT (no state mutation when authorization fails).
+    const [row] = await db
+      .select()
+      .from(schema.productionBatches)
+      .where(eq(schema.productionBatches.id, batchId));
+    expect(row!.status).toBe("DRAFT");
+  });
+
+  it("LOT_NOT_APPROVED: input lot is QUARANTINED → 400 with code", async () => {
+    // Set up a draft batch with a single production_input pointing to a
+    // QUARANTINED lot, plus a passing equipment list. The lot-quarantine
+    // check must fire before equipment writes and surface a 400 with
+    // code: "LOT_NOT_APPROVED" rather than falling through to 500.
+    const equipId = await makeEquipment("lot-quar");
+    await createSchedule(equipId, 30);
+    await qualifyAll(equipId);
+
+    const inputProductId = await makeProduct("lot-quar-input");
+    const [loc] = await db
+      .insert(schema.locations)
+      .values({ name: `R03S-LOC-${Date.now()}-${Math.random().toString(36).slice(2, 6)}` })
+      .returning();
+    createdLocationIds.push(loc!.id);
+
+    const [lot] = await db
+      .insert(schema.lots)
+      .values({
+        productId: inputProductId,
+        lotNumber: `R03S-LOT-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        quarantineStatus: "QUARANTINED",
+      })
+      .returning();
+    createdLotIds.push(lot!.id);
+
+    const batchId = await makeDraftBatch(productAId);
+    await db.insert(schema.productionInputs).values({
+      batchId,
+      productId: inputProductId,
+      lotId: lot!.id,
+      locationId: loc!.id,
+      quantityUsed: "1",
+      uom: "kg",
+    });
+
+    const res = await request(app)
+      .post(`/api/production-batches/${batchId}/start`)
+      .set("x-test-user-id", prodId)
+      .send({ equipmentIds: [equipId] });
+
+    expect(res.status).toBe(400);
+    expect((res.body as { code: string }).code).toBe("LOT_NOT_APPROVED");
+    expect((res.body as { message: string }).message).toContain("QUARANTINED");
+
+    // Batch must remain DRAFT and no BPR / equipment_used rows written.
+    const [row] = await db
+      .select()
+      .from(schema.productionBatches)
+      .where(eq(schema.productionBatches.id, batchId));
+    expect(row!.status).toBe("DRAFT");
+
+    const bprs = await db
+      .select()
+      .from(schema.batchProductionRecords)
+      .where(eq(schema.batchProductionRecords.productionBatchId, batchId));
+    expect(bprs).toHaveLength(0);
+
+    const eqUsed = await db
+      .select()
+      .from(schema.productionBatchEquipmentUsed)
+      .where(eq(schema.productionBatchEquipmentUsed.productionBatchId, batchId));
+    expect(eqUsed).toHaveLength(0);
+  });
+
   it("PATCH /:id with status=IN_PROGRESS is rejected with 400 USE_START_ENDPOINT", async () => {
     const batchId = await makeDraftBatch(productAId);
 
@@ -353,10 +476,12 @@ describeIfDb("R-03 BPR start endpoint (integration)", () => {
     expect(row!.status).toBe("DRAFT");
   });
 
-  it("audit row persists across rollback (plan-defect fix): two failed attempts produce two audit rows", async () => {
-    // The critical test: confirm the audit row written on gate failure is NOT
-    // rolled back. We trigger two distinct gate failures on the same batch and
-    // expect exactly two START_BLOCKED audit rows to remain.
+  it("two failed gate attempts each persist a START_BLOCKED audit row", async () => {
+    // Gates run BEFORE the transaction starts, so on gate failure there is no
+    // rollback to survive — the audit insert is its own statement and commits
+    // on its own. This test verifies that two distinct gate failures on the
+    // same batch each leave a START_BLOCKED audit row behind (no overwrite,
+    // no de-duplication, no transactional clobbering).
     const equipId = await makeEquipment("rollback");
     await db.insert(schema.calibrationSchedules).values({
       equipmentId: equipId,
@@ -395,7 +520,7 @@ describeIfDb("R-03 BPR start endpoint (integration)", () => {
     const codes = audits.map((a) => (a.after as { code: string }).code).sort();
     expect(codes).toEqual(["CALIBRATION_OVERDUE", "EQUIPMENT_LIST_EMPTY"]);
 
-    // And the batch is still DRAFT
+    // Batch should remain DRAFT (no IN_PROGRESS write since gates blocked both attempts)
     const [row] = await db
       .select()
       .from(schema.productionBatches)
