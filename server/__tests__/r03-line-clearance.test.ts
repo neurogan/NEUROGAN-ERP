@@ -144,6 +144,11 @@ describeIfDb("R-03 line clearances (F-04 product changeover)", () => {
     expect(audit.some((a) => a.action === "LINE_CLEARANCE_LOGGED")).toBe(true);
     expect(audit.some((a) => a.action === "SIGN")).toBe(true);
 
+    const lineClearanceAudit = audit.find((a) => a.action === "LINE_CLEARANCE_LOGGED");
+    expect(lineClearanceAudit).toBeDefined();
+    expect((lineClearanceAudit!.after as any).fromProductId).toBe(PRODUCT_A);
+    expect((lineClearanceAudit!.after as any).toProductId).toBe(PRODUCT_B);
+
     const found = await findClearance(equipId, PRODUCT_B, beforeRequest);
     expect(found).not.toBeNull();
     expect(found!.id).toBe(body.id);
@@ -193,7 +198,7 @@ describeIfDb("R-03 line clearances (F-04 product changeover)", () => {
     expect(res.body.code).toBe("SIGNATURE_REQUIRED");
   });
 
-  it("POST /api/equipment/:id/line-clearances — 401 INVALID_PASSWORD on wrong password; no row written", async () => {
+  it("POST /api/equipment/:id/line-clearances — 401 UNAUTHENTICATED on wrong password; no row written", async () => {
     const equipId = await createEquipment("wrongpw");
     const res = await request(app)
       .post(`/api/equipment/${equipId}/line-clearances`)
@@ -203,7 +208,7 @@ describeIfDb("R-03 line clearances (F-04 product changeover)", () => {
         signaturePassword: "WrongPassword123!",
       });
     expect(res.status).toBe(401);
-    expect(res.body?.error?.code).toBe("INVALID_PASSWORD");
+    expect(res.body?.error?.code).toBe("UNAUTHENTICATED");
 
     const rows = await db
       .select()
@@ -214,6 +219,15 @@ describeIfDb("R-03 line clearances (F-04 product changeover)", () => {
 
   it("POST /api/equipment/:id/line-clearances — 423 ACCOUNT_LOCKED when signing user is locked", async () => {
     const equipId = await createEquipment("locked");
+    // Snapshot prior lock + failed-count state so we restore exactly what was
+    // there (clobbering with 0 would corrupt other tests' baselines).
+    const [priorRow] = await db
+      .select()
+      .from(schema.users)
+      .where(eq(schema.users.id, qaId));
+    const priorLockedUntil = priorRow!.lockedUntil;
+    const priorFailedCount = priorRow!.failedLoginCount;
+
     const future = new Date(Date.now() + 60 * 60 * 1000);
     await db
       .update(schema.users)
@@ -233,7 +247,7 @@ describeIfDb("R-03 line clearances (F-04 product changeover)", () => {
     } finally {
       await db
         .update(schema.users)
-        .set({ lockedUntil: null, failedLoginCount: 0 })
+        .set({ lockedUntil: priorLockedUntil, failedLoginCount: priorFailedCount })
         .where(eq(schema.users.id, qaId));
     }
   });
@@ -298,5 +312,34 @@ describeIfDb("R-03 line clearances (F-04 product changeover)", () => {
     const future = new Date(Date.now() + 60_000);
     const found = await findClearance(equipId, PRODUCT_B, future);
     expect(found).toBeNull();
+  });
+
+  it("findClearance — returns the most recent matching row when multiple exist", async () => {
+    const equipId = await createEquipment("multi");
+    const beforeBoth = new Date(Date.now() - 60_000);
+
+    const r1 = await request(app)
+      .post(`/api/equipment/${equipId}/line-clearances`)
+      .set("x-test-user-id", qaId)
+      .send({
+        productChangeToId: PRODUCT_B,
+        signaturePassword: VALID_PASSWORD,
+      });
+    expect(r1.status).toBe(201);
+
+    await new Promise((r) => setTimeout(r, 10));
+
+    const r2 = await request(app)
+      .post(`/api/equipment/${equipId}/line-clearances`)
+      .set("x-test-user-id", qaId)
+      .send({
+        productChangeToId: PRODUCT_B,
+        signaturePassword: VALID_PASSWORD,
+      });
+    expect(r2.status).toBe(201);
+
+    const found = await findClearance(equipId, PRODUCT_B, beforeBoth);
+    expect(found).not.toBeNull();
+    expect(found!.id).toBe((r2.body as { id: string }).id);
   });
 });

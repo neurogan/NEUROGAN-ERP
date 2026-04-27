@@ -262,7 +262,7 @@ export async function createLineClearance(
     await storage.recordFailedLogin(fullUser.id);
     throw Object.assign(new Error("Password is incorrect."), {
       status: 401,
-      code: "INVALID_PASSWORD",
+      code: "UNAUTHENTICATED",
     });
   }
   await storage.recordSuccessfulLogin(fullUser.id);
