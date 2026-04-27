@@ -702,7 +702,47 @@ export async function registerRoutes(
       if (!batch) return res.status(404).json({ message: "Production batch not found" });
       const enriched = await storage.getProductionBatch(req.params.id);
       res.json(enriched ?? batch);
-    } catch (err) { next(err); }
+    } catch (err) {
+      const e = err as { status?: number; code?: string; message?: string };
+      if (e.code === "USE_START_ENDPOINT") {
+        return res.status(400).json({ code: e.code, message: e.message });
+      }
+      next(err);
+    }
+  });
+
+  app.post<{ id: string }>("/api/production-batches/:id/start", requireAuth, requireRole("PRODUCTION", "QA", "ADMIN"), async (req, res, next) => {
+    try {
+      const { equipmentIds } = req.body as { equipmentIds?: unknown };
+      if (!Array.isArray(equipmentIds) || !equipmentIds.every((v) => typeof v === "string")) {
+        return res.status(400).json({ message: "equipmentIds (string[]) is required" });
+      }
+      const batch = await storage.startProductionBatch(
+        req.params.id,
+        req.user!.id,
+        equipmentIds as string[],
+        req.requestId,
+        `${req.method} ${req.path}`,
+      );
+      res.json(batch);
+    } catch (err) {
+      const e = err as { status?: number; code?: string; message?: string; payload?: unknown };
+      if (
+        e.code === "EQUIPMENT_LIST_EMPTY" ||
+        e.code === "CALIBRATION_OVERDUE" ||
+        e.code === "EQUIPMENT_NOT_QUALIFIED" ||
+        e.code === "LINE_CLEARANCE_MISSING"
+      ) {
+        return res.status(409).json({ code: e.code, message: e.message, payload: e.payload });
+      }
+      if (e.code === "USE_START_ENDPOINT") {
+        return res.status(400).json({ code: e.code, message: e.message });
+      }
+      if (typeof e.status === "number") {
+        return res.status(e.status).json({ message: e.message });
+      }
+      next(err);
+    }
   });
 
   app.delete<{ id: string }>("/api/production-batches/:id", requireAuth, requireRole("ADMIN"), async (req, res, next) => {

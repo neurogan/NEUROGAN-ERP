@@ -52,7 +52,7 @@
     {
       "id": 8,
       "subject": "Task 8: BPR start gates module",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [4, 5, 6, 7],
       "description": "**Goal:** Pure-function gate logic in `server/state/bpr-equipment-gates.ts` — easy to unit-test independent of HTTP. Four functions; one orchestrator.\n\n**Plan section:** docs/superpowers/plans/2026-04-27-r03-equipment-cleaning.md §Task 8 (line 1324)\n\n**Verify:** `pnpm test server/__tests__/r03-bpr-gates.test.ts -- --run` → PASS (≥8 tests, two per gate)\n\n```json:metadata\n{\"files\":[\"server/state/bpr-equipment-gates.ts\",\"server/__tests__/r03-bpr-gates.test.ts\"],\"verifyCommand\":\"pnpm test server/__tests__/r03-bpr-gates.test.ts -- --run\",\"planSection\":\"Task 8\"}\n```"
     },
@@ -134,5 +134,5 @@
       "description": "**Goal:** Push branch, open PR against `FDA-EQMS-feature-package` per `feedback_git_workflow`.\n\n**Plan section:** docs/superpowers/plans/2026-04-27-r03-equipment-cleaning.md §Task 19 (line 2099)\n\n**Verify:** `gh pr view` shows the PR\n\n```json:metadata\n{\"files\":[],\"verifyCommand\":\"gh pr view\",\"planSection\":\"Task 19\"}\n```"
     }
   ],
-  "lastUpdated": "2026-04-27T15:00:00Z"
+  "lastUpdated": "2026-04-27T16:00:00Z"
 }
