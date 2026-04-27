@@ -174,8 +174,17 @@ describeIfDb("R-03 cleaning logs (F-05 dual-verification)", () => {
     expect(audit.some((a) => a.action === "SIGN")).toBe(true);
   });
 
-  it("POST /api/equipment/:id/cleaning-logs — 409 IDENTITY_SAME when cleanedByUserId === verifiedByUserId", async () => {
+  it("POST /api/equipment/:id/cleaning-logs — 409 IDENTITY_SAME when cleanedByUserId === verifiedByUserId; fast-fail before signature ceremony", async () => {
     const equipId = await createEquipment("same");
+
+    // Snapshot the would-be signer's failedLoginCount BEFORE the request so we
+    // can prove the pre-check fired before any password-verification work.
+    const [before] = await db
+      .select()
+      .from(schema.users)
+      .where(eq(schema.users.id, qaId));
+    const failedBefore = before!.failedLoginCount;
+
     const res = await request(app)
       .post(`/api/equipment/${equipId}/cleaning-logs`)
       .set("x-test-user-id", qaId)
@@ -188,12 +197,77 @@ describeIfDb("R-03 cleaning logs (F-05 dual-verification)", () => {
     expect(res.status).toBe(409);
     expect(res.body.code).toBe("IDENTITY_SAME");
 
-    // No row should have been written.
+    // No cleaning log row should have been written.
     const rows = await db
       .select()
       .from(schema.cleaningLogs)
       .where(eq(schema.cleaningLogs.equipmentId, equipId));
     expect(rows.length).toBe(0);
+
+    // No signature row either — the ceremony never started.
+    const sigs = await db
+      .select()
+      .from(schema.electronicSignatures)
+      .where(eq(schema.electronicSignatures.entityId, equipId));
+    expect(sigs.length).toBe(0);
+
+    // Signer's failedLoginCount must be unchanged — pre-check fired before
+    // any password verification could burn an attempt.
+    const [after] = await db
+      .select()
+      .from(schema.users)
+      .where(eq(schema.users.id, qaId));
+    expect(after!.failedLoginCount).toBe(failedBefore);
+  });
+
+  it("POST /api/equipment/:id/cleaning-logs — same-user + wrong password returns 409 IDENTITY_SAME (not 401), proving precondition ordering", async () => {
+    // Security contract: the IDENTITY_SAME pre-check must fire BEFORE
+    // password verification. Otherwise a self-verification request becomes a
+    // password-probe oracle. See server/storage/cleaning-line-clearance.ts:38-43.
+    const equipId = await createEquipment("same-wrongpw");
+
+    const [before] = await db
+      .select()
+      .from(schema.users)
+      .where(eq(schema.users.id, qaId));
+    const failedBefore = before!.failedLoginCount;
+
+    const res = await request(app)
+      .post(`/api/equipment/${equipId}/cleaning-logs`)
+      .set("x-test-user-id", qaId)
+      .send({
+        cleanedByUserId: qaId,
+        verifiedByUserId: qaId,
+        method: "Wash",
+        signaturePassword: "wrong-password",
+      });
+
+    // Must be 409 IDENTITY_SAME — NOT 401, NOT INVALID_PASSWORD. If this
+    // assertion ever flips, someone has reordered the checks and broken the
+    // security contract.
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe("IDENTITY_SAME");
+
+    // No cleaning log row.
+    const rows = await db
+      .select()
+      .from(schema.cleaningLogs)
+      .where(eq(schema.cleaningLogs.equipmentId, equipId));
+    expect(rows.length).toBe(0);
+
+    // No signature row.
+    const sigs = await db
+      .select()
+      .from(schema.electronicSignatures)
+      .where(eq(schema.electronicSignatures.entityId, equipId));
+    expect(sigs.length).toBe(0);
+
+    // Wrong password did NOT burn a failed-login attempt — pre-check fired first.
+    const [after] = await db
+      .select()
+      .from(schema.users)
+      .where(eq(schema.users.id, qaId));
+    expect(after!.failedLoginCount).toBe(failedBefore);
   });
 
   it("POST /api/equipment/:id/cleaning-logs — 400 when signaturePassword missing", async () => {
