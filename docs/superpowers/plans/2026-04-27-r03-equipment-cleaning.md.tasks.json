@@ -45,7 +45,7 @@
     {
       "id": 7,
       "subject": "Task 7: Line clearance storage + routes",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [3],
       "description": "**Goal:** Per-equipment line clearance for product changeover with F-04 signature.\n\n**Plan section:** docs/superpowers/plans/2026-04-27-r03-equipment-cleaning.md §Task 7 (line 1206)\n\n**Verify:** `pnpm test server/__tests__/r03-line-clearance.test.ts -- --run` → PASS (≥3 tests)\n\n```json:metadata\n{\"files\":[\"server/storage/cleaning-line-clearance.ts\",\"server/routes/equipment.ts\",\"server/__tests__/r03-line-clearance.test.ts\"],\"verifyCommand\":\"pnpm test server/__tests__/r03-line-clearance.test.ts -- --run\",\"planSection\":\"Task 7\"}\n```"
     },
@@ -134,5 +134,5 @@
       "description": "**Goal:** Push branch, open PR against `FDA-EQMS-feature-package` per `feedback_git_workflow`.\n\n**Plan section:** docs/superpowers/plans/2026-04-27-r03-equipment-cleaning.md §Task 19 (line 2099)\n\n**Verify:** `gh pr view` shows the PR\n\n```json:metadata\n{\"files\":[],\"verifyCommand\":\"gh pr view\",\"planSection\":\"Task 19\"}\n```"
     }
   ],
-  "lastUpdated": "2026-04-27T12:35:00Z"
+  "lastUpdated": "2026-04-27T15:00:00Z"
 }
