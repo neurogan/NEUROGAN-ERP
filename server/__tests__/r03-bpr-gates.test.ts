@@ -485,6 +485,60 @@ describeIfDb("R-03 BPR start gates", () => {
         runAllGates(db, batchId, productAId, [okEquipId]),
       ).resolves.toBeUndefined();
     });
+
+    it("throws LINE_CLEARANCE_MISSING when clearance was performed BEFORE prior batch completion (temporal cutoff)", async () => {
+      // Prior batch completed at T=-60s
+      // Clearance performed at T=-120s (BEFORE prior batch completion)
+      // Gate must FAIL — clearance must be NEWER than prior batch completion to count
+      const cutoffEquipId = await makeEquipment("lc-cutoff");
+      await createSchedule(cutoffEquipId, 30);
+      await qualifyAll(cutoffEquipId);
+
+      // Prior APPROVED BPR for productB completed 60s ago.
+      const priorCompletedAt = new Date(Date.now() - 60_000);
+      const cutoffPriorBatchId = await makeBatch(productBId);
+      await makeBpr(cutoffPriorBatchId, productBId, "APPROVED", priorCompletedAt);
+      await db.insert(schema.productionBatchEquipmentUsed).values({
+        productionBatchId: cutoffPriorBatchId,
+        equipmentId: cutoffEquipId,
+      });
+
+      // Insert a clearance row dated BEFORE prior batch completion (T=-120s).
+      // findClearance must reject this because it's older than the cutoff.
+      const [sig] = await db
+        .insert(schema.electronicSignatures)
+        .values({
+          userId: qaId,
+          meaning: "LINE_CLEARANCE",
+          entityType: "equipment",
+          entityId: cutoffEquipId,
+          fullNameAtSigning: "Test QA",
+          titleAtSigning: "QC Manager",
+          requestId: `r03g-lc-cutoff-${Date.now()}`,
+          manifestationJson: { meaning: "LINE_CLEARANCE" },
+        })
+        .returning();
+      await db.insert(schema.lineClearances).values({
+        equipmentId: cutoffEquipId,
+        productChangeFromId: productBId,
+        productChangeToId: productAId,
+        performedAt: new Date(Date.now() - 120_000), // BEFORE prior at -60s
+        performedByUserId: qaId,
+        signatureId: sig!.id,
+      });
+
+      const err = await runAllGates(db, batchId, productAId, [cutoffEquipId]).catch(
+        (e: unknown) => e,
+      );
+      expect(err).toBeInstanceOf(GateError);
+      expect((err as GateError).code).toBe("LINE_CLEARANCE_MISSING");
+      const payload = (err as GateError).payload as {
+        equipment: Array<{ assetTag: string; fromProductId: string; toProductId: string }>;
+      };
+      expect(payload.equipment).toHaveLength(1);
+      expect(payload.equipment[0]!.fromProductId).toBe(productBId);
+      expect(payload.equipment[0]!.toProductId).toBe(productAId);
+    });
   });
 
   describe("Gate ordering (first-failure semantics)", () => {
@@ -501,6 +555,56 @@ describeIfDb("R-03 BPR start gates", () => {
       // No qualifications inserted — would fail qualification gate too.
 
       const err = await runAllGates(db, batchId, productAId, [dualFailEquipId]).catch(
+        (e: unknown) => e,
+      );
+      expect(err).toBeInstanceOf(GateError);
+      expect((err as GateError).code).toBe("CALIBRATION_OVERDUE");
+    });
+
+    it("EQUIPMENT_NOT_QUALIFIED wins over LINE_CLEARANCE_MISSING when both would fail", async () => {
+      // Equipment with cal future, NO qualifications, AND a missing line-clearance
+      // precondition (prior APPROVED BPR for a different product, no clearance).
+      // Order is qualification → line-clearance, so we expect EQUIPMENT_NOT_QUALIFIED.
+      const qLcEquipId = await makeEquipment("q-vs-lc");
+      await createSchedule(qLcEquipId, 30);
+      // No qualifications — would fail qualification gate.
+
+      // Wire a prior APPROVED BPR for productB on this equipment with no clearance.
+      const qLcPriorBatchId = await makeBatch(productBId);
+      await makeBpr(qLcPriorBatchId, productBId, "APPROVED", new Date(Date.now() - 60_000));
+      await db.insert(schema.productionBatchEquipmentUsed).values({
+        productionBatchId: qLcPriorBatchId,
+        equipmentId: qLcEquipId,
+      });
+
+      const err = await runAllGates(db, batchId, productAId, [qLcEquipId]).catch(
+        (e: unknown) => e,
+      );
+      expect(err).toBeInstanceOf(GateError);
+      expect((err as GateError).code).toBe("EQUIPMENT_NOT_QUALIFIED");
+    });
+
+    it("CALIBRATION_OVERDUE wins over LINE_CLEARANCE_MISSING when both would fail", async () => {
+      // Equipment with overdue calibration, IQ/OQ/PQ qualified, AND a missing
+      // line-clearance precondition. Order is calibration → line-clearance,
+      // so we expect CALIBRATION_OVERDUE.
+      const cLcEquipId = await makeEquipment("c-vs-lc");
+      await db.insert(schema.calibrationSchedules).values({
+        equipmentId: cLcEquipId,
+        frequencyDays: 365,
+        nextDueAt: new Date(Date.now() - 24 * 60 * 60 * 1000), // overdue
+      });
+      await qualifyAll(cLcEquipId);
+
+      // Wire a prior APPROVED BPR for productB on this equipment with no clearance.
+      const cLcPriorBatchId = await makeBatch(productBId);
+      await makeBpr(cLcPriorBatchId, productBId, "APPROVED", new Date(Date.now() - 60_000));
+      await db.insert(schema.productionBatchEquipmentUsed).values({
+        productionBatchId: cLcPriorBatchId,
+        equipmentId: cLcEquipId,
+      });
+
+      const err = await runAllGates(db, batchId, productAId, [cLcEquipId]).catch(
         (e: unknown) => e,
       );
       expect(err).toBeInstanceOf(GateError);

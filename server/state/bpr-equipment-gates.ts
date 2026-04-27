@@ -13,6 +13,11 @@
 //   4. LINE_CLEARANCE_MISSING  — equipment used on a different product's APPROVED
 //                                BPR with no line clearance since.
 //
+// Order rationale: Calibration first because it's the cheapest gate (one
+// inArray query) and most actionable ("send for cal"). Qualification second.
+// Line clearance last because it's the most expensive (per-equipment join
+// across BPRs and clearances) and the most context-dependent.
+//
 // Each error carries `payload.equipment: [{ assetTag, ...context }]` per
 // failing piece of equipment so the frontend (Task 15) can render actionable
 // per-row messages.
@@ -30,19 +35,51 @@ export type DbLike = typeof defaultDb;
 
 const REQUIRED_TYPES: Array<"IQ" | "OQ" | "PQ"> = ["IQ", "OQ", "PQ"];
 
+export interface GateFailureCalibration {
+  equipmentId: string;
+  assetTag: string | null;
+  dueAt: Date;
+}
+export interface GateFailureQualification {
+  equipmentId: string;
+  assetTag: string | null;
+  missingTypes: Array<"IQ" | "OQ" | "PQ">;
+}
+export interface GateFailureLineClearance {
+  equipmentId: string;
+  assetTag: string | null;
+  fromProductId: string;
+  toProductId: string;
+}
+export type GateFailure =
+  | GateFailureCalibration
+  | GateFailureQualification
+  | GateFailureLineClearance;
+
+export type GateCode =
+  | "EQUIPMENT_LIST_EMPTY"
+  | "CALIBRATION_OVERDUE"
+  | "EQUIPMENT_NOT_QUALIFIED"
+  | "LINE_CLEARANCE_MISSING";
+
+export interface GatePayload {
+  equipment: GateFailure[];
+}
+
 export class GateError extends Error {
-  readonly status = 409;
-  readonly code: string;
-  readonly payload: { equipment: Array<Record<string, unknown>> } | Record<string, unknown>;
-  constructor(
-    code: string,
-    message: string,
-    payload: { equipment: Array<Record<string, unknown>> } | Record<string, unknown>,
-  ) {
+  readonly status = 409 as const;
+  readonly code: GateCode;
+  readonly payload: GatePayload;
+
+  constructor(code: GateCode, message: string, payload: GatePayload) {
     super(message);
     this.name = "GateError";
     this.code = code;
     this.payload = payload;
+  }
+
+  static is(e: unknown): e is GateError {
+    return e instanceof GateError;
   }
 }
 
@@ -171,16 +208,24 @@ async function checkLineClearance(
       .orderBy(desc(schema.batchProductionRecords.completedAt))
       .limit(5);
 
-    // Skip self (the batch we're currently starting) — only relevant if a
-    // caller passes our own batch id, which shouldn't happen pre-IN_PROGRESS,
-    // but guard defensively.
+    // Defense-in-depth: if a future caller (or refactor) inserts the current BPR
+    // row before invoking the gates, skip self-matches so we don't compare a
+    // batch to itself. The current contract forbids this — but cheap to guard.
     const priorOther = prior.find((p) => p.productionBatchId !== productionBatchId);
     if (!priorOther) continue; // first batch on this equipment, no clearance required
 
     const priorProduct = priorOther.productId;
     const priorCompleted = priorOther.completedAt;
     if (priorProduct === productId) continue; // same SKU, no changeover, no clearance
-    if (!priorCompleted) continue; // missing timestamp — can't anchor a "since" check
+    if (!priorCompleted) {
+      // Defense: APPROVED is terminal; null completedAt = corruption.
+      throw Object.assign(
+        new Error(
+          `Data integrity: prior APPROVED BPR for production_batch ${priorOther.productionBatchId} has null completedAt`,
+        ),
+        { status: 500, code: "PRIOR_BPR_INCOMPLETE" },
+      );
+    }
 
     const clearance = await findClearance(id, productId, priorCompleted);
     if (!clearance) {
