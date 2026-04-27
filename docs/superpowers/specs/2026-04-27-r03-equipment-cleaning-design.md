@@ -22,8 +22,8 @@ management, calibration vendor scheduling, equipment imaging.
 shared/
   schema.ts                                 — new tables, enum additions
 migrations/
-  0016_r03_equipment_cleaning.sql           — tables + BPR column rename
-  __tests__/0016-r03-rename-bpr-cleaning-text.test.ts
+  0017_r03_equipment_cleaning.sql           — tables + BPR column rename
+  __tests__/0017-r03-rename-bpr-cleaning-text.test.ts
 server/
   storage/
     equipment.ts                            — equipment + qualifications + calibration
@@ -81,7 +81,7 @@ Append to `signatureMeaningEnum` in `shared/schema.ts:834`:
 
 ### 3.3 BPR migration (the riskiest piece)
 
-Migration 0016 must NOT delete or overwrite any prod data. Two changes to
+Migration 0017 must NOT delete or overwrite any prod data. Two changes to
 `erp_batch_production_records`:
 
 1. `ALTER TABLE erp_batch_production_records RENAME COLUMN cleaning_record_reference TO cleaning_record_legacy_text;`
@@ -292,7 +292,7 @@ and patch if affected). Tests run in `singleFork` pool against real Postgres
 
 ### 6.3 Migration test
 
-`migrations/__tests__/0016-r03-rename-bpr-cleaning-text.test.ts`:
+`migrations/__tests__/0017-r03-rename-bpr-cleaning-text.test.ts`:
 
 - Pre-existing BPR row with non-null `cleaning_record_reference` → after
   migration, value is in `cleaning_record_legacy_text`, `cleaning_log_id` is
@@ -321,7 +321,7 @@ Append to `/Users/frederikhejlskov/Desktop/NEUROGAN/FDA/validation-scaffold.md`:
 - [ ] All R-03 test files green in CI
 - [ ] Pre-existing tests (t06-lab-results, r01-receiving, f05-state-transitions)
       still green — BPR transition path is shared
-- [ ] Migration 0016 applies cleanly, idempotent, no row deletions, migration
+- [ ] Migration 0017 applies cleanly, idempotent, no row deletions, migration
       test passes
 - [ ] Equipment subtab visible to all roles; promote-qualification button only
       visible to `QA_MANAGER` + `ADMIN`
