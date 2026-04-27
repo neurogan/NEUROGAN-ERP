@@ -38,6 +38,7 @@ import { signatureRouter } from "./signatures/signature-routes";
 import { validationRouter } from "./validation/validation-routes";
 import { db } from "./db";
 import { eq, and, desc } from "drizzle-orm";
+import * as equipmentStorage from "./storage/equipment";
 
 function formatZodError(error: ZodError): string {
   return error.errors.map(e => `${e.path.join(".")}: ${e.message}`).join(", ");
@@ -1557,6 +1558,74 @@ export async function registerRoutes(
       }
     },
   );
+
+  // ─── Equipment master (R-03) ───────────────────────────────────────────
+
+  app.post("/api/equipment", requireAuth, requireRole("ADMIN", "QA"), async (req, res, next) => {
+    try {
+      const { assetTag, name, model, serial, manufacturer, locationId } = req.body as {
+        assetTag?: string;
+        name?: string;
+        model?: string;
+        serial?: string;
+        manufacturer?: string;
+        locationId?: string;
+      };
+      if (!assetTag || !name) {
+        return res.status(400).json({ message: "Missing required fields: assetTag, name" });
+      }
+      const equip = await equipmentStorage.createEquipment(
+        { assetTag, name, model, serial, manufacturer, locationId },
+        req.user!.id,
+        req.requestId,
+        `${req.method} ${req.path}`,
+      );
+      res.status(201).json(equip);
+    } catch (err) {
+      const e = err as { status?: number; code?: string; message?: string };
+      if (e.status === 409 && e.code === "DUPLICATE_ASSET_TAG") {
+        return res.status(409).json({ code: e.code, message: e.message });
+      }
+      next(err);
+    }
+  });
+
+  app.get("/api/equipment", requireAuth, async (_req, res, next) => {
+    try {
+      const list = await equipmentStorage.listEquipment();
+      res.json(list);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.get<{ id: string }>("/api/equipment/:id", requireAuth, async (req, res, next) => {
+    try {
+      const equip = await equipmentStorage.getEquipment(req.params.id);
+      if (!equip) return res.status(404).json({ message: "Equipment not found" });
+      res.json(equip);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.patch<{ id: string }>("/api/equipment/:id/retire", requireAuth, requireRole("ADMIN", "QA"), async (req, res, next) => {
+    try {
+      const equip = await equipmentStorage.retireEquipment(
+        req.params.id,
+        req.user!.id,
+        req.requestId,
+        `${req.method} ${req.path}`,
+      );
+      res.json(equip);
+    } catch (err) {
+      const e = err as { status?: number };
+      if (e.status === 404) {
+        return res.status(404).json({ message: "Equipment not found" });
+      }
+      next(err);
+    }
+  });
 
   // ─── OOS investigations (T-08 §111.113 / §111.123 / SOP-QC-006) ───────
 
