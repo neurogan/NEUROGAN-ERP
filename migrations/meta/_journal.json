@@ -120,6 +120,13 @@
       "when": 1745500800000,
       "tag": "0016_t08_oos_investigations",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1745500900000,
+      "tag": "0017_r03_equipment_cleaning",
+      "breakpoints": true
     }
   ]
 }
