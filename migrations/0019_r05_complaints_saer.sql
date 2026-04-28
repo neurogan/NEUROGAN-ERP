@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS "erp_complaints" (
   "customer_phone"            text,
   "complaint_text"            text NOT NULL,
   "lot_code_raw"              text NOT NULL,
-  "lot_id"                    uuid REFERENCES "erp_lots"("id"),
+  "lot_id"                    varchar REFERENCES "erp_lots"("id"),
   "status"                    text NOT NULL
                                 CHECK ("status" IN (
                                   'TRIAGE','LOT_UNRESOLVED','INVESTIGATION',
@@ -88,8 +88,8 @@ CREATE TABLE IF NOT EXISTS "erp_complaint_investigations" (
   "investigated_at"          timestamptz NOT NULL,
   "root_cause"               text NOT NULL,
   "scope"                    text NOT NULL,
-  "bpr_id"                   uuid REFERENCES "erp_batch_production_records"("id"),
-  "coa_id"                   uuid REFERENCES "erp_coa_documents"("id"),
+  "bpr_id"                   varchar REFERENCES "erp_batch_production_records"("id"),
+  "coa_id"                   varchar REFERENCES "erp_coa_documents"("id"),
   "retest_required"          boolean NOT NULL,
   "summary_for_review"       text NOT NULL,
   "packaged_at"              timestamptz,
@@ -109,7 +109,7 @@ CREATE TABLE IF NOT EXISTS "erp_complaint_lab_retests" (
   "investigation_id"        uuid NOT NULL REFERENCES "erp_complaint_investigations"("id"),
   "requested_by_user_id"    uuid NOT NULL REFERENCES "erp_users"("id"),
   "requested_at"            timestamptz NOT NULL,
-  "lot_id"                  uuid NOT NULL REFERENCES "erp_lots"("id"),
+  "lot_id"                  varchar NOT NULL REFERENCES "erp_lots"("id"),
   "method"                  text NOT NULL,
   "assigned_lab_user_id"    uuid NOT NULL REFERENCES "erp_users"("id"),
   "lab_test_result_id"      uuid REFERENCES "erp_lab_test_results"("id"),
