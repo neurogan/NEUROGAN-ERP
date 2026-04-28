@@ -274,6 +274,13 @@ describeIfDb("R-04 label spools storage", () => {
       .from(schema.auditTrail)
       .where(eq(schema.auditTrail.entityId, spool.id));
     expect(audits.some((a) => a.action === "LABEL_SPOOL_DISPOSED")).toBe(true);
+
+    // No F-04 signature row written on dispose (no LABEL_SPOOL_DISPOSED meaning)
+    const sigs = await db
+      .select()
+      .from(schema.electronicSignatures)
+      .where(eq(schema.electronicSignatures.entityId, spool.id));
+    expect(sigs.filter((s) => s.meaning !== "LABEL_SPOOL_RECEIVED")).toHaveLength(0);
   });
 
   it("disposeSpool — throws 404 when spool not found", async () => {

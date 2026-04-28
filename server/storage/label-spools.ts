@@ -8,8 +8,7 @@
 
 import { db, type Tx } from "../db";
 import * as schema from "@shared/schema";
-import { eq, and, asc, gte } from "drizzle-orm";
-import { sql } from "drizzle-orm";
+import { eq, and, asc, gte, sql } from "drizzle-orm";
 import { storage } from "../storage";
 import { verifyPassword } from "../auth/password";
 import { MEANING_VERB } from "../signatures/signatures";
@@ -235,7 +234,8 @@ export async function decrementSpoolQty(
     .where(
       and(
         eq(schema.labelSpools.id, spoolId),
-        gte(schema.labelSpools.qtyOnHand, qty), // precondition: won't go negative
+        eq(schema.labelSpools.status, "ACTIVE"),  // only decrement from active spools
+        gte(schema.labelSpools.qtyOnHand, qty),   // precondition: won't go negative
       ),
     )
     .returning();
