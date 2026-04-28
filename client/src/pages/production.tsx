@@ -74,12 +74,19 @@ import { BprStartModal } from "./bpr/start-modal";
 import { formatQty } from "@/lib/formatQty";
 import { DateInput } from "@/components/ui/date-input";
 import { formatDateTime } from "@/lib/formatDate";
+import { IssueLabelsModal } from "@/components/labeling/IssueLabelsModal";
+import { PrintLabelsModal } from "@/components/labeling/PrintLabelsModal";
+import { ReconcileLabelsForm } from "@/components/labeling/ReconcileLabelsForm";
 import type {
   ProductionBatchWithDetails,
   Product,
   Location,
   InventoryGrouped,
   RecipeWithDetails,
+  LabelReconciliation,
+  LabelIssuanceLog,
+  LabelPrintJob,
+  BprWithDetails,
 } from "@shared/schema";
 
 // Types for FIFO allocation API response
@@ -1254,6 +1261,170 @@ function BprLink({ batchId, batchStatus }: { batchId: string; batchStatus: strin
   );
 }
 
+// ── BPR Labeling Section ──
+
+type IssuanceWithPrintJobs = {
+  issuance: LabelIssuanceLog;
+  printJobs: LabelPrintJob[];
+};
+
+function BprLabelingSection({
+  batchId,
+  productId,
+}: {
+  batchId: string;
+  productId: string;
+  batchStatus: string;
+}) {
+  const [issueOpen, setIssueOpen] = useState(false);
+  const [printTarget, setPrintTarget] = useState<{ issuanceId: string; artworkId: string } | null>(null);
+
+  const { data: bpr } = useQuery<BprWithDetails | null>({
+    queryKey: ["/api/batch-production-records/by-batch", batchId],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/batch-production-records/by-batch/${batchId}`);
+      if (res.status === 404) return null;
+      return res.json() as Promise<BprWithDetails>;
+    },
+  });
+
+  const { data: issuances } = useQuery<IssuanceWithPrintJobs[]>({
+    queryKey: [`/api/bpr/${bpr?.id}/label-issuance`],
+    queryFn: async () => (await apiRequest("GET", `/api/bpr/${bpr!.id}/label-issuance`)).json() as Promise<IssuanceWithPrintJobs[]>,
+    enabled: !!bpr?.id,
+  });
+
+  const { data: reconciliation } = useQuery<LabelReconciliation | null>({
+    queryKey: [`/api/bpr/${bpr?.id}/label-reconciliation`],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/bpr/${bpr!.id}/label-reconciliation`);
+      if (res.status === 404) return null;
+      return res.json() as Promise<LabelReconciliation>;
+    },
+    enabled: !!bpr?.id,
+  });
+
+  if (!bpr) return null;
+
+  const totalIssued = (issuances ?? []).reduce((sum, r) => sum + r.issuance.quantityIssued, 0);
+  const canIssue = bpr.status === "IN_PROGRESS";
+  const canReconcile = ["IN_PROGRESS", "ON_HOLD"].includes(bpr.status) && !reconciliation;
+
+  return (
+    <div className="space-y-4" data-testid="section-bpr-labeling">
+      {/* Issue section */}
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-sm font-semibold">Label Issuance</h3>
+          {canIssue && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setIssueOpen(true)}
+              data-testid="button-issue-labels"
+            >
+              Issue Labels
+            </Button>
+          )}
+        </div>
+
+        {(issuances ?? []).length === 0 ? (
+          <p className="text-xs text-muted-foreground" data-testid="text-no-issuances">No labels issued yet.</p>
+        ) : (
+          <Card>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="text-xs">Qty</TableHead>
+                  <TableHead className="text-xs">Issued at</TableHead>
+                  <TableHead className="text-xs">Print jobs</TableHead>
+                  <TableHead className="text-right text-xs">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {(issuances ?? []).map(({ issuance, printJobs }) => (
+                  <TableRow key={issuance.id} data-testid={`row-issuance-${issuance.id}`}>
+                    <TableCell className="text-sm font-mono">{issuance.quantityIssued}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
+                      {issuance.issuedAt ? new Date(issuance.issuedAt).toLocaleDateString() : "—"}
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
+                      {printJobs.length === 0 ? "None" : `${printJobs.length} job${printJobs.length > 1 ? "s" : ""}`}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setPrintTarget({ issuanceId: issuance.id, artworkId: issuance.artworkId })}
+                        data-testid={`button-print-issuance-${issuance.id}`}
+                      >
+                        Print
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </Card>
+        )}
+      </div>
+
+      {/* Reconciliation section */}
+      {(canReconcile || reconciliation) && (
+        <div>
+          <h3 className="text-sm font-semibold mb-2">Label Reconciliation</h3>
+          {reconciliation ? (
+            <div className="rounded-md border p-3 space-y-1 text-xs" data-testid="section-recon-summary">
+              <p className="text-muted-foreground">Reconciled on {new Date(reconciliation.reconciledAt).toLocaleDateString()}</p>
+              <div className="grid grid-cols-4 gap-2 font-mono">
+                <span>Issued: {reconciliation.qtyIssued}</span>
+                <span>Applied: {reconciliation.qtyApplied}</span>
+                <span>Destroyed: {reconciliation.qtyDestroyed}</span>
+                <span>Returned: {reconciliation.qtyReturned}</span>
+              </div>
+              <p className={reconciliation.toleranceExceeded ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400"}>
+                Variance: {reconciliation.variance} — {reconciliation.toleranceExceeded ? "Out of tolerance" : "Within tolerance"}
+              </p>
+            </div>
+          ) : (
+            <ReconcileLabelsForm
+              bprId={bpr.id}
+              qtyIssued={totalIssued}
+              deviations={bpr.deviations}
+              onReconciled={() => {
+                queryClient.invalidateQueries({ queryKey: [`/api/bpr/${bpr.id}/label-reconciliation`] });
+              }}
+            />
+          )}
+        </div>
+      )}
+
+      <IssueLabelsModal
+        open={issueOpen}
+        onOpenChange={setIssueOpen}
+        bprId={bpr.id}
+        productId={productId}
+        onIssued={() => {
+          queryClient.invalidateQueries({ queryKey: [`/api/bpr/${bpr.id}/label-issuance`] });
+        }}
+      />
+
+      {printTarget && (
+        <PrintLabelsModal
+          open={!!printTarget}
+          onOpenChange={(next) => { if (!next) setPrintTarget(null); }}
+          issuanceId={printTarget.issuanceId}
+          artworkId={printTarget.artworkId}
+          bprId={bpr.id}
+          onPrinted={() => {
+            queryClient.invalidateQueries({ queryKey: [`/api/bpr/${bpr.id}/label-issuance`] });
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
 // ── Detail Panel ──
 
 function BatchDetail({
@@ -1542,6 +1713,18 @@ function BatchDetail({
 
       {/* Notes section */}
       <BatchNotes batchId={batch.id} />
+
+      {/* Label cage section */}
+      {["IN_PROGRESS", "ON_HOLD", "COMPLETED"].includes(batch.status) && (
+        <>
+          <Separator />
+          <BprLabelingSection
+            batchId={batch.id}
+            productId={batch.productId}
+            batchStatus={batch.status}
+          />
+        </>
+      )}
     </div>
   );
 }

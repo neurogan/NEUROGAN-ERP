@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { useQuery, useQueries } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -21,6 +22,8 @@ import {
   AlertTriangle as AlertTriangleIcon,
   Wrench,
   BadgeCheck,
+  Tag,
+  AlertOctagon,
 } from "lucide-react";
 import { formatQty } from "@/lib/formatQty";
 import { formatDate } from "@/lib/formatDate";
@@ -30,6 +33,8 @@ import type {
   Equipment,
   CalibrationSchedule,
   EquipmentQualification,
+  LabelArtwork,
+  LabelReconciliation,
 } from "@shared/schema";
 
 // ─── Types ───────────────────────────────────────────
@@ -210,6 +215,17 @@ export default function Dashboard() {
   // ─── R-03 Equipment & Cleaning: dashboard cards ────────────────
   const { data: equipmentList = [] } = useQuery<Equipment[]>({
     queryKey: ["/api/equipment"],
+  });
+
+  // ─── R-04 Label cage: dashboard cards ──────────────────────────
+  const { data: draftArtworks = [] } = useQuery<LabelArtwork[]>({
+    queryKey: ["/api/label-artwork/drafts"],
+    queryFn: async () => (await apiRequest("GET", "/api/label-artwork/drafts")).json(),
+  });
+
+  const { data: outOfToleranceRecons = [] } = useQuery<LabelReconciliation[]>({
+    queryKey: ["/api/label-reconciliations/out-of-tolerance"],
+    queryFn: async () => (await apiRequest("GET", "/api/label-reconciliations/out-of-tolerance")).json(),
   });
 
   // Filter to non-RETIRED first to keep fan-out small.
@@ -766,6 +782,109 @@ export default function Dashboard() {
             )}
           </CardContent>
         </Card>
+      </div>
+
+      {/* R-04 Label cage cards */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+        {/* Label artwork pending QA */}
+        <Card data-testid="card-artwork-pending-qa">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base font-semibold flex items-center gap-2">
+                <Tag className="h-4 w-4 text-amber-400" />
+                Label Artwork Pending QA
+                {draftArtworks.length > 0 && (
+                  <Badge className="bg-amber-500/20 text-amber-300 border-0 text-xs ml-1">
+                    {draftArtworks.length}
+                  </Badge>
+                )}
+              </CardTitle>
+              <Link href="/quality/labeling/artwork">
+                <span className="text-xs text-primary hover:underline cursor-pointer flex items-center gap-1">
+                  View all <ArrowRight className="h-3 w-3" />
+                </span>
+              </Link>
+            </div>
+          </CardHeader>
+          <CardContent className="p-0">
+            {draftArtworks.length === 0 ? (
+              <p className="text-sm text-muted-foreground px-6 pb-4" data-testid="text-artwork-all-approved">
+                All artwork approved.
+              </p>
+            ) : (
+              <div className="divide-y divide-border">
+                {draftArtworks.slice(0, 5).map((a) => (
+                  <Link key={a.id} href="/quality/labeling/artwork">
+                    <div
+                      className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-muted/50 transition-colors"
+                      data-testid={`row-artwork-pending-${a.id}`}
+                    >
+                      <div className="min-w-0 flex-1 mr-3">
+                        <p className="text-sm font-medium font-mono truncate">{a.version}</p>
+                        <p className="text-xs text-muted-foreground truncate">Product: {a.productId}</p>
+                      </div>
+                      <Badge className="bg-yellow-500/20 text-yellow-300 border-0 text-xs shrink-0">
+                        DRAFT
+                      </Badge>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Reconciliations out-of-tolerance */}
+        <Card data-testid="card-recons-out-of-tolerance">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base font-semibold flex items-center gap-2">
+                <AlertOctagon className="h-4 w-4 text-amber-400" />
+                Reconciliations Out-of-Tolerance
+                {outOfToleranceRecons.length > 0 && (
+                  <Badge className="bg-amber-500/20 text-amber-300 border-0 text-xs ml-1">
+                    {outOfToleranceRecons.length}
+                  </Badge>
+                )}
+              </CardTitle>
+              <Link href="/production">
+                <span className="text-xs text-primary hover:underline cursor-pointer flex items-center gap-1">
+                  View all <ArrowRight className="h-3 w-3" />
+                </span>
+              </Link>
+            </div>
+          </CardHeader>
+          <CardContent className="p-0">
+            {outOfToleranceRecons.length === 0 ? (
+              <p className="text-sm text-muted-foreground px-6 pb-4" data-testid="text-recons-all-ok">
+                All reconciliations within tolerance.
+              </p>
+            ) : (
+              <div className="divide-y divide-border">
+                {outOfToleranceRecons.slice(0, 5).map((r) => (
+                  <Link key={r.id} href="/production">
+                    <div
+                      className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-muted/50 transition-colors"
+                      data-testid={`row-recon-oot-${r.id}`}
+                    >
+                      <div className="min-w-0 flex-1 mr-3">
+                        <p className="text-sm font-medium font-mono truncate">{r.bprId}</p>
+                        <p className="text-xs text-muted-foreground truncate">
+                          Variance: {r.variance} — deviation required
+                        </p>
+                      </div>
+                      <Badge className="bg-amber-500/20 text-amber-300 border-0 text-xs shrink-0">
+                        OOT
+                      </Badge>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
       </div>
     </div>
   );

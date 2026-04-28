@@ -51,6 +51,13 @@ export const MEANING_VERB: Record<SignatureMeaning, string> = {
   CALIBRATION_RECORDED: "recorded calibration for",
   CLEANING_VERIFIED: "verified cleaning for",
   LINE_CLEARANCE: "approved line clearance for",
+  ARTWORK_APPROVED: "approved label artwork for",
+  ARTWORK_RETIRED: "retired label artwork for",
+  LABEL_SPOOL_RECEIVED: "received label spool for",
+  LABEL_PRINT_BATCH: "authorized print batch for",
+  LABEL_RECONCILED: "reconciled label inventory for",
+  SOP_APPROVED: "approved SOP for",
+  SOP_RETIRED: "retired SOP for",
 };
 
 // Performs the signature ceremony then calls fn(tx) for the state change —

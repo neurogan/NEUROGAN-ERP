@@ -388,6 +388,9 @@ export const bprSteps = pgTable("erp_bpr_steps", {
   notes: text("notes"),
   status: text("status").notNull().default("PENDING"), // PENDING, IN_PROGRESS, COMPLETED, VERIFIED
   createdAt: timestamp("created_at").defaultNow(),
+  // R-04 Obs 10: SOP citation on BPR steps (soft FK — enforced in storage layer)
+  sopCode: text("sop_code"),
+  sopVersion: text("sop_version"),
 });
 
 // BPR Deviations (Sec. 111.140(b)(3))
@@ -916,6 +919,17 @@ export const auditActionEnum = z.enum([
   "CLEANING_LOGGED",
   "LINE_CLEARANCE_LOGGED",
   "START_BLOCKED",
+  "LABEL_ARTWORK_CREATED",
+  "LABEL_ARTWORK_APPROVED",
+  "LABEL_ARTWORK_RETIRED",
+  "LABEL_SPOOL_RECEIVED",
+  "LABEL_SPOOL_DISPOSED",
+  "LABEL_ISSUED",
+  "LABEL_PRINTED",
+  "LABEL_RECONCILED",
+  "SOP_CREATED",
+  "SOP_APPROVED",
+  "SOP_RETIRED",
 ]);
 export type AuditAction = z.infer<typeof auditActionEnum>;
 
@@ -970,6 +984,13 @@ export const signatureMeaningEnum = z.enum([
   "CALIBRATION_RECORDED",
   "CLEANING_VERIFIED",
   "LINE_CLEARANCE",
+  "ARTWORK_APPROVED",
+  "ARTWORK_RETIRED",
+  "LABEL_SPOOL_RECEIVED",
+  "LABEL_PRINT_BATCH",
+  "LABEL_RECONCILED",
+  "SOP_APPROVED",
+  "SOP_RETIRED",
 ]);
 export type SignatureMeaning = z.infer<typeof signatureMeaningEnum>;
 
@@ -1156,3 +1177,165 @@ export const oosInvestigationCounter = pgTable("erp_oos_investigation_counter", 
   year:    integer("year").primaryKey(),
   lastSeq: integer("last_seq").notNull().default(0),
 });
+
+// ─── R-04 Labeling & Reconciliation ───────────────────────────────────────
+//
+// Closes FDA Form 483 Obs 9 (§111.415(f), §111.260(g) — label reconciliation)
+// and the ERP side of Obs 10 (§111.415 — labeling/packaging SOPs).
+
+// App settings key-value store (distinct from the wide erp_app_settings table).
+// Used for runtime-configurable labeling settings: adapter, tolerance, host, port.
+export const appSettingsKv = pgTable("erp_app_settings_kv", {
+  key:       text("key").primaryKey().notNull(),
+  value:     text("value").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type AppSettingsKv = typeof appSettingsKv.$inferSelect;
+export const insertAppSettingsKvSchema = createInsertSchema(appSettingsKv).omit({ updatedAt: true });
+export type InsertAppSettingsKv = z.infer<typeof insertAppSettingsKvSchema>;
+
+// Label artwork master — one row per product/version pair.
+export const labelArtwork = pgTable("erp_label_artwork", {
+  id:                      uuid("id").primaryKey().defaultRandom(),
+  productId:               varchar("product_id").notNull().references(() => products.id),
+  version:                 text("version").notNull(),
+  artworkFileData:         text("artwork_file_data").notNull(),
+  artworkFileName:         text("artwork_file_name").notNull(),
+  artworkMimeType:         text("artwork_mime_type").notNull(),
+  variableDataSpec:        jsonb("variable_data_spec")
+                             .notNull()
+                             .$type<Record<string, boolean>>()
+                             .default({}),
+  status:                  text("status").notNull().default("DRAFT")
+                             .$type<"DRAFT" | "APPROVED" | "RETIRED">(),
+  approvedBySignatureId:   uuid("approved_by_signature_id")
+                             .references(() => electronicSignatures.id),
+  approvedAt:              timestamp("approved_at", { withTimezone: true }),
+  retiredBySignatureId:    uuid("retired_by_signature_id")
+                             .references(() => electronicSignatures.id),
+  retiredAt:               timestamp("retired_at", { withTimezone: true }),
+  createdAt:               timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  uniqProductVersion: unique().on(t.productId, t.version),
+}));
+
+export type LabelArtwork = typeof labelArtwork.$inferSelect;
+export const insertLabelArtworkSchema = createInsertSchema(labelArtwork).omit({
+  id: true, createdAt: true,
+});
+export type InsertLabelArtwork = z.infer<typeof insertLabelArtworkSchema>;
+
+// Label spools — physical rolls of pre-printed labels in the label cage.
+export const labelSpools = pgTable("erp_label_spools", {
+  id:                       uuid("id").primaryKey().defaultRandom(),
+  artworkId:                uuid("artwork_id").notNull().references(() => labelArtwork.id),
+  spoolNumber:              text("spool_number").notNull(),
+  qtyInitial:               integer("qty_initial").notNull(),
+  qtyOnHand:                integer("qty_on_hand").notNull(),
+  locationId:               varchar("location_id").references(() => locations.id),
+  status:                   text("status").notNull().default("ACTIVE")
+                              .$type<"ACTIVE" | "DEPLETED" | "QUARANTINED" | "DISPOSED">(),
+  receivedBySignatureId:    uuid("received_by_signature_id")
+                              .references(() => electronicSignatures.id),
+  disposedBySignatureId:    uuid("disposed_by_signature_id")
+                              .references(() => electronicSignatures.id),
+  disposedAt:               timestamp("disposed_at", { withTimezone: true }),
+  disposeReason:            text("dispose_reason"),
+  createdAt:                timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  uniqArtworkSpool: unique().on(t.artworkId, t.spoolNumber),
+}));
+
+export type LabelSpool = typeof labelSpools.$inferSelect;
+export const insertLabelSpoolSchema = createInsertSchema(labelSpools).omit({
+  id: true, createdAt: true,
+});
+export type InsertLabelSpool = z.infer<typeof insertLabelSpoolSchema>;
+
+// Label issuance log — spool check-out events tied to a BPR.
+export const labelIssuanceLog = pgTable("erp_label_issuance_log", {
+  id:              uuid("id").primaryKey().defaultRandom(),
+  bprId:           varchar("bpr_id").notNull().references(() => batchProductionRecords.id),
+  spoolId:         uuid("spool_id").notNull().references(() => labelSpools.id),
+  artworkId:       uuid("artwork_id").notNull().references(() => labelArtwork.id),
+  quantityIssued:  integer("quantity_issued").notNull(),
+  issuedByUserId:  uuid("issued_by_user_id").notNull().references(() => users.id),
+  issuedAt:        timestamp("issued_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type LabelIssuanceLog = typeof labelIssuanceLog.$inferSelect;
+export const insertLabelIssuanceLogSchema = createInsertSchema(labelIssuanceLog).omit({
+  id: true, issuedAt: true,
+});
+export type InsertLabelIssuanceLog = z.infer<typeof insertLabelIssuanceLogSchema>;
+
+// Label print jobs — audit trail for each thermal print event.
+export const labelPrintJobs = pgTable("erp_label_print_jobs", {
+  id:               uuid("id").primaryKey().defaultRandom(),
+  issuanceLogId:    uuid("issuance_log_id").notNull().references(() => labelIssuanceLog.id),
+  lot:              text("lot").notNull(),
+  expiry:           date("expiry").notNull(),
+  qtyPrinted:       integer("qty_printed").notNull(),
+  adapter:          text("adapter").notNull().$type<"ZPL_TCP" | "STUB">(),
+  status:           text("status").notNull().$type<"SUCCESS" | "FAILED" | "PARTIAL">(),
+  resultJson:       jsonb("result_json").$type<Record<string, unknown>>(),
+  signatureId:      uuid("signature_id").references(() => electronicSignatures.id),
+  createdAt:        timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type LabelPrintJob = typeof labelPrintJobs.$inferSelect;
+export const insertLabelPrintJobSchema = createInsertSchema(labelPrintJobs).omit({
+  id: true, createdAt: true,
+});
+export type InsertLabelPrintJob = z.infer<typeof insertLabelPrintJobSchema>;
+
+// Label reconciliations — one-per-BPR mandatory closure record.
+export const labelReconciliations = pgTable("erp_label_reconciliations", {
+  id:                 uuid("id").primaryKey().defaultRandom(),
+  bprId:              varchar("bpr_id").notNull().references(() => batchProductionRecords.id),
+  qtyIssued:          integer("qty_issued").notNull(),
+  qtyApplied:         integer("qty_applied").notNull(),
+  qtyDestroyed:       integer("qty_destroyed").notNull(),
+  qtyReturned:        integer("qty_returned").notNull(),
+  variance:           integer("variance").notNull(),
+  toleranceExceeded:  boolean("tolerance_exceeded").notNull().default(false),
+  proofFileData:      text("proof_file_data"),
+  proofMimeType:      text("proof_mime_type"),
+  deviationId:        varchar("deviation_id").references(() => bprDeviations.id),
+  signatureId:        uuid("signature_id").references(() => electronicSignatures.id),
+  reconciledAt:       timestamp("reconciled_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  uniqBpr: unique().on(t.bprId),
+}));
+
+export type LabelReconciliation = typeof labelReconciliations.$inferSelect;
+export const insertLabelReconciliationSchema = createInsertSchema(labelReconciliations).omit({
+  id: true, reconciledAt: true,
+});
+export type InsertLabelReconciliation = z.infer<typeof insertLabelReconciliationSchema>;
+
+// SOPs registry — minimal table for Obs 10.
+export const sops = pgTable("erp_sops", {
+  id:                     uuid("id").primaryKey().defaultRandom(),
+  code:                   text("code").notNull(),
+  title:                  text("title").notNull(),
+  version:                text("version").notNull(),
+  status:                 text("status").notNull().default("DRAFT")
+                            .$type<"DRAFT" | "APPROVED" | "RETIRED">(),
+  approvedBySignatureId:  uuid("approved_by_signature_id")
+                            .references(() => electronicSignatures.id),
+  approvedAt:             timestamp("approved_at", { withTimezone: true }),
+  retiredBySignatureId:   uuid("retired_by_signature_id")
+                            .references(() => electronicSignatures.id),
+  retiredAt:              timestamp("retired_at", { withTimezone: true }),
+  createdAt:              timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  uniqCodeVersion: unique().on(t.code, t.version),
+}));
+
+export type Sop = typeof sops.$inferSelect;
+export const insertSopSchema = createInsertSchema(sops).omit({
+  id: true, createdAt: true,
+});
+export type InsertSop = z.infer<typeof insertSopSchema>;

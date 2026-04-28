@@ -41,6 +41,13 @@ import { db } from "./db";
 import { eq, and, desc, ne } from "drizzle-orm";
 import * as equipmentStorage from "./storage/equipment";
 import * as cleaningStorage from "./storage/cleaning-line-clearance";
+import * as artworkStorage from "./storage/label-artwork";
+import * as spoolStorage from "./storage/label-spools";
+import * as issuanceStorage from "./storage/label-issuance";
+import * as sopStorage from "./storage/sops";
+import * as reconciliationStorage from "./storage/label-reconciliations";
+import { getLabelPrintAdapter } from "./printing/registry";
+import { runCompletionGates, CompletionGateError } from "./state/bpr-completion-gates";
 
 function formatZodError(error: ZodError): string {
   return error.errors.map(e => `${e.path.join(".")}: ${e.message}`).join(", ");
@@ -1417,6 +1424,15 @@ export async function registerRoutes(
       const data = insertBprSchema.partial().parse(req.body);
       const before = await storage.getBpr(req.params.id);
       if (!before) return res.status(404).json({ message: "BPR not found" });
+
+      // Completion gate: enforce label reconciliation requirements before
+      // allowing IN_PROGRESS → COMPLETE transition. Other status changes
+      // (e.g. ON_HOLD → IN_PROGRESS) do NOT trigger this gate.
+      const newStatus = data.status;
+      if (newStatus === "COMPLETED") {
+        await runCompletionGates(req.params.id);
+      }
+
       const bpr = await withAudit(
         { userId: req.user!.id, action: "UPDATE", entityType: "batch_production_record",
           entityId: req.params.id, before,
@@ -1424,7 +1440,12 @@ export async function registerRoutes(
         (tx) => storage.updateBpr(req.params.id, data, tx),
       );
       res.json(bpr);
-    } catch (err) { next(err); }
+    } catch (err) {
+      if (CompletionGateError.is(err)) {
+        return res.status(409).json({ code: err.code, message: err.message });
+      }
+      next(err);
+    }
   });
 
   app.post<{ id: string }>("/api/batch-production-records/:id/submit-for-review", requireAuth, requireRole("PRODUCTION", "QA", "ADMIN"), async (req, res, next) => {
@@ -1477,6 +1498,15 @@ export async function registerRoutes(
   app.post<{ id: string }>("/api/batch-production-records/:id/steps", requireAuth, async (req, res) => {
     try {
       const data = insertBprStepSchema.parse(req.body);
+
+      // R-04 Obs 10: If a SOP citation is provided, validate it is APPROVED.
+      if (data.sopCode && data.sopVersion) {
+        const sop = await sopStorage.getSopByCode(data.sopCode, data.sopVersion);
+        if (!sop || sop.status !== "APPROVED") {
+          return res.status(409).json({ code: "SOP_NOT_APPROVED", message: "SOP must be APPROVED to cite in a BPR step" });
+        }
+      }
+
       const step = await storage.addBprStep(req.params.id, data);
       res.status(201).json(step);
     } catch (err) {
@@ -2297,6 +2327,442 @@ export async function registerRoutes(
       res.json(data);
     } catch (err) {
       res.status(500).json({ message: "Failed to fetch supply chain data" });
+    }
+  });
+
+  // ─── Label artwork (R-04) ──────────────────────────────
+
+  app.post("/api/label-artwork", requireAuth, requireRole("QA", "ADMIN"), async (req, res, next) => {
+    try {
+      const body = req.body as {
+        productId?: string;
+        version?: string;
+        artworkFileName?: string;
+        artworkFileData?: string;
+        artworkMimeType?: string;
+        variableDataSpec?: Record<string, boolean>;
+      };
+      if (!body.productId) return res.status(400).json({ message: "productId is required" });
+      if (!body.version) return res.status(400).json({ message: "version is required" });
+      if (!body.artworkFileName) return res.status(400).json({ message: "artworkFileName is required" });
+      if (!body.artworkFileData) return res.status(400).json({ message: "artworkFileData is required" });
+      if (!body.artworkMimeType) return res.status(400).json({ message: "artworkMimeType is required" });
+      const row = await artworkStorage.createArtwork(
+        {
+          productId: body.productId,
+          version: body.version,
+          artworkFileName: body.artworkFileName,
+          artworkFileData: body.artworkFileData,
+          artworkMimeType: body.artworkMimeType,
+          variableDataSpec: body.variableDataSpec ?? undefined,
+          status: "DRAFT",
+        },
+        req.user!.id,
+        req.requestId,
+        `${req.method} ${req.path}`,
+      );
+      res.status(201).json(row);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.get("/api/label-artwork", requireAuth, async (req, res, next) => {
+    try {
+      const { productId } = req.query as { productId?: string };
+      if (!productId) return res.status(400).json({ message: "productId query param is required" });
+      const rows = await artworkStorage.listArtworkByProduct(productId);
+      res.json(rows);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // GET /api/label-artwork/drafts — dashboard helper, returns all DRAFT artworks
+  app.get("/api/label-artwork/drafts", requireAuth, async (_req, res, next) => {
+    try {
+      const rows = await artworkStorage.listDraftArtworks();
+      res.json(rows);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.get<{ id: string }>("/api/label-artwork/:id", requireAuth, async (req, res, next) => {
+    try {
+      const row = await artworkStorage.getArtwork(req.params.id);
+      if (!row) return res.status(404).json({ message: "Label artwork not found" });
+      res.json(row);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.post<{ id: string }>("/api/label-artwork/:id/approve", requireAuth, requireRole("QA", "ADMIN"), async (req, res, next) => {
+    try {
+      const body = req.body as { password?: string };
+      if (!body.password) return res.status(400).json({ message: "password is required" });
+      const row = await artworkStorage.approveArtwork(
+        req.params.id,
+        req.user!.id,
+        body.password,
+        req.requestId,
+        `${req.method} ${req.path}`,
+      );
+      res.json(row);
+    } catch (err) {
+      const e = err as { status?: number; code?: string; message?: string };
+      if (e.status === 404) return res.status(404).json({ message: "Label artwork not found" });
+      if (e.status === 409) return res.status(409).json({ code: e.code, message: e.message });
+      if (e.status === 401) return res.status(401).json({ error: { code: e.code, message: e.message } });
+      if (e.status === 423) return res.status(423).json({ error: { code: e.code, message: e.message } });
+      next(err);
+    }
+  });
+
+  app.post<{ id: string }>("/api/label-artwork/:id/retire", requireAuth, requireRole("QA", "ADMIN"), async (req, res, next) => {
+    try {
+      const body = req.body as { password?: string };
+      if (!body.password) return res.status(400).json({ message: "password is required" });
+      const row = await artworkStorage.retireArtwork(
+        req.params.id,
+        req.user!.id,
+        body.password,
+        req.requestId,
+        `${req.method} ${req.path}`,
+      );
+      res.json(row);
+    } catch (err) {
+      const e = err as { status?: number; code?: string; message?: string };
+      if (e.status === 404) return res.status(404).json({ message: "Label artwork not found" });
+      if (e.status === 409) return res.status(409).json({ code: e.code, message: e.message });
+      if (e.status === 401) return res.status(401).json({ error: { code: e.code, message: e.message } });
+      if (e.status === 423) return res.status(423).json({ error: { code: e.code, message: e.message } });
+      next(err);
+    }
+  });
+
+  // ─── SOPs (R-04) ───────────────────────────────────────
+
+  // POST /api/sops — roles QA|ADMIN, creates DRAFT
+  app.post("/api/sops", requireAuth, requireRole("QA", "ADMIN"), async (req, res, next) => {
+    try {
+      const body = req.body as {
+        code?: string;
+        version?: string;
+        title?: string;
+      };
+      if (!body.code) return res.status(400).json({ message: "code is required" });
+      if (!body.version) return res.status(400).json({ message: "version is required" });
+      if (!body.title) return res.status(400).json({ message: "title is required" });
+      const row = await sopStorage.createSop(
+        {
+          code: body.code,
+          version: body.version,
+          title: body.title,
+          status: "DRAFT",
+        },
+        req.user!.id,
+        req.requestId,
+        `${req.method} ${req.path}`,
+      );
+      res.status(201).json(row);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // GET /api/sops — any auth, list all
+  app.get("/api/sops", requireAuth, async (_req, res, next) => {
+    try {
+      const rows = await sopStorage.listSops();
+      res.json(rows);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // GET /api/sops/:id — any auth, single
+  app.get<{ id: string }>("/api/sops/:id", requireAuth, async (req, res, next) => {
+    try {
+      const row = await sopStorage.getSop(req.params.id);
+      if (!row) return res.status(404).json({ message: "SOP not found" });
+      res.json(row);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // POST /api/sops/:id/approve — roles QA|ADMIN, F-04
+  app.post<{ id: string }>("/api/sops/:id/approve", requireAuth, requireRole("QA", "ADMIN"), async (req, res, next) => {
+    try {
+      const body = req.body as { password?: string };
+      if (!body.password) return res.status(400).json({ message: "password is required" });
+      const row = await sopStorage.approveSop(
+        req.params.id,
+        req.user!.id,
+        body.password,
+        req.requestId,
+        `${req.method} ${req.path}`,
+      );
+      res.json(row);
+    } catch (err) {
+      const e = err as { status?: number; code?: string; message?: string };
+      if (e.status === 404) return res.status(404).json({ message: "SOP not found" });
+      if (e.status === 409) return res.status(409).json({ code: e.code, message: e.message });
+      if (e.status === 401) return res.status(401).json({ error: { code: e.code, message: e.message } });
+      if (e.status === 423) return res.status(423).json({ error: { code: e.code, message: e.message } });
+      next(err);
+    }
+  });
+
+  // POST /api/sops/:id/retire — roles QA|ADMIN, F-04
+  app.post<{ id: string }>("/api/sops/:id/retire", requireAuth, requireRole("QA", "ADMIN"), async (req, res, next) => {
+    try {
+      const body = req.body as { password?: string };
+      if (!body.password) return res.status(400).json({ message: "password is required" });
+      const row = await sopStorage.retireSop(
+        req.params.id,
+        req.user!.id,
+        body.password,
+        req.requestId,
+        `${req.method} ${req.path}`,
+      );
+      res.json(row);
+    } catch (err) {
+      const e = err as { status?: number; code?: string; message?: string };
+      if (e.status === 404) return res.status(404).json({ message: "SOP not found" });
+      if (e.status === 409) return res.status(409).json({ code: e.code, message: e.message });
+      if (e.status === 401) return res.status(401).json({ error: { code: e.code, message: e.message } });
+      if (e.status === 423) return res.status(423).json({ error: { code: e.code, message: e.message } });
+      next(err);
+    }
+  });
+
+  // ─── Label spools (R-04) ───────────────────────────────
+
+  // POST /api/label-spools — F-04, roles QA|ADMIN
+  app.post("/api/label-spools", requireAuth, requireRole("QA", "ADMIN"), async (req, res, next) => {
+    try {
+      const body = req.body as {
+        artworkId?: string;
+        spoolNumber?: string;
+        qtyInitial?: number;
+        locationId?: string | null;
+        password?: string;
+      };
+      if (!body.artworkId) return res.status(400).json({ message: "artworkId is required" });
+      if (!body.spoolNumber) return res.status(400).json({ message: "spoolNumber is required" });
+      if (body.qtyInitial === null || body.qtyInitial === undefined) return res.status(400).json({ message: "qtyInitial is required" });
+      if (!body.password) return res.status(400).json({ message: "password is required" });
+      const row = await spoolStorage.receiveSpool(
+        {
+          artworkId: body.artworkId,
+          spoolNumber: body.spoolNumber,
+          qtyInitial: body.qtyInitial,
+          locationId: body.locationId ?? null,
+        },
+        req.user!.id,
+        body.password,
+        req.requestId,
+        `${req.method} ${req.path}`,
+      );
+      return res.status(201).json(row);
+    } catch (err) {
+      const e = err as { status?: number; code?: string; message?: string };
+      if (e.status === 404) return res.status(404).json({ message: "Label artwork not found" });
+      if (e.status === 409) return res.status(409).json({ code: e.code, message: e.message });
+      if (e.status === 401) return res.status(401).json({ error: { code: e.code, message: e.message } });
+      if (e.status === 423) return res.status(423).json({ error: { code: e.code, message: e.message } });
+      next(err);
+    }
+  });
+
+  // GET /api/label-spools?artworkId=... — any auth
+  app.get("/api/label-spools", requireAuth, async (req, res, next) => {
+    try {
+      const { artworkId } = req.query as { artworkId?: string };
+      if (!artworkId) return res.status(400).json({ message: "artworkId query param is required" });
+      const rows = await spoolStorage.listActiveSpools(artworkId);
+      return res.json(rows);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // POST /api/label-spools/:id/dispose — roles QA|ADMIN, no password
+  app.post<{ id: string }>("/api/label-spools/:id/dispose", requireAuth, requireRole("QA", "ADMIN"), async (req, res, next) => {
+    try {
+      const body = req.body as { reason?: string };
+      if (!body.reason) return res.status(400).json({ message: "reason is required" });
+      const row = await spoolStorage.disposeSpool(
+        req.params.id,
+        body.reason,
+        req.user!.id,
+        req.requestId,
+        `${req.method} ${req.path}`,
+      );
+      return res.json(row);
+    } catch (err) {
+      const e = err as { status?: number; code?: string; message?: string };
+      if (e.status === 404) return res.status(404).json({ message: "Label spool not found" });
+      if (e.status === 409) return res.status(409).json({ code: e.code, message: e.message });
+      next(err);
+    }
+  });
+
+  // ─── Label issuance (R-04) ─────────────────────────────
+
+  // POST /api/bpr/:id/label-issuance — roles PRODUCTION|QA|ADMIN, no password
+  app.post<{ id: string }>("/api/bpr/:id/label-issuance", requireAuth, requireRole("PRODUCTION", "QA", "ADMIN"), async (req, res, next) => {
+    try {
+      const body = req.body as { spoolId?: string; qty?: number };
+      if (!body.spoolId) return res.status(400).json({ message: "spoolId is required" });
+      if (body.qty === null || body.qty === undefined) return res.status(400).json({ message: "qty is required" });
+      const row = await issuanceStorage.issueLabels(
+        req.params.id,
+        body.spoolId,
+        body.qty,
+        req.user!.id,
+        req.requestId,
+        `${req.method} ${req.path}`,
+      );
+      return res.status(201).json(row);
+    } catch (err) {
+      const e = err as { status?: number; code?: string; message?: string };
+      if (e.status === 404) return res.status(404).json({ message: e.message ?? "Not found" });
+      if (e.status === 409) return res.status(409).json({ code: e.code, message: e.message });
+      next(err);
+    }
+  });
+
+  // GET /api/bpr/:id/label-issuance — any auth
+  app.get<{ id: string }>("/api/bpr/:id/label-issuance", requireAuth, async (req, res, next) => {
+    try {
+      const rows = await issuanceStorage.listIssuanceForBpr(req.params.id);
+      return res.json(rows);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // ─── Label print jobs (R-04) ───────────────────────────
+
+  // POST /api/label-issuance/:id/print — F-04, roles QA|ADMIN
+  app.post<{ id: string }>("/api/label-issuance/:id/print", requireAuth, requireRole("QA", "ADMIN"), async (req, res, next) => {
+    try {
+      const body = req.body as {
+        password?: string;
+        qty?: number;
+        lot?: string;
+        expiry?: string;
+        artworkId?: string;
+      };
+      if (!body.password) return res.status(400).json({ message: "password is required" });
+      if (body.qty === null || body.qty === undefined) return res.status(400).json({ message: "qty is required" });
+      if (!body.lot) return res.status(400).json({ message: "lot is required" });
+      if (!body.expiry) return res.status(400).json({ message: "expiry is required" });
+      if (!body.artworkId) return res.status(400).json({ message: "artworkId is required" });
+
+      const adapter = await getLabelPrintAdapter();
+      const artwork = await artworkStorage.getArtwork(body.artworkId);
+      if (!artwork) return res.status(404).json({ message: "Label artwork not found" });
+
+      const adapterResult = await adapter.print({
+        artwork,
+        lot: body.lot,
+        expiry: new Date(body.expiry),
+        qty: body.qty,
+      });
+
+      const row = await issuanceStorage.recordPrintJob(
+        {
+          issuanceLogId: req.params.id,
+          lot: body.lot,
+          expiry: new Date(body.expiry),
+          qtyPrinted: adapterResult.qtyPrinted,
+          adapter: adapter.name,
+          adapterResult,
+        },
+        req.user!.id,
+        body.password,
+        req.requestId,
+        `${req.method} ${req.path}`,
+      );
+      return res.status(201).json(row);
+    } catch (err) {
+      const e = err as { status?: number; code?: string; message?: string };
+      if (e.status === 404) return res.status(404).json({ message: e.message ?? "Not found" });
+      if (e.status === 409) return res.status(409).json({ code: e.code, message: e.message });
+      if (e.status === 401) return res.status(401).json({ error: { code: e.code, message: e.message } });
+      if (e.status === 423) return res.status(423).json({ error: { code: e.code, message: e.message } });
+      next(err);
+    }
+  });
+
+  // ─── Label reconciliation (R-04) ──────────────────────────
+
+  // POST /api/bpr/:id/label-reconciliation — F-04, roles QA|ADMIN
+  app.post<{ id: string }>("/api/bpr/:id/label-reconciliation", requireAuth, requireRole("QA", "ADMIN"), async (req, res, next) => {
+    try {
+      const body = req.body as {
+        password?: string;
+        qtyApplied?: number;
+        qtyReturned?: number;
+        qtyDestroyed?: number;
+        deviationId?: string | null;
+        proofFileData?: string | null;
+        proofMimeType?: string | null;
+      };
+      if (!body.password) return res.status(400).json({ message: "password is required" });
+      if (body.qtyApplied === null || body.qtyApplied === undefined) return res.status(400).json({ message: "qtyApplied is required" });
+      if (body.qtyReturned === null || body.qtyReturned === undefined) return res.status(400).json({ message: "qtyReturned is required" });
+      if (body.qtyDestroyed === null || body.qtyDestroyed === undefined) return res.status(400).json({ message: "qtyDestroyed is required" });
+
+      const row = await reconciliationStorage.reconcileBpr(
+        {
+          bprId: req.params.id,
+          qtyApplied: body.qtyApplied,
+          qtyReturned: body.qtyReturned,
+          qtyDestroyed: body.qtyDestroyed,
+          deviationId: body.deviationId ?? null,
+          proofFileData: body.proofFileData ?? null,
+          proofMimeType: body.proofMimeType ?? null,
+        },
+        req.user!.id,
+        body.password,
+        req.requestId,
+        `${req.method} ${req.path}`,
+      );
+      return res.status(201).json(row);
+    } catch (err) {
+      const e = err as { status?: number; code?: string; message?: string };
+      if (e.status === 404) return res.status(404).json({ message: e.message ?? "Not found" });
+      if (e.status === 409) return res.status(409).json({ code: e.code, message: e.message });
+      if (e.status === 401) return res.status(401).json({ error: { code: e.code, message: e.message } });
+      if (e.status === 423) return res.status(423).json({ error: { code: e.code, message: e.message } });
+      next(err);
+    }
+  });
+
+  // GET /api/bpr/:id/label-reconciliation — any auth
+  app.get<{ id: string }>("/api/bpr/:id/label-reconciliation", requireAuth, async (req, res, next) => {
+    try {
+      const row = await reconciliationStorage.getReconciliationForBpr(req.params.id);
+      if (!row) return res.status(404).json({ message: "No reconciliation found for this BPR" });
+      return res.json(row);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // GET /api/label-reconciliations/out-of-tolerance — dashboard helper
+  app.get("/api/label-reconciliations/out-of-tolerance", requireAuth, async (_req, res, next) => {
+    try {
+      const rows = await reconciliationStorage.listOutOfToleranceReconciliations();
+      return res.json(rows);
+    } catch (err) {
+      next(err);
     }
   });
 

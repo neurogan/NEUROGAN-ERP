@@ -24,6 +24,7 @@ import BatchPrint from "@/pages/batch-print";
 import SkuManager from "@/pages/sku-manager";
 import Login from "@/pages/login";
 import ValidationDetail from "@/pages/quality/ValidationDetail";
+import QualityPage from "@/pages/quality";
 import OosInvestigations from "@/pages/OosInvestigations";
 import EquipmentPage from "@/pages/equipment";
 import EquipmentDetailPage from "@/pages/equipment/detail";
@@ -46,6 +47,7 @@ const navItems: NavItem[] = [
   { href: "/equipment", label: "Equipment" },
   { href: "/transactions", label: "Transactions" },
   { href: "/oos-investigations", label: "OOS", requiredRoles: ["QA", "ADMIN"] },
+  { href: "/quality", label: "Quality", requiredRoles: ["QA", "ADMIN"] },
 ];
 
 function ThemeToggle() {
@@ -183,6 +185,12 @@ function AppLayout() {
           <Route path="/settings/users" component={SettingsUsers} />
           <Route path="/settings" component={Settings} />
           <Route path="/oos-investigations" component={OosInvestigations} />
+          <Route path="/quality" component={QualityPage} />
+          <Route path="/quality/labeling" component={QualityPage} />
+          <Route path="/quality/labeling/artwork" component={QualityPage} />
+          <Route path="/quality/labeling/spools" component={QualityPage} />
+          <Route path="/quality/labeling/reconciliation" component={QualityPage} />
+          <Route path="/quality/sops" component={QualityPage} />
           <Route path="/equipment" component={EquipmentPage} />
           <Route path="/equipment/master" component={EquipmentPage} />
           <Route path="/equipment/calibration" component={EquipmentPage} />
