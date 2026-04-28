@@ -43,22 +43,37 @@ import {
 } from "@shared/schema";
 import type { Tx } from "./db";
 
+export type ReceivingTaskType =
+  | "LAB_TEST_REQUIRED"
+  | "QUALIFICATION_REQUIRED"
+  | "PENDING_QC"
+  | "IDENTITY_CHECK_REQUIRED"
+  | "REJECTED_LOT";
+
+export type ComplaintTaskType =
+  | "COMPLAINT_TRIAGE_REQUIRED"
+  | "COMPLAINT_LOT_UNRESOLVED"
+  | "COMPLAINT_INVESTIGATION_REQUIRED"
+  | "COMPLAINT_AE_URGENT_REVIEW"
+  | "COMPLAINT_LAB_RETEST"
+  | "COMPLAINT_DISPOSITION_REQUIRED"
+  | "SAER_DUE_SOON"
+  | "SAER_OVERDUE";
+
 export interface UserTask {
-  id: string; // composite key like "lab-<recordId>"
-  taskType:
-    | "LAB_TEST_REQUIRED"
-    | "QUALIFICATION_REQUIRED"
-    | "PENDING_QC"
-    | "IDENTITY_CHECK_REQUIRED"
-    | "REJECTED_LOT";
-  receivingRecordId: string;
-  receivingIdentifier: string;
-  materialName: string | null;
-  supplierName: string | null;
+  id: string;
+  taskType: ReceivingTaskType | ComplaintTaskType;
+  sourceModule: "RECEIVING" | "COMPLAINT";
+  sourceRecordId: string;
+  sourceIdentifier: string;
+  primaryLabel: string | null;
+  secondaryLabel: string | null;
+  // Receiving-only fields (null for complaint tasks)
   quantityReceived: string | null;
   uom: string | null;
   dateReceived: string | null;
   isUrgent: boolean;
+  dueAt: string | null;
 }
 
 export interface ApprovedMaterialWithDetails {

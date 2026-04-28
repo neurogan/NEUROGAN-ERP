@@ -217,6 +217,18 @@ export default function Dashboard() {
     queryKey: ["/api/equipment"],
   });
 
+  // ─── R-05 Complaints: dashboard cards ──────────────────────────
+  const { data: complaintsSummary } = useQuery<{
+    awaitingTriage: number;
+    aeDueSoon: number;
+    awaitingDisposition: number;
+    callbackFailures: number;
+  }>({
+    queryKey: ["/api/complaints/summary"],
+    queryFn: async () => (await apiRequest("GET", "/api/complaints/summary")).json(),
+    staleTime: 60_000,
+  });
+
   // ─── R-04 Label cage: dashboard cards ──────────────────────────
   const { data: draftArtworks = [] } = useQuery<LabelArtwork[]>({
     queryKey: ["/api/label-artwork/drafts"],
@@ -884,6 +896,77 @@ export default function Dashboard() {
             )}
           </CardContent>
         </Card>
+
+        {/* R-05 Complaint tiles */}
+        {complaintsSummary && (
+          <>
+            <Link href="/quality/complaints">
+              <Card data-testid="card-complaints-triage" className="cursor-pointer hover:bg-muted/50 transition-colors">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-semibold flex items-center justify-between">
+                    Complaints awaiting triage
+                    {complaintsSummary.awaitingTriage > 0 && (
+                      <Badge className="bg-amber-500/20 text-amber-300 border-0 text-xs">
+                        {complaintsSummary.awaitingTriage}
+                      </Badge>
+                    )}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-muted-foreground">
+                    {complaintsSummary.awaitingTriage === 0
+                      ? "No complaints awaiting triage."
+                      : `${complaintsSummary.awaitingTriage} complaint${complaintsSummary.awaitingTriage > 1 ? "s" : ""} need triage.`}
+                  </p>
+                </CardContent>
+              </Card>
+            </Link>
+
+            <Link href="/quality/complaints">
+              <Card data-testid="card-ae-due-soon" className="cursor-pointer hover:bg-muted/50 transition-colors">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-semibold flex items-center justify-between">
+                    AE clocks due ≤2 BD
+                    {complaintsSummary.aeDueSoon > 0 && (
+                      <Badge className="bg-destructive/20 text-destructive border-0 text-xs">
+                        {complaintsSummary.aeDueSoon}
+                      </Badge>
+                    )}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-muted-foreground">
+                    {complaintsSummary.aeDueSoon === 0
+                      ? "No SAER clocks due soon."
+                      : `${complaintsSummary.aeDueSoon} SAER clock${complaintsSummary.aeDueSoon > 1 ? "s" : ""} due within 2 business days.`}
+                  </p>
+                </CardContent>
+              </Card>
+            </Link>
+
+            <Link href="/quality/complaints">
+              <Card data-testid="card-complaints-disposition" className="cursor-pointer hover:bg-muted/50 transition-colors">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-semibold flex items-center justify-between">
+                    Dispositions awaiting signature
+                    {complaintsSummary.awaitingDisposition > 0 && (
+                      <Badge className="bg-amber-500/20 text-amber-300 border-0 text-xs">
+                        {complaintsSummary.awaitingDisposition}
+                      </Badge>
+                    )}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-muted-foreground">
+                    {complaintsSummary.awaitingDisposition === 0
+                      ? "No dispositions pending."
+                      : `${complaintsSummary.awaitingDisposition} complaint${complaintsSummary.awaitingDisposition > 1 ? "s" : ""} awaiting Director sign-off.`}
+                  </p>
+                </CardContent>
+              </Card>
+            </Link>
+          </>
+        )}
 
       </div>
     </div>

@@ -68,6 +68,40 @@ export function rejectIdentityInBody(fields: string[]): RequestHandler {
   };
 }
 
+// Dual-auth for the HelpCore intake endpoint.
+// Accepts either:
+//   (a) X-Helpcore-Signature header with a valid HMAC-SHA256, OR
+//   (b) an authenticated session with role ADMIN or QA.
+// If HELPCORE_INBOUND_SECRET is not set, HMAC path is skipped (manual-only mode).
+export const requireHmacOrAuth: RequestHandler = (req, res, next) => {
+  const secret = process.env.HELPCORE_INBOUND_SECRET;
+  const sigHeader = req.headers["x-helpcore-signature"];
+
+  if (secret && typeof sigHeader === "string") {
+    const { createHmac, timingSafeEqual } = require("crypto") as typeof import("crypto");
+    const body = typeof req.body === "string" ? req.body : JSON.stringify(req.body);
+    const expected = `hmac-sha256=${createHmac("sha256", secret).update(body).digest("hex")}`;
+    try {
+      const expectedBuf = Buffer.from(expected);
+      const actualBuf = Buffer.from(sigHeader);
+      if (expectedBuf.length === actualBuf.length && timingSafeEqual(expectedBuf, actualBuf)) {
+        // HMAC valid — mark as system/HMAC auth for downstream use
+        (req as Request & { helpcoreHmacAuth?: boolean }).helpcoreHmacAuth = true;
+        return next();
+      }
+    } catch {
+      // fall through to session auth
+    }
+  }
+
+  // Fall back to session auth
+  if (!req.user) return next(errors.unauthenticated());
+  if (req.user.status !== "ACTIVE") return next(errors.forbidden("Your account is disabled."));
+  const hasRole = req.user.roles.some((r) => r === "ADMIN" || r === "QA");
+  if (!hasRole) return next(errors.forbidden("This endpoint requires ADMIN or QA role."));
+  return next();
+};
+
 export function requireRoleOrSelf(
   getSubjectUserId: SubjectIdGetter,
   ...allowedRoles: readonly UserRole[]

@@ -46,6 +46,9 @@ import * as spoolStorage from "./storage/label-spools";
 import * as issuanceStorage from "./storage/label-issuance";
 import * as sopStorage from "./storage/sops";
 import * as reconciliationStorage from "./storage/label-reconciliations";
+import * as complaintsStorage from "./storage/complaints";
+import { requireHmacOrAuth } from "./auth/middleware";
+import { HELPCORE_SYSTEM_USER_ID } from "./seed/ids";
 import { getLabelPrintAdapter } from "./printing/registry";
 import { runCompletionGates, CompletionGateError } from "./state/bpr-completion-gates";
 
@@ -2764,6 +2767,314 @@ export async function registerRoutes(
     } catch (err) {
       next(err);
     }
+  });
+
+  // ─── R-05 Complaints & SAER ────────────────────────────────────────────────
+
+  // GET /api/complaints — list, optional ?status=&aeOnly=true
+  app.get("/api/complaints", requireAuth, requireRole("QA", "ADMIN"), async (req, res, next) => {
+    try {
+      const status = req.query.status as string | undefined;
+      const aeOnly = req.query.aeOnly === "true";
+      const rows = await complaintsStorage.listComplaints({
+        status: status as import("@shared/schema").ComplaintStatus | undefined,
+        aeOnly,
+      });
+      return res.json(rows);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // GET /api/complaints/summary — dashboard counts
+  app.get("/api/complaints/summary", requireAuth, async (_req, res, next) => {
+    try {
+      const summary = await complaintsStorage.getComplaintsSummary();
+      return res.json(summary);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // GET /api/complaints/trends — monthly grouped stats
+  app.get("/api/complaints/trends", requireAuth, requireRole("QA", "ADMIN"), async (req, res, next) => {
+    try {
+      const { db: dbConn } = await import("./db");
+      const { sql: sqlFn } = await import("drizzle-orm");
+      const from = req.query.from as string | undefined;
+      const to = req.query.to as string | undefined;
+
+      // Group by month × defect_category
+      let whereClause = sqlFn`1=1`;
+      if (from) whereClause = sqlFn`${whereClause} AND intake_at >= ${from}::timestamptz`;
+      if (to) whereClause = sqlFn`${whereClause} AND intake_at < ${to}::timestamptz`;
+
+      const rows = await dbConn.execute(sqlFn`
+        SELECT
+          date_trunc('month', intake_at) AS month,
+          defect_category,
+          count(*)::int AS count,
+          count(*) FILTER (WHERE ae_flag = true)::int AS ae_count
+        FROM erp_complaints
+        WHERE ${whereClause}
+        GROUP BY 1, 2
+        ORDER BY 1, 2
+      `);
+      return res.json(rows.rows);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // GET /api/complaints/:id
+  app.get<{ id: string }>("/api/complaints/:id", requireAuth, requireRole("QA", "ADMIN"), async (req, res, next) => {
+    try {
+      const complaint = await complaintsStorage.getComplaint(req.params.id);
+      const triage = await complaintsStorage.getComplaintTriage(req.params.id);
+      const investigation = await complaintsStorage.getComplaintInvestigation(req.params.id);
+      const labRetests = await complaintsStorage.getComplaintLabRetests(req.params.id);
+      const adverseEvent = await complaintsStorage.getAdverseEvent(req.params.id);
+      const saer = adverseEvent ? await complaintsStorage.getSaerSubmission(adverseEvent.id) : null;
+      return res.json({ complaint, triage, investigation, labRetests, adverseEvent, saer });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // POST /api/complaints/intake — dual auth: HMAC or session QA/ADMIN
+  app.post("/api/complaints/intake", requireHmacOrAuth, async (req, res, next) => {
+    try {
+      const bodySchema = z.object({
+        helpcoreRef: z.string().min(1),
+        customerName: z.string().min(1),
+        customerEmail: z.string().email(),
+        customerPhone: z.string().optional(),
+        lotCode: z.string().min(1),
+        complaintText: z.string().min(1),
+        severity: z.enum(["LOW", "MEDIUM", "HIGH"]).optional(),
+      });
+      const parsed = bodySchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ message: formatZodError(parsed.error) });
+
+      const isHmac = (req as typeof req & { helpcoreHmacAuth?: boolean }).helpcoreHmacAuth === true;
+      const source: import("@shared/schema").ComplaintSource = isHmac ? "HELPCORE" : "MANUAL";
+      const createdByUserId = isHmac ? HELPCORE_SYSTEM_USER_ID : req.user!.id;
+
+      const { complaint, status } = await complaintsStorage.intakeComplaint({
+        ...parsed.data,
+        source,
+        createdByUserId,
+        requestId: req.requestId,
+        route: req.path,
+      });
+      return res.status(201).json({ complaintId: complaint.id, status });
+    } catch (err: unknown) {
+      if ((err as { code?: string }).code === "DUPLICATE_HELPCORE_REF") {
+        return res.status(409).json({ code: "DUPLICATE_HELPCORE_REF" });
+      }
+      next(err);
+    }
+  });
+
+  // PATCH /api/complaints/:id/lot-link
+  app.patch<{ id: string }>("/api/complaints/:id/lot-link", requireAuth, requireRole("QA", "ADMIN"), async (req, res, next) => {
+    try {
+      const { lotId } = z.object({ lotId: z.string().uuid() }).parse(req.body);
+      const complaint = await complaintsStorage.linkComplaintLot({
+        complaintId: req.params.id, lotId, userId: req.user!.id,
+        requestId: req.requestId, route: req.path,
+      });
+      return res.json(complaint);
+    } catch (err) { next(err); }
+  });
+
+  // POST /api/complaints/:id/triage
+  app.post<{ id: string }>("/api/complaints/:id/triage", requireAuth, requireRole("QA", "ADMIN"), async (req, res, next) => {
+    try {
+      const bodySchema = z.object({
+        severity: z.enum(["LOW", "MEDIUM", "HIGH"]),
+        defectCategory: z.enum(["FOREIGN_MATTER", "LABEL", "POTENCY", "TASTE_SMELL", "PACKAGE", "CUSTOMER_USE_ERROR", "OTHER"]),
+        aeFlag: z.boolean(),
+        batchLinkConfirmed: z.boolean(),
+        notes: z.string().optional(),
+      });
+      const parsed = bodySchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ message: formatZodError(parsed.error) });
+      const complaint = await complaintsStorage.triageComplaint({
+        complaintId: req.params.id, userId: req.user!.id, ...parsed.data,
+        requestId: req.requestId, route: req.path,
+      });
+      return res.json(complaint);
+    } catch (err) { next(err); }
+  });
+
+  // POST /api/complaints/:id/investigation
+  app.post<{ id: string }>("/api/complaints/:id/investigation", requireAuth, requireRole("QA", "ADMIN"), async (req, res, next) => {
+    try {
+      const bodySchema = z.object({
+        rootCause: z.string().min(1),
+        scope: z.string().min(1),
+        bprId: z.string().uuid().optional(),
+        coaId: z.string().uuid().optional(),
+        retestRequired: z.boolean(),
+        summaryForReview: z.string().min(1),
+      });
+      const parsed = bodySchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ message: formatZodError(parsed.error) });
+      const inv = await complaintsStorage.submitInvestigation({
+        complaintId: req.params.id, userId: req.user!.id, ...parsed.data,
+        requestId: req.requestId, route: req.path,
+      });
+      return res.status(201).json(inv);
+    } catch (err) { next(err); }
+  });
+
+  // POST /api/complaints/:id/investigation/package
+  app.post<{ id: string }>("/api/complaints/:id/investigation/package", requireAuth, requireRole("QA", "ADMIN"), async (req, res, next) => {
+    try {
+      const { investigationId } = z.object({ investigationId: z.string().uuid() }).parse(req.body);
+      const inv = await complaintsStorage.packageInvestigation({
+        complaintId: req.params.id, investigationId, userId: req.user!.id,
+        requestId: req.requestId, route: req.path,
+      });
+      return res.json(inv);
+    } catch (err) { next(err); }
+  });
+
+  // POST /api/complaints/:id/lab-retest
+  app.post<{ id: string }>("/api/complaints/:id/lab-retest", requireAuth, requireRole("QA", "ADMIN"), async (req, res, next) => {
+    try {
+      const bodySchema = z.object({
+        investigationId: z.string().uuid(),
+        lotId: z.string().uuid(),
+        method: z.string().min(1),
+        assignedLabUserId: z.string().uuid(),
+      });
+      const parsed = bodySchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ message: formatZodError(parsed.error) });
+      const retest = await complaintsStorage.requestLabRetest({
+        complaintId: req.params.id, userId: req.user!.id, ...parsed.data,
+        requestId: req.requestId, route: req.path,
+      });
+      return res.status(201).json(retest);
+    } catch (err) { next(err); }
+  });
+
+  // PATCH /api/complaints/:id/lab-retest/:retestId/complete
+  app.patch<{ id: string; retestId: string }>("/api/complaints/:id/lab-retest/:retestId/complete", requireAuth, requireRole("LAB_TECH", "ADMIN"), async (req, res, next) => {
+    try {
+      const { labTestResultId } = z.object({ labTestResultId: z.string().uuid().optional() }).parse(req.body);
+      const retest = await complaintsStorage.completeLabRetest({
+        retestId: req.params.retestId, complaintId: req.params.id,
+        userId: req.user!.id, labTestResultId,
+        requestId: req.requestId, route: req.path,
+      });
+      return res.json(retest);
+    } catch (err) { next(err); }
+  });
+
+  // POST /api/complaints/:id/urgent-review
+  app.post<{ id: string }>("/api/complaints/:id/urgent-review", requireAuth, requireRole("QA", "ADMIN"), async (req, res, next) => {
+    try {
+      const bodySchema = z.object({
+        serious: z.boolean(),
+        seriousCriteria: z.record(z.boolean()),
+        medwatchRequired: z.boolean(),
+      });
+      const parsed = bodySchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ message: formatZodError(parsed.error) });
+      const result = await complaintsStorage.submitUrgentReview({
+        complaintId: req.params.id, userId: req.user!.id, ...parsed.data,
+        requestId: req.requestId, route: req.path,
+      });
+      return res.json(result);
+    } catch (err) { next(err); }
+  });
+
+  // POST /api/complaints/:id/disposition — F-04 ceremony (COMPLAINT_REVIEW)
+  app.post<{ id: string }>("/api/complaints/:id/disposition", requireAuth, requireRole("QA", "ADMIN"), async (req, res, next) => {
+    try {
+      const bodySchema = z.object({
+        password: z.string().min(1),
+        dispositionSummary: z.string().min(1),
+        capaRequired: z.boolean(),
+        capaRef: z.string().optional(),
+      });
+      const parsed = bodySchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ message: formatZodError(parsed.error) });
+      const complaint = await complaintsStorage.signDisposition({
+        complaintId: req.params.id, userId: req.user!.id, ...parsed.data,
+        requestId: req.requestId, route: req.path,
+      });
+      return res.json(complaint);
+    } catch (err) { next(err); }
+  });
+
+  // ─── SAER / Adverse events ─────────────────────────────────────────────────
+
+  // GET /api/complaints/:id/ae
+  app.get<{ id: string }>("/api/complaints/:id/ae", requireAuth, requireRole("QA", "ADMIN"), async (req, res, next) => {
+    try {
+      const ae = await complaintsStorage.getAdverseEvent(req.params.id);
+      if (!ae) return res.status(404).json({ message: "No adverse event for this complaint" });
+      const saer = await complaintsStorage.getSaerSubmission(ae.id);
+      return res.json({ adverseEvent: ae, saer });
+    } catch (err) { next(err); }
+  });
+
+  // POST /api/complaints/:id/ae/draft — save MedWatch draft (upsert, no signature)
+  app.post<{ id: string }>("/api/complaints/:id/ae/draft", requireAuth, requireRole("QA", "ADMIN"), async (req, res, next) => {
+    try {
+      const ae = await complaintsStorage.getAdverseEvent(req.params.id);
+      if (!ae) return res.status(404).json({ message: "No adverse event for this complaint" });
+      const { draftJson } = z.object({ draftJson: z.record(z.unknown()) }).parse(req.body);
+      const saer = await complaintsStorage.saveSaerDraft({
+        complaintId: req.params.id, adverseEventId: ae.id,
+        draftJson: draftJson as Record<string, unknown>,
+        userId: req.user!.id, requestId: req.requestId, route: req.path,
+      });
+      return res.json(saer);
+    } catch (err) { next(err); }
+  });
+
+  // POST /api/complaints/:id/ae/submit — F-04 ceremony (SAER_SUBMIT)
+  app.post<{ id: string }>("/api/complaints/:id/ae/submit", requireAuth, requireRole("QA", "ADMIN"), async (req, res, next) => {
+    try {
+      const ae = await complaintsStorage.getAdverseEvent(req.params.id);
+      if (!ae) return res.status(404).json({ message: "No adverse event for this complaint" });
+      const bodySchema = z.object({
+        password: z.string().min(1),
+        draftJson: z.record(z.unknown()),
+      });
+      const parsed = bodySchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ message: formatZodError(parsed.error) });
+      const saer = await complaintsStorage.submitSaer({
+        complaintId: req.params.id, adverseEventId: ae.id,
+        userId: req.user!.id, password: parsed.data.password,
+        draftJson: parsed.data.draftJson as Record<string, unknown>,
+        requestId: req.requestId, route: req.path,
+      });
+      return res.json(saer);
+    } catch (err) { next(err); }
+  });
+
+  // POST /api/complaints/:id/ae/acknowledge — capture FDA portal acknowledgment ref
+  app.post<{ id: string }>("/api/complaints/:id/ae/acknowledge", requireAuth, requireRole("QA", "ADMIN"), async (req, res, next) => {
+    try {
+      const ae = await complaintsStorage.getAdverseEvent(req.params.id);
+      if (!ae) return res.status(404).json({ message: "No adverse event for this complaint" });
+      const saer = await complaintsStorage.getSaerSubmission(ae.id);
+      if (!saer) return res.status(404).json({ message: "No SAER submission found" });
+      const { acknowledgmentRef, submissionProofPath } = z.object({
+        acknowledgmentRef: z.string().min(1),
+        submissionProofPath: z.string().optional(),
+      }).parse(req.body);
+      const updated = await complaintsStorage.acknowledgesSaer({
+        saerSubmissionId: saer.id, acknowledgmentRef, submissionProofPath,
+        userId: req.user!.id, requestId: req.requestId, route: req.path,
+      });
+      return res.json(updated);
+    } catch (err) { next(err); }
   });
 
   return httpServer;

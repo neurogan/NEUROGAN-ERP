@@ -930,6 +930,18 @@ export const auditActionEnum = z.enum([
   "SOP_CREATED",
   "SOP_APPROVED",
   "SOP_RETIRED",
+  // R-05 Complaints & SAER
+  "COMPLAINT_INTAKE",
+  "COMPLAINT_LOT_LINKED",
+  "COMPLAINT_TRIAGED",
+  "COMPLAINT_INVESTIGATED",
+  "COMPLAINT_INVESTIGATION_PACKAGED",
+  "COMPLAINT_LAB_RETEST_REQUESTED",
+  "COMPLAINT_LAB_RETEST_COMPLETED",
+  "COMPLAINT_AE_URGENT_REVIEWED",
+  "COMPLAINT_DISPOSITION_SIGNED",
+  "SAER_SUBMITTED",
+  "SAER_ACKNOWLEDGED",
 ]);
 export type AuditAction = z.infer<typeof auditActionEnum>;
 
@@ -1339,3 +1351,127 @@ export const insertSopSchema = createInsertSchema(sops).omit({
   id: true, createdAt: true,
 });
 export type InsertSop = z.infer<typeof insertSopSchema>;
+
+// ─── R-05: Complaints & SAER ──────────────────────────────────────────────────
+
+export type ComplaintStatus = "TRIAGE" | "LOT_UNRESOLVED" | "INVESTIGATION" | "AE_URGENT_REVIEW" | "AWAITING_DISPOSITION" | "CLOSED" | "CANCELLED";
+export type ComplaintSeverity = "LOW" | "MEDIUM" | "HIGH";
+export type ComplaintDefectCategory = "FOREIGN_MATTER" | "LABEL" | "POTENCY" | "TASTE_SMELL" | "PACKAGE" | "CUSTOMER_USE_ERROR" | "OTHER";
+export type ComplaintSource = "HELPCORE" | "MANUAL";
+export type AdverseEventStatus = "OPEN" | "SUBMITTED" | "CLOSED";
+
+export const complaints = pgTable("erp_complaints", {
+  id:                     uuid("id").primaryKey().defaultRandom(),
+  helpcoreRef:            text("helpcore_ref").notNull().unique(),
+  source:                 text("source").$type<ComplaintSource>().notNull(),
+  customerName:           text("customer_name").notNull(),
+  customerEmail:          text("customer_email").notNull(),
+  customerPhone:          text("customer_phone"),
+  complaintText:          text("complaint_text").notNull(),
+  lotCodeRaw:             text("lot_code_raw").notNull(),
+  lotId:                  uuid("lot_id").references(() => lots.id),
+  status:                 text("status").$type<ComplaintStatus>().notNull(),
+  severity:               text("severity").$type<ComplaintSeverity>(),
+  defectCategory:         text("defect_category").$type<ComplaintDefectCategory>(),
+  aeFlag:                 boolean("ae_flag").notNull().default(false),
+  assignedUserId:         uuid("assigned_user_id").references(() => users.id),
+  intakeAt:               timestamp("intake_at", { withTimezone: true }).notNull(),
+  triagedAt:              timestamp("triaged_at", { withTimezone: true }),
+  investigatedAt:         timestamp("investigated_at", { withTimezone: true }),
+  dispositionedAt:        timestamp("dispositioned_at", { withTimezone: true }),
+  closedAt:               timestamp("closed_at", { withTimezone: true }),
+  dispositionSignatureId: uuid("disposition_signature_id").references(() => electronicSignatures.id),
+  dispositionSummary:     text("disposition_summary"),
+  capaRequired:           boolean("capa_required"),
+  capaRef:                text("capa_ref"),
+  helpcoreCallbackAt:     timestamp("helpcore_callback_at", { withTimezone: true }),
+  createdAt:              timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt:              timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  createdByUserId:        uuid("created_by_user_id").notNull().references(() => users.id),
+});
+
+export type Complaint = typeof complaints.$inferSelect;
+export const insertComplaintSchema = createInsertSchema(complaints).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertComplaint = z.infer<typeof insertComplaintSchema>;
+
+export const complaintTriages = pgTable("erp_complaint_triages", {
+  id:                 uuid("id").primaryKey().defaultRandom(),
+  complaintId:        uuid("complaint_id").notNull().references(() => complaints.id),
+  triagedByUserId:    uuid("triaged_by_user_id").notNull().references(() => users.id),
+  triagedAt:          timestamp("triaged_at", { withTimezone: true }).notNull(),
+  severity:           text("severity").$type<ComplaintSeverity>().notNull(),
+  defectCategory:     text("defect_category").$type<ComplaintDefectCategory>().notNull(),
+  aeFlag:             boolean("ae_flag").notNull(),
+  batchLinkConfirmed: boolean("batch_link_confirmed").notNull(),
+  notes:              text("notes"),
+  createdAt:          timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type ComplaintTriage = typeof complaintTriages.$inferSelect;
+
+export const complaintInvestigations = pgTable("erp_complaint_investigations", {
+  id:                    uuid("id").primaryKey().defaultRandom(),
+  complaintId:           uuid("complaint_id").notNull().references(() => complaints.id),
+  investigatedByUserId:  uuid("investigated_by_user_id").notNull().references(() => users.id),
+  investigatedAt:        timestamp("investigated_at", { withTimezone: true }).notNull(),
+  rootCause:             text("root_cause").notNull(),
+  scope:                 text("scope").notNull(),
+  bprId:                 uuid("bpr_id").references(() => batchProductionRecords.id),
+  coaId:                 uuid("coa_id").references(() => coaDocuments.id),
+  retestRequired:        boolean("retest_required").notNull(),
+  summaryForReview:      text("summary_for_review").notNull(),
+  packagedAt:            timestamp("packaged_at", { withTimezone: true }),
+  packagedByUserId:      uuid("packaged_by_user_id").references(() => users.id),
+  createdAt:             timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt:             timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type ComplaintInvestigation = typeof complaintInvestigations.$inferSelect;
+
+export const complaintLabRetests = pgTable("erp_complaint_lab_retests", {
+  id:                  uuid("id").primaryKey().defaultRandom(),
+  complaintId:         uuid("complaint_id").notNull().references(() => complaints.id),
+  investigationId:     uuid("investigation_id").notNull().references(() => complaintInvestigations.id),
+  requestedByUserId:   uuid("requested_by_user_id").notNull().references(() => users.id),
+  requestedAt:         timestamp("requested_at", { withTimezone: true }).notNull(),
+  lotId:               uuid("lot_id").notNull().references(() => lots.id),
+  method:              text("method").notNull(),
+  assignedLabUserId:   uuid("assigned_lab_user_id").notNull().references(() => users.id),
+  labTestResultId:     uuid("lab_test_result_id").references(() => labTestResults.id),
+  completedAt:         timestamp("completed_at", { withTimezone: true }),
+  createdAt:           timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type ComplaintLabRetest = typeof complaintLabRetests.$inferSelect;
+
+export const adverseEvents = pgTable("erp_adverse_events", {
+  id:                       uuid("id").primaryKey().defaultRandom(),
+  complaintId:              uuid("complaint_id").notNull().unique().references(() => complaints.id),
+  serious:                  boolean("serious").notNull(),
+  seriousCriteria:          jsonb("serious_criteria").$type<Record<string, boolean>>().notNull(),
+  urgentReviewedByUserId:   uuid("urgent_reviewed_by_user_id").notNull().references(() => users.id),
+  urgentReviewedAt:         timestamp("urgent_reviewed_at", { withTimezone: true }).notNull(),
+  medwatchRequired:         boolean("medwatch_required").notNull(),
+  clockStartedAt:           timestamp("clock_started_at", { withTimezone: true }).notNull(),
+  dueAt:                    timestamp("due_at", { withTimezone: true }).notNull(),
+  status:                   text("status").$type<AdverseEventStatus>().notNull().default("OPEN"),
+  createdAt:                timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt:                timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type AdverseEvent = typeof adverseEvents.$inferSelect;
+
+export const saerSubmissions = pgTable("erp_saer_submissions", {
+  id:                    uuid("id").primaryKey().defaultRandom(),
+  adverseEventId:        uuid("adverse_event_id").notNull().unique().references(() => adverseEvents.id),
+  draftJson:             jsonb("draft_json").$type<Record<string, unknown>>().notNull(),
+  submittedAt:           timestamp("submitted_at", { withTimezone: true }),
+  submittedByUserId:     uuid("submitted_by_user_id").references(() => users.id),
+  signatureId:           uuid("signature_id").references(() => electronicSignatures.id),
+  acknowledgmentRef:     text("acknowledgment_ref"),
+  submissionProofPath:   text("submission_proof_path"),
+  createdAt:             timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt:             timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type SaerSubmission = typeof saerSubmissions.$inferSelect;

@@ -79,8 +79,10 @@ describeIfDb("R-01 — tasks endpoint", () => {
 
     const res = await request(app).get("/api/tasks").set("x-test-user-id", labTechId);
     expect(res.status).toBe(200);
-    const tasks = res.body as Array<{ taskType: string }>;
+    const tasks = res.body as Array<{ taskType: string; sourceModule: string; sourceRecordId: string }>;
     expect(tasks.some((t) => t.taskType === "LAB_TEST_REQUIRED" || t.taskType === "QUALIFICATION_REQUIRED")).toBe(true);
+    expect(tasks.every((t) => t.sourceModule !== undefined)).toBe(true);
+    expect(tasks.every((t) => t.sourceRecordId !== undefined)).toBe(true);
   });
 
   it("QA user sees PENDING_QC tasks but NOT FULL_LAB_TEST (§111.12(c): QA performs disposition)", async () => {
@@ -89,7 +91,7 @@ describeIfDb("R-01 — tasks endpoint", () => {
 
     const res = await request(app).get("/api/tasks").set("x-test-user-id", qaId);
     expect(res.status).toBe(200);
-    const tasks = res.body as Array<{ taskType: string }>;
+    const tasks = res.body as Array<{ taskType: string; sourceModule: string }>;
     expect(tasks.some((t) => t.taskType === "PENDING_QC")).toBe(true);
     expect(tasks.some((t) => t.taskType === "LAB_TEST_REQUIRED" || t.taskType === "QUALIFICATION_REQUIRED")).toBe(false);
   });
@@ -99,7 +101,7 @@ describeIfDb("R-01 — tasks endpoint", () => {
 
     const res = await request(app).get("/api/tasks").set("x-test-user-id", receivingId);
     expect(res.status).toBe(200);
-    const tasks = res.body as Array<{ taskType: string }>;
+    const tasks = res.body as Array<{ taskType: string; sourceModule: string }>;
     expect(tasks.some((t) => t.taskType === "IDENTITY_CHECK_REQUIRED")).toBe(true);
   });
 

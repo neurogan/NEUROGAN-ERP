@@ -1,4 +1,4 @@
-import { eq, ne, desc, asc, and, sql, gte, lte, inArray, notInArray, getTableColumns, type SQL } from "drizzle-orm";
+import { eq, ne, desc, asc, and, sql, gte, lte, inArray, notInArray, getTableColumns, isNull, isNotNull, type SQL } from "drizzle-orm";
 import { computeZ14Plan } from "./lib/z14-sampling";
 import { db, type Tx } from "./db";
 import * as schema from "@shared/schema";
@@ -3064,12 +3064,7 @@ export class DatabaseStorage implements IStorage {
   // ─── User tasks (R-01) ─────────────────────────────────
 
   async getUserTasks(_userId: string, roles: string[]): Promise<UserTask[]> {
-    // _userId reserved for future per-user scoped task types; currently returns all active records for the role.
     const tasks: UserTask[] = [];
-    // ADMIN gets LAB_TECH, QA and WAREHOUSE tasks. No deduplication risk: LAB_TECH queries
-    // FULL_LAB_TEST in QUARANTINED/SAMPLING; QA queries PENDING_QC; WAREHOUSE queries
-    // IDENTITY_CHECK/QUARANTINED + REJECTED. These are disjoint by qcWorkflowType/status
-    // combinations under current state machine rules.
     const isLabTech = roles.includes("LAB_TECH") || roles.includes("ADMIN");
     const isQa = roles.includes("QA") || roles.includes("ADMIN");
     const isWarehouse = roles.includes("WAREHOUSE") || roles.includes("ADMIN");
@@ -3106,14 +3101,16 @@ export class DatabaseStorage implements IStorage {
         tasks.push({
           id: `lab-${row.id}`,
           taskType: row.requiresQualification ? "QUALIFICATION_REQUIRED" : "LAB_TEST_REQUIRED",
-          receivingRecordId: row.id,
-          receivingIdentifier: row.receivingIdentifier,
-          materialName: row.materialName ?? null,
-          supplierName: row.supplierName ?? null,
+          sourceModule: "RECEIVING",
+          sourceRecordId: row.id,
+          sourceIdentifier: row.receivingIdentifier,
+          primaryLabel: row.materialName ?? null,
+          secondaryLabel: row.supplierName ?? null,
           quantityReceived: row.quantityReceived ?? null,
           uom: row.uom ?? null,
           dateReceived: row.dateReceived ?? null,
           isUrgent: !!row.requiresQualification,
+          dueAt: null,
         });
       }
     }
@@ -3131,15 +3128,185 @@ export class DatabaseStorage implements IStorage {
         tasks.push({
           id: `qc-${row.id}`,
           taskType: "PENDING_QC",
-          receivingRecordId: row.id,
-          receivingIdentifier: row.receivingIdentifier,
-          materialName: row.materialName ?? null,
-          supplierName: row.supplierName ?? null,
+          sourceModule: "RECEIVING",
+          sourceRecordId: row.id,
+          sourceIdentifier: row.receivingIdentifier,
+          primaryLabel: row.materialName ?? null,
+          secondaryLabel: row.supplierName ?? null,
           quantityReceived: row.quantityReceived ?? null,
           uom: row.uom ?? null,
           dateReceived: row.dateReceived ?? null,
           isUrgent: false,
+          dueAt: null,
         });
+      }
+
+      // ─── R-05 complaint tasks (QA / ADMIN) ───────────────────────────────
+      const complaintTaskSelect = {
+        id: schema.complaints.id,
+        helpcoreRef: schema.complaints.helpcoreRef,
+        complaintText: schema.complaints.complaintText,
+        customerEmail: schema.complaints.customerEmail,
+        status: schema.complaints.status,
+      };
+
+      // TRIAGE
+      const triageRows = await db
+        .select(complaintTaskSelect)
+        .from(schema.complaints)
+        .where(eq(schema.complaints.status, "TRIAGE"));
+      for (const row of triageRows) {
+        tasks.push({
+          id: `complaint-triage-${row.id}`,
+          taskType: "COMPLAINT_TRIAGE_REQUIRED",
+          sourceModule: "COMPLAINT",
+          sourceRecordId: row.id,
+          sourceIdentifier: row.helpcoreRef,
+          primaryLabel: row.complaintText.slice(0, 80),
+          secondaryLabel: row.customerEmail,
+          quantityReceived: null,
+          uom: null,
+          dateReceived: null,
+          isUrgent: false,
+          dueAt: null,
+        });
+      }
+
+      // LOT_UNRESOLVED
+      const lotUnresolvedRows = await db
+        .select(complaintTaskSelect)
+        .from(schema.complaints)
+        .where(eq(schema.complaints.status, "LOT_UNRESOLVED"));
+      for (const row of lotUnresolvedRows) {
+        tasks.push({
+          id: `complaint-lot-${row.id}`,
+          taskType: "COMPLAINT_LOT_UNRESOLVED",
+          sourceModule: "COMPLAINT",
+          sourceRecordId: row.id,
+          sourceIdentifier: row.helpcoreRef,
+          primaryLabel: row.complaintText.slice(0, 80),
+          secondaryLabel: row.customerEmail,
+          quantityReceived: null,
+          uom: null,
+          dateReceived: null,
+          isUrgent: false,
+          dueAt: null,
+        });
+      }
+
+      // INVESTIGATION — complaint in INVESTIGATION with no packaged investigation
+      const investigationRows = await db
+        .select(complaintTaskSelect)
+        .from(schema.complaints)
+        .leftJoin(
+          schema.complaintInvestigations,
+          and(
+            eq(schema.complaintInvestigations.complaintId, schema.complaints.id),
+            isNotNull(schema.complaintInvestigations.packagedAt),
+          ),
+        )
+        .where(
+          and(
+            eq(schema.complaints.status, "INVESTIGATION"),
+            isNull(schema.complaintInvestigations.id),
+          ),
+        );
+      for (const row of investigationRows) {
+        tasks.push({
+          id: `complaint-inv-${row.id}`,
+          taskType: "COMPLAINT_INVESTIGATION_REQUIRED",
+          sourceModule: "COMPLAINT",
+          sourceRecordId: row.id,
+          sourceIdentifier: row.helpcoreRef,
+          primaryLabel: row.complaintText.slice(0, 80),
+          secondaryLabel: row.customerEmail,
+          quantityReceived: null,
+          uom: null,
+          dateReceived: null,
+          isUrgent: false,
+          dueAt: null,
+        });
+      }
+
+      // AE_URGENT_REVIEW
+      const aeUrgentRows = await db
+        .select(complaintTaskSelect)
+        .from(schema.complaints)
+        .where(eq(schema.complaints.status, "AE_URGENT_REVIEW"));
+      for (const row of aeUrgentRows) {
+        tasks.push({
+          id: `complaint-ae-${row.id}`,
+          taskType: "COMPLAINT_AE_URGENT_REVIEW",
+          sourceModule: "COMPLAINT",
+          sourceRecordId: row.id,
+          sourceIdentifier: row.helpcoreRef,
+          primaryLabel: row.complaintText.slice(0, 80),
+          secondaryLabel: row.customerEmail,
+          quantityReceived: null,
+          uom: null,
+          dateReceived: null,
+          isUrgent: true,
+          dueAt: null,
+        });
+      }
+
+      // AWAITING_DISPOSITION
+      const dispositionRows = await db
+        .select(complaintTaskSelect)
+        .from(schema.complaints)
+        .where(eq(schema.complaints.status, "AWAITING_DISPOSITION"));
+      for (const row of dispositionRows) {
+        tasks.push({
+          id: `complaint-disp-${row.id}`,
+          taskType: "COMPLAINT_DISPOSITION_REQUIRED",
+          sourceModule: "COMPLAINT",
+          sourceRecordId: row.id,
+          sourceIdentifier: row.helpcoreRef,
+          primaryLabel: row.complaintText.slice(0, 80),
+          secondaryLabel: row.customerEmail,
+          quantityReceived: null,
+          uom: null,
+          dateReceived: null,
+          isUrgent: false,
+          dueAt: null,
+        });
+      }
+
+      // SAER tasks — open adverse events with due_at
+      const now = new Date();
+      const twoBdMs = 2 * 24 * 60 * 60 * 1000; // approx; exact BD calc done at display layer
+      const saerRows = await db
+        .select({
+          complaintId: schema.adverseEvents.complaintId,
+          dueAt: schema.adverseEvents.dueAt,
+          helpcoreRef: schema.complaints.helpcoreRef,
+          customerEmail: schema.complaints.customerEmail,
+          complaintText: schema.complaints.complaintText,
+        })
+        .from(schema.adverseEvents)
+        .innerJoin(schema.complaints, eq(schema.complaints.id, schema.adverseEvents.complaintId))
+        .where(eq(schema.adverseEvents.status, "OPEN"));
+
+      for (const row of saerRows) {
+        const dueAt = row.dueAt;
+        const isOverdue = dueAt <= now;
+        const isDueSoon = !isOverdue && dueAt.getTime() - now.getTime() <= twoBdMs;
+        if (isOverdue || isDueSoon) {
+          tasks.push({
+            id: `saer-${row.complaintId}`,
+            taskType: isOverdue ? "SAER_OVERDUE" : "SAER_DUE_SOON",
+            sourceModule: "COMPLAINT",
+            sourceRecordId: row.complaintId,
+            sourceIdentifier: row.helpcoreRef,
+            primaryLabel: row.complaintText.slice(0, 80),
+            secondaryLabel: row.customerEmail,
+            quantityReceived: null,
+            uom: null,
+            dateReceived: null,
+            isUrgent: isOverdue,
+            dueAt: dueAt.toISOString(),
+          });
+        }
       }
     }
 
@@ -3161,14 +3328,16 @@ export class DatabaseStorage implements IStorage {
         tasks.push({
           id: `id-check-${row.id}`,
           taskType: "IDENTITY_CHECK_REQUIRED",
-          receivingRecordId: row.id,
-          receivingIdentifier: row.receivingIdentifier,
-          materialName: row.materialName ?? null,
-          supplierName: row.supplierName ?? null,
+          sourceModule: "RECEIVING",
+          sourceRecordId: row.id,
+          sourceIdentifier: row.receivingIdentifier,
+          primaryLabel: row.materialName ?? null,
+          secondaryLabel: row.supplierName ?? null,
           quantityReceived: row.quantityReceived ?? null,
           uom: row.uom ?? null,
           dateReceived: row.dateReceived ?? null,
           isUrgent: false,
+          dueAt: null,
         });
       }
 
@@ -3184,14 +3353,48 @@ export class DatabaseStorage implements IStorage {
         tasks.push({
           id: `rejected-${row.id}`,
           taskType: "REJECTED_LOT",
-          receivingRecordId: row.id,
-          receivingIdentifier: row.receivingIdentifier,
-          materialName: row.materialName ?? null,
-          supplierName: row.supplierName ?? null,
+          sourceModule: "RECEIVING",
+          sourceRecordId: row.id,
+          sourceIdentifier: row.receivingIdentifier,
+          primaryLabel: row.materialName ?? null,
+          secondaryLabel: row.supplierName ?? null,
           quantityReceived: row.quantityReceived ?? null,
           uom: row.uom ?? null,
           dateReceived: row.dateReceived ?? null,
           isUrgent: true,
+          dueAt: null,
+        });
+      }
+    }
+
+    // LAB_TECH complaint lab retests
+    if (isLabTech) {
+      const retestRows = await db
+        .select({
+          id: schema.complaintLabRetests.id,
+          complaintId: schema.complaintLabRetests.complaintId,
+          method: schema.complaintLabRetests.method,
+          helpcoreRef: schema.complaints.helpcoreRef,
+          customerEmail: schema.complaints.customerEmail,
+        })
+        .from(schema.complaintLabRetests)
+        .innerJoin(schema.complaints, eq(schema.complaints.id, schema.complaintLabRetests.complaintId))
+        .where(isNull(schema.complaintLabRetests.completedAt));
+
+      for (const row of retestRows) {
+        tasks.push({
+          id: `retest-${row.id}`,
+          taskType: "COMPLAINT_LAB_RETEST",
+          sourceModule: "COMPLAINT",
+          sourceRecordId: row.complaintId,
+          sourceIdentifier: row.helpcoreRef,
+          primaryLabel: row.method,
+          secondaryLabel: row.customerEmail,
+          quantityReceived: null,
+          uom: null,
+          dateReceived: null,
+          isUrgent: false,
+          dueAt: null,
         });
       }
     }
