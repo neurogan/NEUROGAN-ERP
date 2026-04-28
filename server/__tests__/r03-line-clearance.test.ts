@@ -146,8 +146,12 @@ describeIfDb("R-03 line clearances (F-04 product changeover)", () => {
 
     const lineClearanceAudit = audit.find((a) => a.action === "LINE_CLEARANCE_LOGGED");
     expect(lineClearanceAudit).toBeDefined();
-    expect((lineClearanceAudit!.after as any).fromProductId).toBe(PRODUCT_A);
-    expect((lineClearanceAudit!.after as any).toProductId).toBe(PRODUCT_B);
+    const lineClearanceAfter = lineClearanceAudit!.after as {
+      fromProductId: string | null;
+      toProductId: string;
+    };
+    expect(lineClearanceAfter.fromProductId).toBe(PRODUCT_A);
+    expect(lineClearanceAfter.toProductId).toBe(PRODUCT_B);
 
     const found = await findClearance(equipId, PRODUCT_B, beforeRequest);
     expect(found).not.toBeNull();
