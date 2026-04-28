@@ -166,6 +166,25 @@ export async function registerRoutes(
     }
   });
 
+  // GET /api/users/directory — any authenticated user. Returns minimal user
+  // info (id, fullName, email) for use in dropdowns where dual-verification
+  // or signer selection is required (e.g. cleaning logs F-05). Operators are
+  // exactly who submits cleaning logs but cannot list /api/users (ADMIN/QA
+  // only), so this minimal directory is the access path that lets non-managers
+  // populate cleanedBy/verifiedBy pickers.
+  app.get("/api/users/directory", requireAuth, async (_req, res, next) => {
+    try {
+      const users = await storage.listUsers();
+      res.json(
+        users
+          .filter((u) => u.status === "ACTIVE")
+          .map((u) => ({ id: u.id, fullName: u.fullName, email: u.email })),
+      );
+    } catch (err) {
+      next(err);
+    }
+  });
+
   // GET /api/users/:id — ADMIN, QA, or the subject user themselves.
   app.get<{ id: string }>(
     "/api/users/:id",

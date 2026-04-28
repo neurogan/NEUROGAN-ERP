@@ -61,6 +61,7 @@ import {
 } from "@/components/ui/select";
 import type { Equipment, Location } from "@shared/schema";
 import { CalibrationTab } from "./calibration";
+import { CleaningTab } from "./cleaning";
 
 type SubTab = "master" | "calibration" | "cleaning" | "line-clearance";
 
@@ -105,9 +106,7 @@ export default function EquipmentPage() {
 
       {activeTab === "master" && <MasterTab />}
       {activeTab === "calibration" && <CalibrationTab />}
-      {activeTab === "cleaning" && (
-        <PlaceholderTab label="Cleaning" task="Task 13" />
-      )}
+      {activeTab === "cleaning" && <CleaningTab />}
       {activeTab === "line-clearance" && (
         <PlaceholderTab label="Line Clearance" task="Task 14" />
       )}
