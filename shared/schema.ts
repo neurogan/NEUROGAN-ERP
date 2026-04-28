@@ -1197,7 +1197,9 @@ export const labelArtwork = pgTable("erp_label_artwork", {
                              .references(() => electronicSignatures.id),
   retiredAt:               timestamp("retired_at", { withTimezone: true }),
   createdAt:               timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => ({
+  uniqProductVersion: unique().on(t.productId, t.version),
+}));
 
 export type LabelArtwork = typeof labelArtwork.$inferSelect;
 export const insertLabelArtworkSchema = createInsertSchema(labelArtwork).omit({
@@ -1222,7 +1224,9 @@ export const labelSpools = pgTable("erp_label_spools", {
   disposedAt:               timestamp("disposed_at", { withTimezone: true }),
   disposeReason:            text("dispose_reason"),
   createdAt:                timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => ({
+  uniqArtworkSpool: unique().on(t.artworkId, t.spoolNumber),
+}));
 
 export type LabelSpool = typeof labelSpools.$inferSelect;
 export const insertLabelSpoolSchema = createInsertSchema(labelSpools).omit({
@@ -1281,7 +1285,9 @@ export const labelReconciliations = pgTable("erp_label_reconciliations", {
   deviationId:        varchar("deviation_id").references(() => bprDeviations.id),
   signatureId:        uuid("signature_id").references(() => electronicSignatures.id),
   reconciledAt:       timestamp("reconciled_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => ({
+  uniqBpr: unique().on(t.bprId),
+}));
 
 export type LabelReconciliation = typeof labelReconciliations.$inferSelect;
 export const insertLabelReconciliationSchema = createInsertSchema(labelReconciliations).omit({
@@ -1304,7 +1310,9 @@ export const sops = pgTable("erp_sops", {
                             .references(() => electronicSignatures.id),
   retiredAt:              timestamp("retired_at", { withTimezone: true }),
   createdAt:              timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => ({
+  uniqCodeVersion: unique().on(t.code, t.version),
+}));
 
 export type Sop = typeof sops.$inferSelect;
 export const insertSopSchema = createInsertSchema(sops).omit({

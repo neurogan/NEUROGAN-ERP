@@ -140,6 +140,40 @@ describeIfDb("migration 0018 — R-04 labeling & reconciliation tables", () => {
     }
   });
 
+  it("qty_initial CHECK rejects zero", async () => {
+    // We need a valid artwork_id — insert a temporary product + artwork.
+    const [prod] = (
+      await db.execute(sql`
+        INSERT INTO erp_products (name, sku)
+        VALUES ('R04-QtyInit-Test', 'R04-QI-' || extract(epoch from now())::bigint)
+        RETURNING id
+      `)
+    ).rows as Array<{ id: string }>;
+    const productId = prod.id;
+
+    const [art] = (
+      await db.execute(sql`
+        INSERT INTO erp_label_artwork (product_id, version, artwork_file_data, artwork_mime_type, variable_data_spec, status)
+        VALUES (${productId}, 'v1', 'data', 'image/png', '{}', 'DRAFT')
+        RETURNING id
+      `)
+    ).rows as Array<{ id: string }>;
+    const artworkId = art.id;
+
+    try {
+      await expect(
+        db.execute(sql`
+          INSERT INTO erp_label_spools (artwork_id, spool_number, qty_initial, qty_on_hand, status)
+          VALUES (${artworkId}, 'S-INIT-001', 0, 0, 'ACTIVE')
+        `)
+      ).rejects.toThrow();
+    } finally {
+      await db.execute(sql`DELETE FROM erp_label_spools WHERE artwork_id = ${artworkId}`);
+      await db.execute(sql`DELETE FROM erp_label_artwork WHERE id = ${artworkId}`);
+      await db.execute(sql`DELETE FROM erp_products WHERE id = ${productId}`);
+    }
+  });
+
   // ── erp_label_issuance_log ──────────────────────────────────────────────
 
   it("erp_label_issuance_log exists with expected columns", async () => {
