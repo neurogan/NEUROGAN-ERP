@@ -62,6 +62,7 @@ import {
 import type { Equipment, Location } from "@shared/schema";
 import { CalibrationTab } from "./calibration";
 import { CleaningTab } from "./cleaning";
+import { LineClearanceTab } from "./line-clearance";
 
 type SubTab = "master" | "calibration" | "cleaning" | "line-clearance";
 
@@ -107,9 +108,7 @@ export default function EquipmentPage() {
       {activeTab === "master" && <MasterTab />}
       {activeTab === "calibration" && <CalibrationTab />}
       {activeTab === "cleaning" && <CleaningTab />}
-      {activeTab === "line-clearance" && (
-        <PlaceholderTab label="Line Clearance" task="Task 14" />
-      )}
+      {activeTab === "line-clearance" && <LineClearanceTab />}
     </div>
   );
 }
@@ -133,17 +132,6 @@ function SubTabNav({ activeTab }: { activeTab: SubTab }) {
         ))}
       </TabsList>
     </Tabs>
-  );
-}
-
-function PlaceholderTab({ label, task }: { label: string; task: string }) {
-  return (
-    <div
-      className="rounded-md border border-dashed border-border p-8 text-center text-sm text-muted-foreground"
-      data-testid={`placeholder-${label.toLowerCase().replace(/\s+/g, "-")}`}
-    >
-      Coming soon — {task} ({label})
-    </div>
   );
 }
 
