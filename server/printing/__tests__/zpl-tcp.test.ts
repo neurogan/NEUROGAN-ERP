@@ -22,7 +22,7 @@ test("sends ZPL to printer and returns SUCCESS on socket close", async () => {
   expect(received).toContain("L001");
   expect(result.status).toBe("SUCCESS");
   expect(result.qtyPrinted).toBe(5);
-  server.close();
+  await new Promise<void>((r) => server.close(r));
 });
 
 test("returns FAILED on connect timeout", async () => {
