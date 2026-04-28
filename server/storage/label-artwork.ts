@@ -10,7 +10,7 @@
 
 import { db } from "../db";
 import * as schema from "@shared/schema";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, and } from "drizzle-orm";
 import { storage } from "../storage";
 import { verifyPassword } from "../auth/password";
 import { MEANING_VERB } from "../signatures/signatures";
@@ -316,20 +316,12 @@ export async function getActiveArtwork(
   const [row] = await db
     .select()
     .from(schema.labelArtwork)
-    .where(eq(schema.labelArtwork.productId, productId))
-    .orderBy(desc(schema.labelArtwork.version));
-
-  // Filter to APPROVED status — only one APPROVED row should exist per product,
-  // but we search from the top and return the first APPROVED we find.
-  if (!row) return null;
-
-  const rows = await db
-    .select()
-    .from(schema.labelArtwork)
-    .where(eq(schema.labelArtwork.productId, productId));
-
-  const approved = rows.find((r) => r.status === "APPROVED");
-  return approved ?? null;
+    .where(and(
+      eq(schema.labelArtwork.productId, productId),
+      eq(schema.labelArtwork.status, "APPROVED"),
+    ))
+    .limit(1);
+  return row ?? null;
 }
 
 // ─── getArtwork ──────────────────────────────────────────────────────────────

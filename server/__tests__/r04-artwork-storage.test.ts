@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { db } from "../db";
 import * as schema from "@shared/schema";
-import { eq, or } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { hashPassword } from "../auth/password";
 import {
   createArtwork,
