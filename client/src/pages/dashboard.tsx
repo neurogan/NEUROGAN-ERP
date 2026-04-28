@@ -1,4 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMemo } from "react";
+import { useQuery, useQueries } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -18,11 +19,18 @@ import {
   ArrowRight,
   TrendingUp,
   AlertTriangle as AlertTriangleIcon,
+  Wrench,
+  BadgeCheck,
 } from "lucide-react";
 import { formatQty } from "@/lib/formatQty";
 import { formatDate } from "@/lib/formatDate";
 import { Link } from "wouter";
 import { DashboardTasks } from "@/components/DashboardTasks";
+import type {
+  Equipment,
+  CalibrationSchedule,
+  EquipmentQualification,
+} from "@shared/schema";
 
 // ─── Types ───────────────────────────────────────────
 
@@ -198,6 +206,86 @@ export default function Dashboard() {
   const { data: supplyChainData } = useQuery<DashboardSupplyChain>({
     queryKey: ["/api/dashboard/supply-chain"],
   });
+
+  // ─── R-03 Equipment & Cleaning: dashboard cards ────────────────
+  const { data: equipmentList = [] } = useQuery<Equipment[]>({
+    queryKey: ["/api/equipment"],
+  });
+
+  // Filter to non-RETIRED first to keep fan-out small.
+  const activeEquipment = useMemo(
+    () => equipmentList.filter((e) => e.status !== "RETIRED"),
+    [equipmentList],
+  );
+
+  const calibrationQueries = useQueries({
+    queries: activeEquipment.map((e) => ({
+      queryKey: [`/api/equipment/${e.id}/calibration`],
+      enabled: !!e.id,
+    })),
+  });
+
+  const qualificationQueries = useQueries({
+    queries: activeEquipment.map((e) => ({
+      queryKey: [`/api/equipment/${e.id}/qualifications`],
+      enabled: !!e.id,
+    })),
+  });
+
+  const DAY_MS = 86_400_000;
+  const now = Date.now();
+
+  const calibrationsDue = useMemo(() => {
+    const out: { equipment: Equipment; nextDueAt: Date; daysUntil: number }[] = [];
+    activeEquipment.forEach((e, i) => {
+      const result = calibrationQueries[i]?.data as
+        | { schedule: CalibrationSchedule | null }
+        | undefined;
+      if (!result?.schedule) return;
+      const due = new Date(result.schedule.nextDueAt).getTime();
+      const days = (due - now) / DAY_MS;
+      if (days <= 7) {
+        out.push({
+          equipment: e,
+          nextDueAt: new Date(result.schedule.nextDueAt),
+          daysUntil: days,
+        });
+      }
+    });
+    return out.sort((a, b) => a.daysUntil - b.daysUntil);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeEquipment, calibrationQueries]);
+
+  const qualificationsExpiring = useMemo(() => {
+    const out: {
+      equipment: Equipment;
+      type: string;
+      validUntil: Date;
+      daysUntil: number;
+    }[] = [];
+    activeEquipment.forEach((e, i) => {
+      const quals = qualificationQueries[i]?.data as
+        | EquipmentQualification[]
+        | undefined;
+      if (!quals) return;
+      quals.forEach((q) => {
+        if (!q.validUntil) return;
+        if (q.status !== "QUALIFIED") return;
+        const until = new Date(q.validUntil).getTime();
+        const days = (until - now) / DAY_MS;
+        if (days <= 30) {
+          out.push({
+            equipment: e,
+            type: q.type,
+            validUntil: new Date(q.validUntil),
+            daysUntil: days,
+          });
+        }
+      });
+    });
+    return out.sort((a, b) => a.daysUntil - b.daysUntil);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeEquipment, qualificationQueries]);
 
   if (isLoading) return <DashboardSkeleton />;
   if (!data) return null;
@@ -534,6 +622,149 @@ export default function Dashboard() {
                   })}
                 </TableBody>
               </Table>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Equipment row: Calibrations Due + Qualifications Expiring */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+        {/* Calibrations Due This Week */}
+        <Card data-testid="card-calibrations-due">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base font-semibold flex items-center gap-2">
+                <Wrench className="h-4 w-4 text-amber-400" />
+                Calibrations Due This Week
+                {calibrationsDue.length > 0 && (
+                  <Badge className="bg-amber-500/20 text-amber-300 border-0 text-xs ml-1">
+                    {calibrationsDue.length}
+                  </Badge>
+                )}
+              </CardTitle>
+              <Link href="/equipment/calibration">
+                <span className="text-xs text-primary hover:underline cursor-pointer flex items-center gap-1">
+                  View all <ArrowRight className="h-3 w-3" />
+                </span>
+              </Link>
+            </div>
+          </CardHeader>
+          <CardContent className="p-0">
+            {calibrationsDue.length === 0 ? (
+              <p className="text-sm text-muted-foreground px-6 pb-4">
+                All calibrations current.
+              </p>
+            ) : (
+              <div className="divide-y divide-border">
+                {calibrationsDue.map((row) => {
+                  const isOverdue = row.daysUntil < 0;
+                  const focusHref = row.equipment.assetTag
+                    ? `/equipment/calibration?focus=${encodeURIComponent(row.equipment.assetTag)}`
+                    : `/equipment/calibration`;
+                  return (
+                    <Link key={row.equipment.id} href={focusHref}>
+                      <div
+                        className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-muted/50 transition-colors"
+                        data-testid={`row-cal-due-${row.equipment.id}`}
+                      >
+                        <div className="min-w-0 flex-1 mr-3">
+                          <p className="text-sm font-medium font-mono truncate">
+                            {row.equipment.assetTag}
+                          </p>
+                          <p className="text-xs text-muted-foreground truncate">
+                            {row.equipment.name}
+                          </p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          {isOverdue ? (
+                            <Badge variant="destructive" className="text-xs">
+                              Overdue
+                            </Badge>
+                          ) : (
+                            <Badge className="bg-amber-500/20 text-amber-300 border-0 text-xs">
+                              {Math.max(0, Math.ceil(row.daysUntil))}d
+                            </Badge>
+                          )}
+                          <p className="text-[10px] text-muted-foreground mt-0.5">
+                            {formatDate(row.nextDueAt)}
+                          </p>
+                        </div>
+                      </div>
+                    </Link>
+                  );
+                })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Qualifications Expiring in 30 Days */}
+        <Card data-testid="card-qualifications-expiring">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base font-semibold flex items-center gap-2">
+                <BadgeCheck className="h-4 w-4 text-amber-400" />
+                Qualifications Expiring in 30d
+                {qualificationsExpiring.length > 0 && (
+                  <Badge className="bg-amber-500/20 text-amber-300 border-0 text-xs ml-1">
+                    {qualificationsExpiring.length}
+                  </Badge>
+                )}
+              </CardTitle>
+              <Link href="/equipment">
+                <span className="text-xs text-primary hover:underline cursor-pointer flex items-center gap-1">
+                  View all <ArrowRight className="h-3 w-3" />
+                </span>
+              </Link>
+            </div>
+          </CardHeader>
+          <CardContent className="p-0">
+            {qualificationsExpiring.length === 0 ? (
+              <p className="text-sm text-muted-foreground px-6 pb-4">
+                All qualifications current.
+              </p>
+            ) : (
+              <div className="divide-y divide-border">
+                {qualificationsExpiring.map((row, idx) => {
+                  const isExpired = row.daysUntil < 0;
+                  return (
+                    <Link
+                      key={`${row.equipment.id}-${row.type}-${idx}`}
+                      href={`/equipment/${row.equipment.id}`}
+                    >
+                      <div
+                        className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-muted/50 transition-colors"
+                        data-testid={`row-qual-expiring-${row.equipment.id}-${row.type}`}
+                      >
+                        <div className="min-w-0 flex-1 mr-3">
+                          <p className="text-sm font-medium font-mono truncate">
+                            {row.equipment.assetTag}
+                          </p>
+                          <p className="text-xs text-muted-foreground truncate">
+                            {row.equipment.name}{" "}
+                            <span className="font-mono text-[10px]">({row.type})</span>
+                          </p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          {isExpired ? (
+                            <Badge variant="destructive" className="text-xs">
+                              Expired
+                            </Badge>
+                          ) : (
+                            <Badge className="bg-amber-500/20 text-amber-300 border-0 text-xs">
+                              {Math.max(0, Math.ceil(row.daysUntil))}d
+                            </Badge>
+                          )}
+                          <p className="text-[10px] text-muted-foreground mt-0.5">
+                            {formatDate(row.validUntil)}
+                          </p>
+                        </div>
+                      </div>
+                    </Link>
+                  );
+                })}
+              </div>
             )}
           </CardContent>
         </Card>
