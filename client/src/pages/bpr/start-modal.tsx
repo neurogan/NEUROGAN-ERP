@@ -86,15 +86,17 @@ export function BprStartModal({
   const [gateError, setGateError] = useState<GateError | null>(null);
   const initialisedRef = useRef(false);
 
-  // Reset init-flag whenever the dialog opens so the per-product default list
-  // is re-applied for a fresh batch session. Don't reset selectedIds here —
-  // the useEffect below will overwrite once the query resolves.
+  // Reset init-flag whenever the dialog opens OR the productId changes while
+  // open, so the per-product default list is re-applied. Clear selectedIds
+  // immediately so stale defaults from the previous product don't flash; the
+  // init effect below will repopulate once the new query resolves.
   useEffect(() => {
     if (open) {
       initialisedRef.current = false;
       setGateError(null);
+      setSelectedIds(new Set());
     }
-  }, [open]);
+  }, [open, productId]);
 
   const {
     data: defaultEquipment,
@@ -353,6 +355,9 @@ function GateBanners({ error }: { error: GateError }) {
         if (error.code === "CALIBRATION_OVERDUE") {
           const cal = f as GateFailureCalibration;
           const dueAt = new Date(cal.dueAt).toLocaleDateString();
+          const calibrationHref = cal.assetTag
+            ? `/equipment/calibration?focus=${encodeURIComponent(cal.assetTag)}`
+            : `/equipment/calibration`;
           return (
             <Alert
               variant="destructive"
@@ -363,7 +368,7 @@ function GateBanners({ error }: { error: GateError }) {
                 <strong>{cal.assetTag ?? cal.equipmentId}</strong>: calibration
                 overdue (due {dueAt}).{" "}
                 <Link
-                  href={`/equipment/calibration?focus=${encodeURIComponent(cal.assetTag ?? "")}`}
+                  href={calibrationHref}
                   className="underline"
                   data-testid={`link-resolve-${cal.equipmentId}`}
                 >
@@ -397,6 +402,9 @@ function GateBanners({ error }: { error: GateError }) {
         }
         if (error.code === "LINE_CLEARANCE_MISSING") {
           const lc = f as GateFailureLineClearance;
+          const lineClearanceHref = lc.assetTag
+            ? `/equipment/line-clearance?focus=${encodeURIComponent(lc.assetTag)}`
+            : `/equipment/line-clearance`;
           return (
             <Alert
               variant="destructive"
@@ -407,7 +415,7 @@ function GateBanners({ error }: { error: GateError }) {
                 <strong>{lc.assetTag ?? lc.equipmentId}</strong>: line
                 clearance required for product change.{" "}
                 <Link
-                  href={`/equipment/line-clearance?focus=${encodeURIComponent(lc.assetTag ?? "")}`}
+                  href={lineClearanceHref}
                   className="underline"
                   data-testid={`link-resolve-${lc.equipmentId}`}
                 >
