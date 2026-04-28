@@ -60,6 +60,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { Equipment, Location } from "@shared/schema";
+import { CalibrationTab } from "./calibration";
 
 type SubTab = "master" | "calibration" | "cleaning" | "line-clearance";
 
@@ -103,9 +104,7 @@ export default function EquipmentPage() {
       <SubTabNav activeTab={activeTab} />
 
       {activeTab === "master" && <MasterTab />}
-      {activeTab === "calibration" && (
-        <PlaceholderTab label="Calibration" task="Task 12" />
-      )}
+      {activeTab === "calibration" && <CalibrationTab />}
       {activeTab === "cleaning" && (
         <PlaceholderTab label="Cleaning" task="Task 13" />
       )}
