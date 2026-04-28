@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS "erp_label_artwork" (
   "product_id"                varchar NOT NULL REFERENCES "erp_products"("id"),
   "version"                   text NOT NULL,
   "artwork_file_data"         text NOT NULL,
+  "artwork_file_name"         text NOT NULL,
   "artwork_mime_type"         text NOT NULL,
   "variable_data_spec"        jsonb NOT NULL DEFAULT '{}',
   "status"                    text NOT NULL DEFAULT 'DRAFT'
@@ -30,7 +31,11 @@ CREATE TABLE IF NOT EXISTS "erp_label_artwork" (
   "retired_by_signature_id"   uuid REFERENCES "erp_electronic_signatures"("id"),
   "retired_at"                timestamptz,
   "created_at"                timestamptz NOT NULL DEFAULT now(),
-  UNIQUE("product_id", "version")
+  UNIQUE("product_id", "version"),
+  CONSTRAINT "artwork_approval_consistency"
+    CHECK (
+      ("status" != 'APPROVED') OR ("approved_by_signature_id" IS NOT NULL AND "approved_at" IS NOT NULL)
+    )
 );
 
 CREATE INDEX IF NOT EXISTS "label_artwork_product_status_idx"
@@ -63,12 +68,13 @@ CREATE INDEX IF NOT EXISTS "label_spools_artwork_status_idx"
 -- ── 3. erp_label_issuance_log ──────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS "erp_label_issuance_log" (
-  "id"                uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
-  "bpr_id"            varchar NOT NULL REFERENCES "erp_batch_production_records"("id"),
-  "spool_id"          uuid NOT NULL REFERENCES "erp_label_spools"("id"),
-  "artwork_id"        uuid NOT NULL REFERENCES "erp_label_artwork"("id"),
-  "quantity_issued"   integer NOT NULL CHECK ("quantity_issued" > 0),
-  "issued_at"         timestamptz NOT NULL DEFAULT now()
+  "id"                  uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+  "bpr_id"              varchar NOT NULL REFERENCES "erp_batch_production_records"("id"),
+  "spool_id"            uuid NOT NULL REFERENCES "erp_label_spools"("id"),
+  "artwork_id"          uuid NOT NULL REFERENCES "erp_label_artwork"("id"),
+  "quantity_issued"     integer NOT NULL CHECK ("quantity_issued" > 0),
+  "issued_by_user_id"   uuid NOT NULL REFERENCES "erp_users"("id"),
+  "issued_at"           timestamptz NOT NULL DEFAULT now()
 );
 
 CREATE INDEX IF NOT EXISTS "label_issuance_bpr_idx"    ON "erp_label_issuance_log" ("bpr_id");
@@ -108,6 +114,8 @@ CREATE TABLE IF NOT EXISTS "erp_label_reconciliations" (
   "deviation_id"        varchar REFERENCES "erp_bpr_deviations"("id"),
   "signature_id"        uuid REFERENCES "erp_electronic_signatures"("id"),
   "reconciled_at"       timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT "reconciliation_qty_non_negative"
+    CHECK ("qty_applied" >= 0 AND "qty_destroyed" >= 0 AND "qty_returned" >= 0),
   CONSTRAINT "reconciliation_tolerance_requires_deviation"
     CHECK (("tolerance_exceeded" = false) OR ("deviation_id" IS NOT NULL))
 );
@@ -129,7 +137,11 @@ CREATE TABLE IF NOT EXISTS "erp_sops" (
   "retired_by_signature_id"   uuid REFERENCES "erp_electronic_signatures"("id"),
   "retired_at"                timestamptz,
   "created_at"                timestamptz NOT NULL DEFAULT now(),
-  UNIQUE("code", "version")
+  UNIQUE("code", "version"),
+  CONSTRAINT "sop_approval_consistency"
+    CHECK (
+      ("status" != 'APPROVED') OR ("approved_by_signature_id" IS NOT NULL AND "approved_at" IS NOT NULL)
+    )
 );
 
 CREATE INDEX IF NOT EXISTS "sops_status_idx" ON "erp_sops" ("status");

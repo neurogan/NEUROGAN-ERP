@@ -48,6 +48,7 @@ describeIfDb("migration 0018 — R-04 labeling & reconciliation tables", () => {
     expect(cols).toContain("product_id");
     expect(cols).toContain("version");
     expect(cols).toContain("artwork_file_data");
+    expect(cols).toContain("artwork_file_name");
     expect(cols).toContain("artwork_mime_type");
     expect(cols).toContain("variable_data_spec");
     expect(cols).toContain("status");
@@ -184,6 +185,7 @@ describeIfDb("migration 0018 — R-04 labeling & reconciliation tables", () => {
     expect(cols).toContain("spool_id");
     expect(cols).toContain("artwork_id");
     expect(cols).toContain("quantity_issued");
+    expect(cols).toContain("issued_by_user_id");
     expect(cols).toContain("issued_at");
   });
 

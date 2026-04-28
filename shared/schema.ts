@@ -1174,7 +1174,7 @@ export const appSettingsKv = pgTable("erp_app_settings_kv", {
 });
 
 export type AppSettingsKv = typeof appSettingsKv.$inferSelect;
-export const insertAppSettingsKvSchema = createInsertSchema(appSettingsKv);
+export const insertAppSettingsKvSchema = createInsertSchema(appSettingsKv).omit({ updatedAt: true });
 export type InsertAppSettingsKv = z.infer<typeof insertAppSettingsKvSchema>;
 
 // Label artwork master — one row per product/version pair.
@@ -1183,6 +1183,7 @@ export const labelArtwork = pgTable("erp_label_artwork", {
   productId:               varchar("product_id").notNull().references(() => products.id),
   version:                 text("version").notNull(),
   artworkFileData:         text("artwork_file_data").notNull(),
+  artworkFileName:         text("artwork_file_name").notNull(),
   artworkMimeType:         text("artwork_mime_type").notNull(),
   variableDataSpec:        jsonb("variable_data_spec")
                              .notNull()
@@ -1241,6 +1242,7 @@ export const labelIssuanceLog = pgTable("erp_label_issuance_log", {
   spoolId:         uuid("spool_id").notNull().references(() => labelSpools.id),
   artworkId:       uuid("artwork_id").notNull().references(() => labelArtwork.id),
   quantityIssued:  integer("quantity_issued").notNull(),
+  issuedByUserId:  uuid("issued_by_user_id").notNull().references(() => users.id),
   issuedAt:        timestamp("issued_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
