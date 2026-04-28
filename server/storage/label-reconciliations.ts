@@ -10,7 +10,7 @@
 
 import { db } from "../db";
 import * as schema from "@shared/schema";
-import { eq } from "drizzle-orm";
+import { eq, and, isNull } from "drizzle-orm";
 import { storage } from "../storage";
 import { verifyPassword } from "../auth/password";
 import { MEANING_VERB } from "../signatures/signatures";
@@ -211,4 +211,14 @@ export async function getReconciliationForBpr(
     .from(schema.labelReconciliations)
     .where(eq(schema.labelReconciliations.bprId, bprId));
   return row;
+}
+
+export async function listOutOfToleranceReconciliations(): Promise<schema.LabelReconciliation[]> {
+  return db
+    .select()
+    .from(schema.labelReconciliations)
+    .where(and(
+      eq(schema.labelReconciliations.toleranceExceeded, true),
+      isNull(schema.labelReconciliations.deviationId),
+    ));
 }

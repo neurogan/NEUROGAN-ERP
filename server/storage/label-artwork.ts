@@ -333,3 +333,11 @@ export async function getArtwork(id: string): Promise<schema.LabelArtwork | unde
     .where(eq(schema.labelArtwork.id, id));
   return row;
 }
+
+export async function listDraftArtworks(): Promise<schema.LabelArtwork[]> {
+  return db
+    .select()
+    .from(schema.labelArtwork)
+    .where(eq(schema.labelArtwork.status, "DRAFT"))
+    .orderBy(desc(schema.labelArtwork.createdAt));
+}

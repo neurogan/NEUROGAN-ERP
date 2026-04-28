@@ -2378,6 +2378,16 @@ export async function registerRoutes(
     }
   });
 
+  // GET /api/label-artwork/drafts — dashboard helper, returns all DRAFT artworks
+  app.get("/api/label-artwork/drafts", requireAuth, async (_req, res, next) => {
+    try {
+      const rows = await artworkStorage.listDraftArtworks();
+      res.json(rows);
+    } catch (err) {
+      next(err);
+    }
+  });
+
   app.get<{ id: string }>("/api/label-artwork/:id", requireAuth, async (req, res, next) => {
     try {
       const row = await artworkStorage.getArtwork(req.params.id);
@@ -2741,6 +2751,16 @@ export async function registerRoutes(
       const row = await reconciliationStorage.getReconciliationForBpr(req.params.id);
       if (!row) return res.status(404).json({ message: "No reconciliation found for this BPR" });
       return res.json(row);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // GET /api/label-reconciliations/out-of-tolerance — dashboard helper
+  app.get("/api/label-reconciliations/out-of-tolerance", requireAuth, async (_req, res, next) => {
+    try {
+      const rows = await reconciliationStorage.listOutOfToleranceReconciliations();
+      return res.json(rows);
     } catch (err) {
       next(err);
     }
