@@ -45,6 +45,7 @@ import * as artworkStorage from "./storage/label-artwork";
 import * as spoolStorage from "./storage/label-spools";
 import * as issuanceStorage from "./storage/label-issuance";
 import * as sopStorage from "./storage/sops";
+import * as reconciliationStorage from "./storage/label-reconciliations";
 import { getLabelPrintAdapter } from "./printing/registry";
 import { runCompletionGates, CompletionGateError } from "./state/bpr-completion-gates";
 
@@ -2353,7 +2354,7 @@ export async function registerRoutes(
           artworkFileName: body.artworkFileName,
           artworkFileData: body.artworkFileData,
           artworkMimeType: body.artworkMimeType,
-          variableDataSpec: body.variableDataSpec ?? null,
+          variableDataSpec: body.variableDataSpec ?? undefined,
           status: "DRAFT",
         },
         req.user!.id,
@@ -2685,6 +2686,62 @@ export async function registerRoutes(
       if (e.status === 409) return res.status(409).json({ code: e.code, message: e.message });
       if (e.status === 401) return res.status(401).json({ error: { code: e.code, message: e.message } });
       if (e.status === 423) return res.status(423).json({ error: { code: e.code, message: e.message } });
+      next(err);
+    }
+  });
+
+  // ─── Label reconciliation (R-04) ──────────────────────────
+
+  // POST /api/bpr/:id/label-reconciliation — F-04, roles QA|ADMIN
+  app.post<{ id: string }>("/api/bpr/:id/label-reconciliation", requireAuth, requireRole("QA", "ADMIN"), async (req, res, next) => {
+    try {
+      const body = req.body as {
+        password?: string;
+        qtyApplied?: number;
+        qtyReturned?: number;
+        qtyDestroyed?: number;
+        deviationId?: string | null;
+        proofFileData?: string | null;
+        proofMimeType?: string | null;
+      };
+      if (!body.password) return res.status(400).json({ message: "password is required" });
+      if (body.qtyApplied == null) return res.status(400).json({ message: "qtyApplied is required" });
+      if (body.qtyReturned == null) return res.status(400).json({ message: "qtyReturned is required" });
+      if (body.qtyDestroyed == null) return res.status(400).json({ message: "qtyDestroyed is required" });
+
+      const row = await reconciliationStorage.reconcileBpr(
+        {
+          bprId: req.params.id,
+          qtyApplied: body.qtyApplied,
+          qtyReturned: body.qtyReturned,
+          qtyDestroyed: body.qtyDestroyed,
+          deviationId: body.deviationId ?? null,
+          proofFileData: body.proofFileData ?? null,
+          proofMimeType: body.proofMimeType ?? null,
+        },
+        req.user!.id,
+        body.password,
+        req.requestId,
+        `${req.method} ${req.path}`,
+      );
+      return res.status(201).json(row);
+    } catch (err) {
+      const e = err as { status?: number; code?: string; message?: string };
+      if (e.status === 404) return res.status(404).json({ message: e.message ?? "Not found" });
+      if (e.status === 409) return res.status(409).json({ code: e.code, message: e.message });
+      if (e.status === 401) return res.status(401).json({ error: { code: e.code, message: e.message } });
+      if (e.status === 423) return res.status(423).json({ error: { code: e.code, message: e.message } });
+      next(err);
+    }
+  });
+
+  // GET /api/bpr/:id/label-reconciliation — any auth
+  app.get<{ id: string }>("/api/bpr/:id/label-reconciliation", requireAuth, async (req, res, next) => {
+    try {
+      const row = await reconciliationStorage.getReconciliationForBpr(req.params.id);
+      if (!row) return res.status(404).json({ message: "No reconciliation found for this BPR" });
+      return res.json(row);
+    } catch (err) {
       next(err);
     }
   });
