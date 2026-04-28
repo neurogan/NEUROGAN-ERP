@@ -160,7 +160,7 @@ CREATE TABLE IF NOT EXISTS "erp_saer_submissions" (
 
 INSERT INTO "erp_users" (
   "id", "email", "full_name", "title",
-  "password_hash", "status", "created_at", "updated_at"
+  "password_hash", "status", "created_at"
 )
 VALUES (
   '00000000-0000-0000-cafe-000000000001',
@@ -169,7 +169,6 @@ VALUES (
   NULL,
   '$2b$12$HELPCORE.SYSTEM.USER.DISABLED.NOT.A.REAL.HASH.XXXXXXXXXXXXXX',
   'ACTIVE',
-  now(),
   now()
 )
 ON CONFLICT ("id") DO NOTHING;

@@ -1,3 +1,4 @@
+import { createHmac, timingSafeEqual } from "crypto";
 import type { Request, RequestHandler } from "express";
 import type { UserRole } from "@shared/schema";
 import { errors } from "../errors";
@@ -78,7 +79,6 @@ export const requireHmacOrAuth: RequestHandler = (req, res, next) => {
   const sigHeader = req.headers["x-helpcore-signature"];
 
   if (secret && typeof sigHeader === "string") {
-    const { createHmac, timingSafeEqual } = require("crypto") as typeof import("crypto");
     const body = typeof req.body === "string" ? req.body : JSON.stringify(req.body);
     const expected = `hmac-sha256=${createHmac("sha256", secret).update(body).digest("hex")}`;
     try {
