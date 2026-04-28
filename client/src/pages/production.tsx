@@ -70,6 +70,7 @@ import {
 import { Plus, Trash2, Beaker, Play, CheckCircle, Pause, RotateCcw, Pencil, XCircle, AlertTriangle, Info, MessageSquare, Send, ClipboardCheck, Printer } from "lucide-react";
 import { LocationSelectWithAdd } from "@/components/LocationSelectWithAdd";
 import { Link } from "wouter";
+import { BprStartModal } from "./bpr/start-modal";
 import { formatQty } from "@/lib/formatQty";
 import { DateInput } from "@/components/ui/date-input";
 import { formatDateTime } from "@/lib/formatDate";
@@ -1558,6 +1559,7 @@ export default function Production() {
   const [editBatch, setEditBatch] = useState<ProductionBatchWithDetails | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [scrapDialogOpen, setScrapDialogOpen] = useState(false);
+  const [startModalOpen, setStartModalOpen] = useState(false);
 
   const { toast } = useToast();
 
@@ -1620,8 +1622,11 @@ export default function Production() {
 
   function handleStartProduction() {
     if (!selectedBatch) return;
-    updateMutation.mutate({ id: selectedBatch.id, data: { status: "IN_PROGRESS" } });
-    toast({ title: "Production started" });
+    // R-03 Task 15: opening the modal lets the operator confirm the equipment
+    // list (pre-filled from product defaults) before the gate checks run.
+    // Resume from ON_HOLD intentionally still goes through the direct PATCH
+    // below — gates already passed at the original IN_PROGRESS transition.
+    setStartModalOpen(true);
   }
 
   function handlePutOnHold() {
@@ -1811,6 +1816,21 @@ export default function Production() {
         isPending={updateMutation.isPending}
         variant="destructive"
       />
+
+      {/* BPR Start modal (R-03 Task 15) */}
+      {selectedBatch && (
+        <BprStartModal
+          open={startModalOpen}
+          onOpenChange={setStartModalOpen}
+          batchId={selectedBatch.id}
+          productId={selectedBatch.productId}
+          batchNumber={selectedBatch.batchNumber}
+          onStarted={() => {
+            // Cache invalidation already handled in the modal's mutation;
+            // nothing extra needed here yet.
+          }}
+        />
+      )}
     </>
   );
 }

@@ -21,6 +21,7 @@ import {
   insertBprDeviationSchema,
   insertLabSchema,
   insertLabTestResultSchema,
+  insertEquipmentSchema,
   userRoleEnum,
   userStatusEnum,
   type UserResponse,
@@ -37,7 +38,9 @@ import { auditRouter } from "./audit/audit-routes";
 import { signatureRouter } from "./signatures/signature-routes";
 import { validationRouter } from "./validation/validation-routes";
 import { db } from "./db";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, ne } from "drizzle-orm";
+import * as equipmentStorage from "./storage/equipment";
+import * as cleaningStorage from "./storage/cleaning-line-clearance";
 
 function formatZodError(error: ZodError): string {
   return error.errors.map(e => `${e.path.join(".")}: ${e.message}`).join(", ");
@@ -160,6 +163,25 @@ export async function registerRoutes(
       return res.json(users.map((u) => projectUserForViewer(u, viewerRoles)));
     } catch (err) {
       return next(err);
+    }
+  });
+
+  // GET /api/users/directory — any authenticated user. Returns minimal user
+  // info (id, fullName, email) for use in dropdowns where dual-verification
+  // or signer selection is required (e.g. cleaning logs F-05). Operators are
+  // exactly who submits cleaning logs but cannot list /api/users (ADMIN/QA
+  // only), so this minimal directory is the access path that lets non-managers
+  // populate cleanedBy/verifiedBy pickers.
+  app.get("/api/users/directory", requireAuth, async (_req, res, next) => {
+    try {
+      const users = await storage.listUsers();
+      res.json(
+        users
+          .filter((u) => u.status === "ACTIVE")
+          .map((u) => ({ id: u.id, fullName: u.fullName, email: u.email })),
+      );
+    } catch (err) {
+      next(err);
     }
   });
 
@@ -303,6 +325,32 @@ export async function registerRoutes(
       res.json(product);
     } catch (err) {
       res.status(500).json({ message: "Failed to fetch product" });
+    }
+  });
+
+  // Default equipment list for a product, used to pre-fill the BPR Start
+  // modal (R-03 Task 15). Excludes RETIRED equipment so operators don't see
+  // decommissioned assets in the picker. Public-readable to mirror
+  // GET /api/products/:id (no auth) — returns only equipment master rows,
+  // no batch- or signature-related data.
+  app.get("/api/products/:id/equipment", async (req, res) => {
+    try {
+      const rows = await db
+        .select({ equipment: schema.equipment })
+        .from(schema.equipment)
+        .innerJoin(
+          schema.productEquipment,
+          eq(schema.productEquipment.equipmentId, schema.equipment.id),
+        )
+        .where(
+          and(
+            eq(schema.productEquipment.productId, req.params.id),
+            ne(schema.equipment.status, "RETIRED"),
+          ),
+        );
+      res.json(rows.map((r) => r.equipment));
+    } catch (err) {
+      res.status(500).json({ message: "Failed to fetch product equipment" });
     }
   });
 
@@ -699,7 +747,50 @@ export async function registerRoutes(
       if (!batch) return res.status(404).json({ message: "Production batch not found" });
       const enriched = await storage.getProductionBatch(req.params.id);
       res.json(enriched ?? batch);
-    } catch (err) { next(err); }
+    } catch (err) {
+      const e = err as { status?: number; code?: string; message?: string };
+      if (e.code === "USE_START_ENDPOINT") {
+        return res.status(400).json({ code: e.code, message: e.message });
+      }
+      next(err);
+    }
+  });
+
+  app.post<{ id: string }>("/api/production-batches/:id/start", requireAuth, requireRole("PRODUCTION", "QA", "ADMIN"), async (req, res, next) => {
+    try {
+      const { equipmentIds } = req.body as { equipmentIds?: unknown };
+      if (!Array.isArray(equipmentIds) || !equipmentIds.every((v) => typeof v === "string")) {
+        return res.status(400).json({ message: "equipmentIds (string[]) is required" });
+      }
+      const batch = await storage.startProductionBatch(
+        req.params.id,
+        req.user!.id,
+        equipmentIds as string[],
+        req.requestId,
+        `${req.method} ${req.path}`,
+      );
+      res.json(batch);
+    } catch (err) {
+      const e = err as { status?: number; code?: string; message?: string; payload?: unknown };
+      if (
+        e.code === "EQUIPMENT_LIST_EMPTY" ||
+        e.code === "CALIBRATION_OVERDUE" ||
+        e.code === "EQUIPMENT_NOT_QUALIFIED" ||
+        e.code === "LINE_CLEARANCE_MISSING"
+      ) {
+        return res.status(409).json({ code: e.code, message: e.message, payload: e.payload });
+      }
+      if (e.code === "USE_START_ENDPOINT") {
+        return res.status(400).json({ code: e.code, message: e.message });
+      }
+      if (e.code === "LOT_NOT_APPROVED") {
+        return res.status(400).json({ code: e.code, message: e.message });
+      }
+      if (typeof e.status === "number") {
+        return res.status(e.status).json({ message: e.message });
+      }
+      next(err);
+    }
   });
 
   app.delete<{ id: string }>("/api/production-batches/:id", requireAuth, requireRole("ADMIN"), async (req, res, next) => {
@@ -1552,6 +1643,403 @@ export async function registerRoutes(
       try {
         const history = await storage.getLabQualificationHistory(req.params.id);
         res.json(history);
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
+
+  // ─── Equipment master (R-03) ───────────────────────────────────────────
+
+  app.post("/api/equipment", requireAuth, requireRole("ADMIN", "QA"), async (req, res, next) => {
+    try {
+      const parseResult = insertEquipmentSchema.safeParse(req.body);
+      if (!parseResult.success) {
+        return res.status(400).json({ error: "Invalid request body", details: parseResult.error.flatten() });
+      }
+      const data = parseResult.data;
+      const equip = await equipmentStorage.createEquipment(
+        data,
+        req.user!.id,
+        req.requestId,
+        `${req.method} ${req.path}`,
+      );
+      res.status(201).json(equip);
+    } catch (err) {
+      const e = err as { status?: number; code?: string; message?: string };
+      if (e.status === 409 && e.code === "DUPLICATE_ASSET_TAG") {
+        return res.status(409).json({ code: e.code, message: e.message });
+      }
+      next(err);
+    }
+  });
+
+  app.get("/api/equipment", requireAuth, async (_req, res, next) => {
+    try {
+      const list = await equipmentStorage.listEquipment();
+      res.json(list);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.get<{ id: string }>("/api/equipment/:id", requireAuth, async (req, res, next) => {
+    try {
+      const equip = await equipmentStorage.getEquipment(req.params.id);
+      if (!equip) return res.status(404).json({ message: "Equipment not found" });
+      res.json(equip);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.patch<{ id: string }>("/api/equipment/:id/retire", requireAuth, requireRole("ADMIN", "QA"), async (req, res, next) => {
+    try {
+      const equip = await equipmentStorage.retireEquipment(
+        req.params.id,
+        req.user!.id,
+        req.requestId,
+        `${req.method} ${req.path}`,
+      );
+      res.json(equip);
+    } catch (err) {
+      const e = err as { status?: number };
+      if (e.status === 404) {
+        return res.status(404).json({ message: "Equipment not found" });
+      }
+      next(err);
+    }
+  });
+
+  // ─── Equipment qualifications (R-03 Task 4: IQ/OQ/PQ + F-04 signature) ─
+
+  app.post<{ id: string }>(
+    "/api/equipment/:id/qualifications",
+    requireAuth,
+    requireRole("ADMIN", "QA"),
+    async (req, res, next) => {
+      try {
+        const body = req.body as {
+          type?: "IQ" | "OQ" | "PQ";
+          status?: "PENDING" | "QUALIFIED" | "EXPIRED";
+          validFrom?: string;
+          validUntil?: string;
+          documentUrl?: string;
+          notes?: string;
+          signaturePassword?: string;
+          commentary?: string;
+        };
+        if (!body.type || !["IQ", "OQ", "PQ"].includes(body.type)) {
+          return res.status(400).json({ message: "type must be IQ, OQ, or PQ" });
+        }
+        if (!body.status || !["PENDING", "QUALIFIED", "EXPIRED"].includes(body.status)) {
+          return res.status(400).json({ message: "status must be PENDING, QUALIFIED, or EXPIRED" });
+        }
+        const row = await equipmentStorage.recordQualification(
+          req.params.id,
+          req.user!.id,
+          {
+            type: body.type,
+            status: body.status,
+            validFrom: body.validFrom,
+            validUntil: body.validUntil,
+            documentUrl: body.documentUrl,
+            notes: body.notes,
+            signaturePassword: body.signaturePassword,
+            commentary: body.commentary,
+          },
+          req.requestId,
+          `${req.method} ${req.path}`,
+        );
+        res.status(201).json(row);
+      } catch (err) {
+        const e = err as { status?: number; code?: string; message?: string };
+        if (e.status === 404) return res.status(404).json({ message: e.message ?? "Equipment not found" });
+        if (e.status === 400) return res.status(400).json({ code: e.code, message: e.message });
+        if (e.status === 401 || e.status === 423) {
+          return res.status(e.status).json({ error: { code: e.code, message: e.message } });
+        }
+        next(err);
+      }
+    },
+  );
+
+  app.get<{ id: string }>(
+    "/api/equipment/:id/qualifications",
+    requireAuth,
+    async (req, res, next) => {
+      try {
+        const list = await equipmentStorage.listQualifications(req.params.id);
+        res.json(list);
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
+
+  app.post<{ id: string }>(
+    "/api/equipment/:id/disqualify",
+    requireAuth,
+    requireRole("ADMIN", "QA"),
+    async (req, res, next) => {
+      try {
+        const body = req.body as {
+          type?: "IQ" | "OQ" | "PQ";
+          notes?: string;
+        };
+        if (!body.type || !["IQ", "OQ", "PQ"].includes(body.type)) {
+          return res.status(400).json({ message: "type must be IQ, OQ, or PQ" });
+        }
+        const row = await equipmentStorage.recordQualification(
+          req.params.id,
+          req.user!.id,
+          {
+            type: body.type,
+            status: "EXPIRED",
+            notes: body.notes,
+          },
+          req.requestId,
+          `${req.method} ${req.path}`,
+        );
+        res.status(201).json(row);
+      } catch (err) {
+        const e = err as { status?: number; message?: string };
+        if (e.status === 404) return res.status(404).json({ message: e.message ?? "Equipment not found" });
+        next(err);
+      }
+    },
+  );
+
+  // ─── Equipment calibration (R-03 Task 5) ──────────────────────────────
+
+  app.post<{ id: string }>(
+    "/api/equipment/:id/calibration-schedule",
+    requireAuth,
+    requireRole("ADMIN", "QA"),
+    async (req, res, next) => {
+      try {
+        const body = req.body as { frequencyDays?: number };
+        if (
+          body.frequencyDays === undefined ||
+          !Number.isInteger(body.frequencyDays) ||
+          body.frequencyDays <= 0
+        ) {
+          return res.status(400).json({ message: "frequencyDays must be a positive integer" });
+        }
+        const sched = await equipmentStorage.createCalibrationSchedule(
+          req.params.id,
+          body.frequencyDays,
+          req.user!.id,
+          req.requestId,
+          `${req.method} ${req.path}`,
+        );
+        res.status(201).json(sched);
+      } catch (err) {
+        const e = err as { status?: number; code?: string; message?: string };
+        if (e.status === 404) return res.status(404).json({ message: e.message ?? "Equipment not found" });
+        if (e.status === 409) return res.status(409).json({ code: e.code, message: e.message });
+        next(err);
+      }
+    },
+  );
+
+  app.post<{ id: string }>(
+    "/api/equipment/:id/calibration",
+    requireAuth,
+    requireRole("ADMIN", "QA"),
+    async (req, res, next) => {
+      try {
+        const body = req.body as {
+          result?: "PASS" | "FAIL";
+          certUrl?: string;
+          notes?: string;
+          signaturePassword?: string;
+          commentary?: string;
+        };
+        if (!body.result || !["PASS", "FAIL"].includes(body.result)) {
+          return res.status(400).json({ message: "result must be PASS or FAIL" });
+        }
+        if (!body.signaturePassword) {
+          return res
+            .status(400)
+            .json({ code: "SIGNATURE_REQUIRED", message: "signaturePassword required to record calibration" });
+        }
+        const row = await equipmentStorage.recordCalibration(
+          req.params.id,
+          req.user!.id,
+          {
+            result: body.result,
+            certUrl: body.certUrl,
+            notes: body.notes,
+            signaturePassword: body.signaturePassword,
+            commentary: body.commentary,
+          },
+          req.requestId,
+          `${req.method} ${req.path}`,
+        );
+        res.status(201).json(row);
+      } catch (err) {
+        const e = err as { status?: number; code?: string; message?: string };
+        if (e.status === 404) return res.status(404).json({ message: e.message ?? "Equipment not found" });
+        if (e.status === 423) return res.status(423).json({ error: { code: e.code, message: e.message } });
+        if (e.status === 401) return res.status(401).json({ error: { code: e.code, message: e.message } });
+        if (e.status === 400) return res.status(400).json({ code: e.code, message: e.message });
+        next(err);
+      }
+    },
+  );
+
+  app.get<{ id: string }>(
+    "/api/equipment/:id/calibration",
+    requireAuth,
+    async (req, res, next) => {
+      try {
+        const status = await equipmentStorage.getCalibrationStatus(req.params.id);
+        res.json(status);
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
+
+  // ─── Equipment cleaning logs (R-03 Task 6: F-05 dual-verification) ───
+  //
+  // Role gating: requireAuth only. The F-05 gate (cleaner ≠ verifier) is the
+  // real access control here — anyone authenticated can record a cleaning,
+  // but the storage-level check + DB CHECK constraint ensure two distinct
+  // users sign off.
+
+  app.post<{ id: string }>(
+    "/api/equipment/:id/cleaning-logs",
+    requireAuth,
+    async (req, res, next) => {
+      try {
+        const body = req.body as {
+          cleanedByUserId?: string;
+          verifiedByUserId?: string;
+          method?: string;
+          priorProductId?: string;
+          nextProductId?: string;
+          notes?: string;
+          signaturePassword?: string;
+          commentary?: string;
+        };
+        if (!body.cleanedByUserId || typeof body.cleanedByUserId !== "string") {
+          return res.status(400).json({ message: "cleanedByUserId is required" });
+        }
+        if (!body.verifiedByUserId || typeof body.verifiedByUserId !== "string") {
+          return res.status(400).json({ message: "verifiedByUserId is required" });
+        }
+        if (!body.signaturePassword) {
+          return res.status(400).json({
+            code: "SIGNATURE_REQUIRED",
+            message: "signaturePassword is required to record cleaning",
+          });
+        }
+        const log = await cleaningStorage.createCleaningLog(
+          req.params.id,
+          req.user!.id,
+          {
+            cleanedByUserId: body.cleanedByUserId,
+            verifiedByUserId: body.verifiedByUserId,
+            method: body.method,
+            priorProductId: body.priorProductId,
+            nextProductId: body.nextProductId,
+            notes: body.notes,
+            signaturePassword: body.signaturePassword,
+            commentary: body.commentary,
+          },
+          req.requestId,
+          `${req.method} ${req.path}`,
+        );
+        res.status(201).json(log);
+      } catch (err) {
+        const e = err as { status?: number; code?: string; message?: string };
+        if (e.status === 404) return res.status(404).json({ message: e.message ?? "Equipment not found" });
+        if (e.status === 409) return res.status(409).json({ code: e.code, message: e.message });
+        if (e.status === 423) return res.status(423).json({ error: { code: e.code, message: e.message } });
+        if (e.status === 401) return res.status(401).json({ error: { code: e.code, message: e.message } });
+        if (e.status === 400) return res.status(400).json({ code: e.code, message: e.message });
+        next(err);
+      }
+    },
+  );
+
+  app.get<{ id: string }>(
+    "/api/equipment/:id/cleaning-logs",
+    requireAuth,
+    async (req, res, next) => {
+      try {
+        const list = await cleaningStorage.listCleaningLogs(req.params.id);
+        res.json(list);
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
+
+  // ─── Equipment line clearances (R-03 Task 7: F-04 product changeover) ─
+  //
+  // Role gating: requireAuth only. The F-04 signature ceremony is the access
+  // control. Single-signer (the request initiator). Used by the BPR start
+  // gate (Task 8) via cleaningStorage.findClearance.
+
+  app.post<{ id: string }>(
+    "/api/equipment/:id/line-clearances",
+    requireAuth,
+    async (req, res, next) => {
+      try {
+        const body = req.body as {
+          productChangeFromId?: string | null;
+          productChangeToId?: string;
+          notes?: string;
+          signaturePassword?: string;
+          commentary?: string;
+        };
+        if (!body.productChangeToId || typeof body.productChangeToId !== "string") {
+          return res.status(400).json({
+            code: "PRODUCT_TO_REQUIRED",
+            message: "productChangeToId is required",
+          });
+        }
+        if (!body.signaturePassword) {
+          return res.status(400).json({
+            code: "SIGNATURE_REQUIRED",
+            message: "signaturePassword is required to record line clearance",
+          });
+        }
+        const clearance = await cleaningStorage.createLineClearance(
+          req.params.id,
+          req.user!.id,
+          {
+            productChangeFromId: body.productChangeFromId ?? null,
+            productChangeToId: body.productChangeToId,
+            notes: body.notes,
+            signaturePassword: body.signaturePassword,
+            commentary: body.commentary,
+          },
+          req.requestId,
+          `${req.method} ${req.path}`,
+        );
+        res.status(201).json(clearance);
+      } catch (err) {
+        const e = err as { status?: number; code?: string; message?: string };
+        if (e.status === 404) return res.status(404).json({ message: e.message ?? "Equipment not found" });
+        if (e.status === 423) return res.status(423).json({ error: { code: e.code, message: e.message } });
+        if (e.status === 401) return res.status(401).json({ error: { code: e.code, message: e.message } });
+        if (e.status === 400) return res.status(400).json({ code: e.code, message: e.message });
+        next(err);
+      }
+    },
+  );
+
+  app.get<{ id: string }>(
+    "/api/equipment/:id/line-clearances",
+    requireAuth,
+    async (req, res, next) => {
+      try {
+        const list = await cleaningStorage.listLineClearances(req.params.id);
+        res.json(list);
       } catch (err) {
         next(err);
       }

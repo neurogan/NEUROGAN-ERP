@@ -1,0 +1,138 @@
+{
+  "planPath": "docs/superpowers/plans/2026-04-27-r03-equipment-cleaning.md",
+  "tasks": [
+    {
+      "id": 1,
+      "subject": "Task 1: Migration 0017 + schema additions",
+      "status": "pending",
+      "description": "**Goal:** All 8 new tables created, BPR column renamed (no row deletions), Drizzle schema reflects everything.\n\n**Plan section:** docs/superpowers/plans/2026-04-27-r03-equipment-cleaning.md §Task 1 (line 62)\n\n**Verify:** `pnpm test migrations/__tests__/0017-r03-rename-bpr-cleaning-text.test.ts -- --run` → PASS\n\n```json:metadata\n{\"files\":[\"migrations/0017_r03_equipment_cleaning.sql\",\"shared/schema.ts\",\"migrations/__tests__/0017-r03-rename-bpr-cleaning-text.test.ts\"],\"verifyCommand\":\"pnpm test migrations/__tests__/0017-r03-rename-bpr-cleaning-text.test.ts -- --run\",\"planSection\":\"Task 1\"}\n```"
+    },
+    {
+      "id": 2,
+      "subject": "Task 2: Signature meanings + audit actions",
+      "status": "pending",
+      "blockedBy": [1],
+      "description": "**Goal:** Five new signature meanings registered; new audit-action codes available.\n\n**Plan section:** docs/superpowers/plans/2026-04-27-r03-equipment-cleaning.md §Task 2 (line 411)\n\n**Verify:** `pnpm tsc --noEmit` → no errors\n\n```json:metadata\n{\"files\":[\"shared/schema.ts\",\"server/signatures/signatures.ts\",\"server/audit/actions.ts\"],\"verifyCommand\":\"pnpm tsc --noEmit\",\"planSection\":\"Task 2\"}\n```"
+    },
+    {
+      "id": 3,
+      "subject": "Task 3: Equipment master storage + routes",
+      "status": "pending",
+      "blockedBy": [1, 2],
+      "description": "**Goal:** Equipment CRUD with role gating. ADMIN/QA_MANAGER can create/retire; all roles can read.\n\n**Plan section:** docs/superpowers/plans/2026-04-27-r03-equipment-cleaning.md §Task 3 (line 481)\n\n**Verify:** `pnpm test server/__tests__/r03-equipment-master.test.ts -- --run` → PASS (≥6 tests)\n\n```json:metadata\n{\"files\":[\"server/storage/equipment.ts\",\"server/routes/equipment.ts\",\"server/__tests__/r03-equipment-master.test.ts\"],\"verifyCommand\":\"pnpm test server/__tests__/r03-equipment-master.test.ts -- --run\",\"planSection\":\"Task 3\"}\n```"
+    },
+    {
+      "id": 4,
+      "subject": "Task 4: Equipment qualifications storage + routes",
+      "status": "pending",
+      "blockedBy": [3],
+      "description": "**Goal:** Record IQ/OQ/PQ qualification cycles. QA-only promotion. F-04 signature required to mark `QUALIFIED`. Validity-window query supports gate logic.\n\n**Plan section:** docs/superpowers/plans/2026-04-27-r03-equipment-cleaning.md §Task 4 (line 749)\n\n**Verify:** `pnpm test server/__tests__/r03-qualifications.test.ts -- --run` → PASS (≥5 tests)\n\n```json:metadata\n{\"files\":[\"server/storage/equipment.ts\",\"server/routes/equipment.ts\",\"server/__tests__/r03-qualifications.test.ts\"],\"verifyCommand\":\"pnpm test server/__tests__/r03-qualifications.test.ts -- --run\",\"planSection\":\"Task 4\"}\n```"
+    },
+    {
+      "id": 5,
+      "subject": "Task 5: Calibration storage + routes",
+      "status": "pending",
+      "blockedBy": [3],
+      "description": "**Goal:** Per-equipment calibration schedule. Recording a PASS bumps `nextDueAt`. FAIL leaves it overdue. F-04 signature required.\n\n**Plan section:** docs/superpowers/plans/2026-04-27-r03-equipment-cleaning.md §Task 5 (line 923)\n\n**Verify:** `pnpm test server/__tests__/r03-calibration.test.ts -- --run` → PASS (≥4 tests)\n\n```json:metadata\n{\"files\":[\"server/storage/equipment.ts\",\"server/routes/equipment.ts\",\"server/__tests__/r03-calibration.test.ts\"],\"verifyCommand\":\"pnpm test server/__tests__/r03-calibration.test.ts -- --run\",\"planSection\":\"Task 5\"}\n```"
+    },
+    {
+      "id": 6,
+      "subject": "Task 6: Cleaning logs storage + routes (F-05 dual-verification)",
+      "status": "pending",
+      "blockedBy": [3],
+      "description": "**Goal:** Cleaning log with cleanedBy ≠ verifiedBy. Signature required.\n\n**Plan section:** docs/superpowers/plans/2026-04-27-r03-equipment-cleaning.md §Task 6 (line 1071)\n\n**Verify:** `pnpm test server/__tests__/r03-cleaning.test.ts -- --run` → PASS (≥4 tests)\n\n```json:metadata\n{\"files\":[\"server/storage/cleaning-line-clearance.ts\",\"server/routes/equipment.ts\",\"server/__tests__/r03-cleaning.test.ts\"],\"verifyCommand\":\"pnpm test server/__tests__/r03-cleaning.test.ts -- --run\",\"planSection\":\"Task 6\"}\n```"
+    },
+    {
+      "id": 7,
+      "subject": "Task 7: Line clearance storage + routes",
+      "status": "completed",
+      "blockedBy": [3],
+      "description": "**Goal:** Per-equipment line clearance for product changeover with F-04 signature.\n\n**Plan section:** docs/superpowers/plans/2026-04-27-r03-equipment-cleaning.md §Task 7 (line 1206)\n\n**Verify:** `pnpm test server/__tests__/r03-line-clearance.test.ts -- --run` → PASS (≥3 tests)\n\n```json:metadata\n{\"files\":[\"server/storage/cleaning-line-clearance.ts\",\"server/routes/equipment.ts\",\"server/__tests__/r03-line-clearance.test.ts\"],\"verifyCommand\":\"pnpm test server/__tests__/r03-line-clearance.test.ts -- --run\",\"planSection\":\"Task 7\"}\n```"
+    },
+    {
+      "id": 8,
+      "subject": "Task 8: BPR start gates module",
+      "status": "completed",
+      "blockedBy": [4, 5, 6, 7],
+      "description": "**Goal:** Pure-function gate logic in `server/state/bpr-equipment-gates.ts` — easy to unit-test independent of HTTP. Four functions; one orchestrator.\n\n**Plan section:** docs/superpowers/plans/2026-04-27-r03-equipment-cleaning.md §Task 8 (line 1324)\n\n**Verify:** `pnpm test server/__tests__/r03-bpr-gates.test.ts -- --run` → PASS (≥8 tests, two per gate)\n\n```json:metadata\n{\"files\":[\"server/state/bpr-equipment-gates.ts\",\"server/__tests__/r03-bpr-gates.test.ts\"],\"verifyCommand\":\"pnpm test server/__tests__/r03-bpr-gates.test.ts -- --run\",\"planSection\":\"Task 8\"}\n```"
+    },
+    {
+      "id": 9,
+      "subject": "Task 9: Wire gates into IN_PROGRESS transition + start endpoint",
+      "status": "completed",
+      "blockedBy": [8],
+      "description": "**Goal:** New `POST /api/production-batches/:id/start` accepts `equipmentIds`, runs gates, transitions to IN_PROGRESS, persists `productionBatchEquipmentUsed`. Existing `updateProductionBatch` rejects direct status flips to IN_PROGRESS without going through this endpoint.\n\n**Plan section:** docs/superpowers/plans/2026-04-27-r03-equipment-cleaning.md §Task 9 (line 1491)\n\n**Verify:** Multiple test files; see plan section.\n\n```json:metadata\n{\"files\":[\"server/db-storage.ts\",\"server/routes.ts\",\"server/__tests__/r03-bpr-start-integration.test.ts\"],\"verifyCommand\":\"pnpm test server/__tests__/r03-bpr-start-integration.test.ts -- --run\",\"planSection\":\"Task 9\"}\n```"
+    },
+    {
+      "id": 10,
+      "subject": "Task 10: Equipment master UI (top-level tab + Master subtab)",
+      "status": "completed",
+      "blockedBy": [3],
+      "description": "**Goal:** Top-level \"Equipment\" nav link + Master subtab landing page with list + create modal + retire button.\n\n**Plan section:** docs/superpowers/plans/2026-04-27-r03-equipment-cleaning.md §Task 10 (line 1650)\n\n**Verify:** Manually open `/equipment`, create an asset as ADMIN, retire it, see the status change\n\n```json:metadata\n{\"files\":[\"client/src/pages/equipment/index.tsx\",\"client/src/pages/equipment/master.tsx\",\"client/src/components/sidebar.tsx\"],\"verifyCommand\":\"manual\",\"planSection\":\"Task 10\"}\n```"
+    },
+    {
+      "id": 11,
+      "subject": "Task 11: Equipment detail page + qualifications UI",
+      "status": "completed",
+      "blockedBy": [4, 10],
+      "description": "**Goal:** `/equipment/:id` shows Overview, Qualifications, Calibration tabs. Qualifications tab lists rows + a \"Promote to QUALIFIED\" form (QA only) that prompts for password + IQ/OQ/PQ + valid date range.\n\n**Plan section:** docs/superpowers/plans/2026-04-27-r03-equipment-cleaning.md §Task 11 (line 1788)\n\n**Verify:** Manually verify in browser\n\n```json:metadata\n{\"files\":[\"client/src/pages/equipment/[id].tsx\",\"client/src/pages/equipment/[id]/qualifications.tsx\"],\"verifyCommand\":\"manual\",\"planSection\":\"Task 11\"}\n```"
+    },
+    {
+      "id": 12,
+      "subject": "Task 12: Calibration subtab UI",
+      "status": "completed",
+      "blockedBy": [5, 10],
+      "description": "**Goal:** `/equipment/calibration` lists upcoming + overdue + recent records; per-equipment \"Log Calibration\" form.\n\n**Plan section:** docs/superpowers/plans/2026-04-27-r03-equipment-cleaning.md §Task 12 (line 1896)\n\n**Verify:** Manually verify in browser\n\n```json:metadata\n{\"files\":[\"client/src/pages/equipment/calibration.tsx\"],\"verifyCommand\":\"manual\",\"planSection\":\"Task 12\"}\n```"
+    },
+    {
+      "id": 13,
+      "subject": "Task 13: Cleaning Logs subtab UI",
+      "status": "completed",
+      "blockedBy": [6, 10],
+      "description": "**Goal:** `/equipment/cleaning` shows recent logs across all equipment; per-equipment \"New Cleaning Log\" form requiring two distinct users.\n\n**Plan section:** docs/superpowers/plans/2026-04-27-r03-equipment-cleaning.md §Task 13 (line 1924)\n\n**Verify:** Manually verify in browser; attempt same-user submit and see error\n\n```json:metadata\n{\"files\":[\"client/src/pages/equipment/cleaning.tsx\"],\"verifyCommand\":\"manual\",\"planSection\":\"Task 13\"}\n```"
+    },
+    {
+      "id": 14,
+      "subject": "Task 14: Line Clearance subtab UI",
+      "status": "completed",
+      "blockedBy": [7, 10],
+      "description": "**Goal:** `/equipment/line-clearance` lists recent clearances; new-clearance form per equipment.\n\n**Plan section:** docs/superpowers/plans/2026-04-27-r03-equipment-cleaning.md §Task 14 (line 1947)\n\n**Verify:** Manually verify in browser\n\n```json:metadata\n{\"files\":[\"client/src/pages/equipment/line-clearance.tsx\"],\"verifyCommand\":\"manual\",\"planSection\":\"Task 14\"}\n```"
+    },
+    {
+      "id": 15,
+      "subject": "Task 15: BPR start modal with gate-failure UI",
+      "status": "completed",
+      "blockedBy": [9],
+      "description": "**Goal:** When operator clicks \"Start\" on a production batch, modal shows the per-product equipment list (editable). Submit calls `POST /api/production-batches/:id/start` with `equipmentIds`. Gate failures render as actionable banners with deep-links to the resolution page.\n\n**Plan section:** docs/superpowers/plans/2026-04-27-r03-equipment-cleaning.md §Task 15 (line 1966)\n\n**Verify:** End-to-end: create equipment, set up an overdue calibration, attempt to start a batch → see the banner → click link → log calibration → return → start succeeds\n\n```json:metadata\n{\"files\":[\"client/src/pages/production-batches/[id].tsx\",\"client/src/components/start-batch-modal.tsx\"],\"verifyCommand\":\"manual\",\"planSection\":\"Task 15\"}\n```"
+    },
+    {
+      "id": 16,
+      "subject": "Task 16: Dashboard cards",
+      "status": "completed",
+      "blockedBy": [4, 5],
+      "description": "**Goal:** Two new cards on the existing main dashboard: \"Calibrations due this week\" and \"Equipment qualifications expiring in 30d\".\n\n**Plan section:** docs/superpowers/plans/2026-04-27-r03-equipment-cleaning.md §Task 16 (line 1998)\n\n**Verify:** Manually in browser\n\n```json:metadata\n{\"files\":[\"client/src/pages/dashboard.tsx\"],\"verifyCommand\":\"manual\",\"planSection\":\"Task 16\"}\n```"
+    },
+    {
+      "id": 17,
+      "subject": "Task 17: BPR-suite test patches (defensive)",
+      "status": "completed",
+      "blockedBy": [9],
+      "description": "**Goal:** Run the full integration suite; for any pre-existing BPR test that hits the new gate, set up the minimum equipment fixture so it still passes.\n\n**Plan section:** docs/superpowers/plans/2026-04-27-r03-equipment-cleaning.md §Task 17 (line 2017)\n\n**Verify:** `pnpm test:integration` → all green\n\n```json:metadata\n{\"files\":[\"server/__tests__/**/*.test.ts\"],\"verifyCommand\":\"pnpm test:integration\",\"planSection\":\"Task 17\"}\n```"
+    },
+    {
+      "id": 18,
+      "subject": "Task 18: Validation scaffold + VSR-R-03",
+      "status": "completed",
+      "blockedBy": [17],
+      "description": "**Goal:** Append URS/FRS entries to `/Users/frederikhejlskov/Desktop/NEUROGAN/FDA/validation-scaffold.md`. Add VSR-R-03 module-validation summary record via the F-10 validation-document API.\n\n**Plan section:** docs/superpowers/plans/2026-04-27-r03-equipment-cleaning.md §Task 18 (line 2042)\n\n**Verify:** See plan section.\n\n```json:metadata\n{\"files\":[\"/Users/frederikhejlskov/Desktop/NEUROGAN/FDA/validation-scaffold.md\"],\"verifyCommand\":\"manual\",\"planSection\":\"Task 18\"}\n```"
+    },
+    {
+      "id": 19,
+      "subject": "Task 19: Open PR",
+      "status": "completed",
+      "blockedBy": [10, 11, 12, 13, 14, 15, 16, 17, 18],
+      "description": "**Goal:** Push branch, open PR against `FDA-EQMS-feature-package` per `feedback_git_workflow`.\n\n**Plan section:** docs/superpowers/plans/2026-04-27-r03-equipment-cleaning.md §Task 19 (line 2099)\n\n**Verify:** `gh pr view` shows the PR\n\n```json:metadata\n{\"files\":[],\"verifyCommand\":\"gh pr view\",\"planSection\":\"Task 19\"}\n```"
+    }
+  ],
+  "lastUpdated": "2026-04-27T21:35:00Z"
+}

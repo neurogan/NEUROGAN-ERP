@@ -303,7 +303,7 @@ function EquipmentCleaning({
   const [processingLines, setProcessingLines] = useState(bpr.processingLines ?? "");
   const [cleaningVerified, setCleaningVerified] = useState(bpr.cleaningVerified === "true");
   const [cleaningVerifiedBy, setCleaningVerifiedBy] = useState(bpr.cleaningVerifiedBy ?? "");
-  const [cleaningRecordRef, setCleaningRecordRef] = useState(bpr.cleaningRecordReference ?? "");
+  const [cleaningRecordRef, setCleaningRecordRef] = useState(bpr.cleaningRecordLegacyText ?? "");
 
   const saveMutation = useMutation({
     mutationFn: async () => {
@@ -312,7 +312,7 @@ function EquipmentCleaning({
         cleaningVerified: cleaningVerified ? "true" : "false",
         cleaningVerifiedBy: cleaningVerified ? cleaningVerifiedBy : null,
         cleaningVerifiedAt: cleaningVerified ? new Date().toISOString() : null,
-        cleaningRecordReference: cleaningRecordRef || null,
+        cleaningRecordLegacyText: cleaningRecordRef || null,
       });
     },
     onSuccess: () => {

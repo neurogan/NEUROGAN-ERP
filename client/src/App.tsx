@@ -25,6 +25,8 @@ import SkuManager from "@/pages/sku-manager";
 import Login from "@/pages/login";
 import ValidationDetail from "@/pages/quality/ValidationDetail";
 import OosInvestigations from "@/pages/OosInvestigations";
+import EquipmentPage from "@/pages/equipment";
+import EquipmentDetailPage from "@/pages/equipment/detail";
 import { useAuth, useLogout } from "@/lib/auth";
 import { InactivityWarning } from "@/components/InactivityWarning";
 
@@ -41,6 +43,7 @@ const navItems: NavItem[] = [
   { href: "/suppliers", label: "Suppliers" },
   { href: "/receiving", label: "Receiving" },
   { href: "/production", label: "Production" },
+  { href: "/equipment", label: "Equipment" },
   { href: "/transactions", label: "Transactions" },
   { href: "/oos-investigations", label: "OOS", requiredRoles: ["QA", "ADMIN"] },
 ];
@@ -180,6 +183,12 @@ function AppLayout() {
           <Route path="/settings/users" component={SettingsUsers} />
           <Route path="/settings" component={Settings} />
           <Route path="/oos-investigations" component={OosInvestigations} />
+          <Route path="/equipment" component={EquipmentPage} />
+          <Route path="/equipment/master" component={EquipmentPage} />
+          <Route path="/equipment/calibration" component={EquipmentPage} />
+          <Route path="/equipment/cleaning" component={EquipmentPage} />
+          <Route path="/equipment/line-clearance" component={EquipmentPage} />
+          <Route path="/equipment/:id" component={EquipmentDetailPage} />
           <Route path="/profile/rotate-password" component={Profile} />
           <Route path="/profile" component={Profile} />
           <Route component={NotFound} />

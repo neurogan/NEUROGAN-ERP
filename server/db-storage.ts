@@ -57,6 +57,7 @@ import type {
 } from "./storage";
 import { computeRoleDelta } from "./storage/users";
 import { assertNotLocked, assertValidTransition } from "./state/transitions";
+import { runAllGates, GateError } from "./state/bpr-equipment-gates";
 
 // ─── QC Workflow type derivation ──────────────────────────────────────────────
 
@@ -679,15 +680,13 @@ export class DatabaseStorage implements IStorage {
     const [existing] = await db.select().from(schema.productionBatches).where(eq(schema.productionBatches.id, id));
     if (!existing) return undefined;
 
-    // If transitioning to IN_PROGRESS, validate all input lots are approved
+    // R-03 Task 9: All transitions to IN_PROGRESS must go through
+    // POST /api/production-batches/:id/start so equipment list + gates run.
     if (data.status === "IN_PROGRESS" && existing.status !== "IN_PROGRESS") {
-      const batchInputs = await db.select().from(schema.productionInputs).where(eq(schema.productionInputs.batchId, id));
-      for (const input of batchInputs) {
-        const lot = await this.getLot(input.lotId);
-        if (lot && lot.quarantineStatus && lot.quarantineStatus !== "APPROVED") {
-          throw new Error(`Lot ${lot.lotNumber} is ${lot.quarantineStatus} and cannot be used in production. Only APPROVED lots can be used.`);
-        }
-      }
+      throw Object.assign(
+        new Error("Use POST /api/production-batches/:id/start to transition to IN_PROGRESS — equipment list and gates are required"),
+        { status: 400, code: "USE_START_ENDPOINT" },
+      );
     }
 
     // If new inputs are provided, validate they are all approved
@@ -738,27 +737,91 @@ export class DatabaseStorage implements IStorage {
       }
     }
 
-    // Auto-create BPR when batch starts production
-    if (data.status === "IN_PROGRESS") {
-      const existingBpr = await this.getBprByBatchId(id);
-      if (!existingBpr) {
-        const batch = updated;
-        const recipeRows = await db.select().from(schema.recipes).where(eq(schema.recipes.productId, batch.productId));
-        const recipe = recipeRows[0];
-        await this.createBpr({
-          productionBatchId: id,
-          batchNumber: batch.batchNumber,
-          lotNumber: batch.outputLotNumber ?? null,
-          productId: batch.productId,
-          recipeId: recipe?.id ?? null,
-          status: "IN_PROGRESS",
-          theoreticalYield: batch.plannedQuantity,
-          startedAt: new Date(),
-        });
+    return updated;
+  }
+
+  // R-03 Task 9 — Gated start. Runs read-only gates outside the transaction so
+  // the START_BLOCKED audit row persists on gate failure, then writes equipment
+  // list + status flip + auto-created BPR atomically inside the transaction.
+  async startProductionBatch(
+    batchId: string,
+    userId: string,
+    equipmentIds: string[],
+    requestId: string | null,
+    route: string | null,
+  ): Promise<ProductionBatch> {
+    const [existing] = await db
+      .select()
+      .from(schema.productionBatches)
+      .where(eq(schema.productionBatches.id, batchId));
+    if (!existing) throw Object.assign(new Error("Batch not found"), { status: 404 });
+    if (existing.status === "IN_PROGRESS") {
+      throw Object.assign(new Error("Batch already started"), { status: 409 });
+    }
+    if (existing.status !== "DRAFT" && existing.status !== "PENDING") {
+      throw Object.assign(new Error(`Cannot start from ${existing.status}`), { status: 409 });
+    }
+
+    const batchInputs = await db
+      .select()
+      .from(schema.productionInputs)
+      .where(eq(schema.productionInputs.batchId, batchId));
+    for (const input of batchInputs) {
+      const lot = await this.getLot(input.lotId);
+      if (lot && lot.quarantineStatus && lot.quarantineStatus !== "APPROVED") {
+        throw Object.assign(
+          new Error(`Lot ${lot.lotNumber} is ${lot.quarantineStatus} and cannot be used in production. Only APPROVED lots can be used.`),
+          { status: 400, code: "LOT_NOT_APPROVED" },
+        );
       }
     }
 
-    return updated;
+    try {
+      await runAllGates(db, batchId, existing.productId, equipmentIds);
+    } catch (e: unknown) {
+      if (GateError.is(e)) {
+        await db.insert(schema.auditTrail).values({
+          userId,
+          action: "START_BLOCKED",
+          entityType: "production_batch",
+          entityId: batchId,
+          after: { code: e.code, payload: e.payload } as Record<string, unknown>,
+          requestId,
+          route,
+        });
+      }
+      throw e;
+    }
+
+    return await db.transaction(async (tx) => {
+      for (const eid of equipmentIds) {
+        await tx.insert(schema.productionBatchEquipmentUsed).values({
+          productionBatchId: batchId,
+          equipmentId: eid,
+        });
+      }
+      const [updated] = await tx
+        .update(schema.productionBatches)
+        .set({ status: "IN_PROGRESS", updatedAt: new Date() })
+        .where(eq(schema.productionBatches.id, batchId))
+        .returning();
+      const recipeRows = await tx
+        .select()
+        .from(schema.recipes)
+        .where(eq(schema.recipes.productId, updated!.productId));
+      const recipe = recipeRows[0];
+      await this.createBpr({
+        productionBatchId: batchId,
+        batchNumber: updated!.batchNumber,
+        lotNumber: updated!.outputLotNumber ?? null,
+        productId: updated!.productId,
+        recipeId: recipe?.id ?? null,
+        status: "IN_PROGRESS",
+        theoreticalYield: updated!.plannedQuantity,
+        startedAt: new Date(),
+      }, tx);
+      return updated!;
+    });
   }
 
   async deleteProductionBatch(id: string): Promise<boolean> {

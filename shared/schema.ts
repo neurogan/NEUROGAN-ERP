@@ -346,7 +346,8 @@ export const batchProductionRecords = pgTable("erp_batch_production_records", {
   cleaningVerified: text("cleaning_verified"), // "true"/"false"
   cleaningVerifiedBy: text("cleaning_verified_by"),
   cleaningVerifiedAt: timestamp("cleaning_verified_at"),
-  cleaningRecordReference: text("cleaning_record_reference"),
+  cleaningRecordLegacyText: text("cleaning_record_legacy_text"),
+  cleaningLogId: uuid("cleaning_log_id"),
   // QC Review (Sec. 111.260(l))
   qcReviewedBy: text("qc_reviewed_by"),
   qcReviewedAt: timestamp("qc_reviewed_at"),
@@ -418,6 +419,98 @@ export const productionNotes = pgTable("erp_production_notes", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// ─── R-03 Equipment & Cleaning ────────────────────────────────────────────
+
+export const equipment = pgTable("erp_equipment", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  assetTag: text("asset_tag").notNull().unique(),
+  name: text("name").notNull(),
+  model: text("model"),
+  serial: text("serial"),
+  manufacturer: text("manufacturer"),
+  locationId: varchar("location_id"),
+  status: text("status").notNull().default("ACTIVE").$type<"ACTIVE" | "RETIRED">(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const equipmentQualifications = pgTable("erp_equipment_qualifications", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  equipmentId: uuid("equipment_id").notNull().references(() => equipment.id),
+  type: text("type").notNull().$type<"IQ" | "OQ" | "PQ">(),
+  status: text("status").notNull().$type<"PENDING" | "QUALIFIED" | "EXPIRED">(),
+  validFrom: text("valid_from"),    // ISO date "YYYY-MM-DD"
+  validUntil: text("valid_until"),  // ISO date "YYYY-MM-DD"
+  signatureId: uuid("signature_id").references(() => electronicSignatures.id),
+  documentUrl: text("document_url"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const calibrationSchedules = pgTable("erp_calibration_schedules", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  equipmentId: uuid("equipment_id").notNull().unique().references(() => equipment.id),
+  frequencyDays: integer("frequency_days").notNull(),
+  nextDueAt: timestamp("next_due_at", { withTimezone: true }).notNull(),
+  lastRecordId: uuid("last_record_id"),
+});
+
+export const calibrationRecords = pgTable("erp_calibration_records", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  equipmentId: uuid("equipment_id").notNull().references(() => equipment.id),
+  performedAt: timestamp("performed_at", { withTimezone: true }).notNull().defaultNow(),
+  performedByUserId: uuid("performed_by_user_id").notNull().references(() => users.id),
+  result: text("result").notNull().$type<"PASS" | "FAIL">(),
+  certUrl: text("cert_url"),
+  signatureId: uuid("signature_id").notNull().references(() => electronicSignatures.id),
+  notes: text("notes"),
+});
+
+export const cleaningLogs = pgTable("erp_cleaning_logs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  equipmentId: uuid("equipment_id").notNull().references(() => equipment.id),
+  cleanedAt: timestamp("cleaned_at", { withTimezone: true }).notNull().defaultNow(),
+  cleanedByUserId: uuid("cleaned_by_user_id").notNull().references(() => users.id),
+  verifiedByUserId: uuid("verified_by_user_id").notNull().references(() => users.id),
+  method: text("method"),
+  priorProductId: varchar("prior_product_id"),
+  nextProductId: varchar("next_product_id"),
+  signatureId: uuid("signature_id").notNull().references(() => electronicSignatures.id),
+  notes: text("notes"),
+});
+
+export const lineClearances = pgTable("erp_line_clearances", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  equipmentId: uuid("equipment_id").notNull().references(() => equipment.id),
+  productChangeFromId: varchar("product_change_from_id"),
+  productChangeToId: varchar("product_change_to_id").notNull(),
+  performedAt: timestamp("performed_at", { withTimezone: true }).notNull().defaultNow(),
+  performedByUserId: uuid("performed_by_user_id").notNull().references(() => users.id),
+  signatureId: uuid("signature_id").notNull().references(() => electronicSignatures.id),
+  notes: text("notes"),
+});
+
+export const productEquipment = pgTable("erp_product_equipment", {
+  productId: varchar("product_id").notNull(),
+  equipmentId: uuid("equipment_id").notNull().references(() => equipment.id),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.productId, t.equipmentId] }),
+}));
+
+export const productionBatchEquipmentUsed = pgTable("erp_production_batch_equipment_used", {
+  productionBatchId: varchar("production_batch_id").notNull(),
+  equipmentId: uuid("equipment_id").notNull().references(() => equipment.id),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.productionBatchId, t.equipmentId] }),
+}));
+
+export type Equipment = typeof equipment.$inferSelect;
+export type InsertEquipment = typeof equipment.$inferInsert;
+export type EquipmentQualification = typeof equipmentQualifications.$inferSelect;
+export type CalibrationSchedule = typeof calibrationSchedules.$inferSelect;
+export type CalibrationRecord = typeof calibrationRecords.$inferSelect;
+export type CleaningLog = typeof cleaningLogs.$inferSelect;
+export type LineClearance = typeof lineClearances.$inferSelect;
+
 // Supplier Documents (contracts, COAs, etc.)
 export const supplierDocuments = pgTable("erp_supplier_documents", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -479,6 +572,19 @@ export const insertSupplierQualificationSchema = createInsertSchema(supplierQual
 export const insertBprSchema = createInsertSchema(batchProductionRecords).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertBprStepSchema = createInsertSchema(bprSteps).omit({ id: true, createdAt: true });
 export const insertBprDeviationSchema = createInsertSchema(bprDeviations).omit({ id: true, createdAt: true });
+export const insertEquipmentSchema = createInsertSchema(equipment, {
+  assetTag: z.string().min(1),
+  name: z.string().min(1),
+}).pick({
+  assetTag: true,
+  name: true,
+  model: true,
+  serial: true,
+  manufacturer: true,
+  locationId: true,
+});
+
+export type InsertEquipmentDomain = z.infer<typeof insertEquipmentSchema>;
 
 // Types
 export type Product = typeof products.$inferSelect;
@@ -801,6 +907,15 @@ export const auditActionEnum = z.enum([
   "LAB_DISQUALIFIED",
   "OOS_OPENED",
   "OOS_CLOSED",
+  "EQUIPMENT_CREATED",
+  "EQUIPMENT_RETIRED",
+  "EQUIPMENT_QUALIFIED",
+  "EQUIPMENT_DISQUALIFIED",
+  "CALIBRATION_SCHEDULE_CREATED",
+  "CALIBRATION_LOGGED",
+  "CLEANING_LOGGED",
+  "LINE_CLEARANCE_LOGGED",
+  "START_BLOCKED",
 ]);
 export type AuditAction = z.infer<typeof auditActionEnum>;
 
@@ -850,6 +965,11 @@ export const signatureMeaningEnum = z.enum([
   "LAB_APPROVAL",
   "LAB_DISQUALIFICATION",
   "OOS_INVESTIGATION_CLOSE",
+  "EQUIPMENT_QUALIFIED",
+  "EQUIPMENT_DISQUALIFIED",
+  "CALIBRATION_RECORDED",
+  "CLEANING_VERIFIED",
+  "LINE_CLEARANCE",
 ]);
 export type SignatureMeaning = z.infer<typeof signatureMeaningEnum>;
 

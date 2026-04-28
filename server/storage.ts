@@ -238,6 +238,7 @@ export interface IStorage {
   getProductionBatch(id: string): Promise<ProductionBatchWithDetails | undefined>;
   createProductionBatch(data: InsertProductionBatch, inputs: Omit<InsertProductionInput, "batchId">[]): Promise<ProductionBatchWithDetails>;
   updateProductionBatch(id: string, data: Partial<InsertProductionBatch>, inputs?: Omit<InsertProductionInput, "batchId">[]): Promise<ProductionBatch | undefined>;
+  startProductionBatch(batchId: string, userId: string, equipmentIds: string[], requestId: string | null, route: string | null): Promise<ProductionBatch>;
   deleteProductionBatch(id: string): Promise<boolean>;
   completeProductionBatch(id: string, actualQuantity: number, outputLotNumber: string, outputExpirationDate: string | null, locationId: string, qcStatus?: string, qcNotes?: string, endDate?: string, qcDisposition?: string, qcReviewedBy?: string, yieldPercentage?: string): Promise<ProductionBatchWithDetails>;
   getNextBatchNumber(): Promise<string>;
