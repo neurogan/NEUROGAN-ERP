@@ -15,11 +15,14 @@ const VALID_PASSWORD = "Neurogan1!Secure";
 let app: Express;
 let adminId: string, qaId: string;
 const createdEquipmentIds: string[] = [];
+const createdProductIds: string[] = [];
 
-// Use stable but unique product change IDs (varchar in schema). Two distinct
-// products so we can exercise both first-batch (no from) and changeover paths.
-const PRODUCT_A = `r03lc-prod-a-${Date.now()}`;
-const PRODUCT_B = `r03lc-prod-b-${Date.now()}`;
+// Two distinct product fixtures (varchar PKs in erp_products). Migration 0017
+// enforces FK from erp_line_clearances.product_change_{from,to}_id to
+// erp_products.id, matching erp_product_equipment and erp_cleaning_logs, so we
+// must insert real products and use their generated IDs.
+let PRODUCT_A: string;
+let PRODUCT_B: string;
 
 beforeAll(async () => {
   if (!dbUrl) return;
@@ -54,11 +57,25 @@ beforeAll(async () => {
   await db
     .insert(schema.userRoles)
     .values({ userId: qaId, role: "QA", grantedByUserId: adminId });
+
+  const [pa] = await db
+    .insert(schema.products)
+    .values({ name: "R03LC Product A", sku: `R03LC-A-${sfx}`, defaultUom: "kg" })
+    .returning();
+  PRODUCT_A = pa!.id;
+  createdProductIds.push(PRODUCT_A);
+
+  const [pb] = await db
+    .insert(schema.products)
+    .values({ name: "R03LC Product B", sku: `R03LC-B-${sfx}`, defaultUom: "kg" })
+    .returning();
+  PRODUCT_B = pb!.id;
+  createdProductIds.push(PRODUCT_B);
 });
 
 afterAll(async () => {
   if (!dbUrl) return;
-  // FK order: line_clearances → signatures → audit → equipment → userRoles → users.
+  // FK order: line_clearances → signatures → audit → equipment → products → userRoles → users.
   for (const id of createdEquipmentIds) {
     await db
       .delete(schema.lineClearances)
@@ -70,6 +87,12 @@ afterAll(async () => {
       .where(eq(schema.electronicSignatures.entityId, id))
       .catch(() => {});
     await db.delete(schema.equipment).where(eq(schema.equipment.id, id)).catch(() => {});
+  }
+  if (createdProductIds.length > 0) {
+    await db
+      .delete(schema.products)
+      .where(inArray(schema.products.id, createdProductIds))
+      .catch(() => {});
   }
   for (const uid of [adminId, qaId]) {
     await db.delete(schema.auditTrail).where(eq(schema.auditTrail.userId, uid)).catch(() => {});
