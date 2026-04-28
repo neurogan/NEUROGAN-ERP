@@ -11,7 +11,7 @@
 
 import { db } from "../db";
 import * as schema from "@shared/schema";
-import { eq, and, desc, isNull } from "drizzle-orm";
+import { eq, and, desc, isNull, ilike } from "drizzle-orm";
 import { storage } from "../storage";
 import { verifyPassword } from "../auth/password";
 import { MEANING_VERB } from "../signatures/signatures";
@@ -132,7 +132,7 @@ export async function intakeComplaint(input: {
   const [lotRow] = await db
     .select({ id: schema.lots.id })
     .from(schema.lots)
-    .where(eq(schema.lots.lotNumber, input.lotCode));
+    .where(ilike(schema.lots.lotNumber, input.lotCode));
 
   const lotId = lotRow?.id ?? null;
   const status: schema.ComplaintStatus = lotId ? "TRIAGE" : "LOT_UNRESOLVED";

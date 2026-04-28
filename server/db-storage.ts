@@ -1,5 +1,6 @@
 import { eq, ne, desc, asc, and, sql, gte, lte, inArray, notInArray, getTableColumns, isNull, isNotNull, type SQL } from "drizzle-orm";
 import { computeZ14Plan } from "./lib/z14-sampling";
+import { businessDaysUntil } from "./lib/business-days";
 import { db, type Tx } from "./db";
 import * as schema from "@shared/schema";
 import {
@@ -3274,7 +3275,6 @@ export class DatabaseStorage implements IStorage {
 
       // SAER tasks — open adverse events with due_at
       const now = new Date();
-      const twoBdMs = 2 * 24 * 60 * 60 * 1000; // approx; exact BD calc done at display layer
       const saerRows = await db
         .select({
           complaintId: schema.adverseEvents.complaintId,
@@ -3289,8 +3289,9 @@ export class DatabaseStorage implements IStorage {
 
       for (const row of saerRows) {
         const dueAt = row.dueAt;
-        const isOverdue = dueAt <= now;
-        const isDueSoon = !isOverdue && dueAt.getTime() - now.getTime() <= twoBdMs;
+        const bdsRemaining = await businessDaysUntil(now, dueAt);
+        const isOverdue = bdsRemaining < 0;
+        const isDueSoon = !isOverdue && bdsRemaining <= 2;
         if (isOverdue || isDueSoon) {
           tasks.push({
             id: `saer-${row.complaintId}`,

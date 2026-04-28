@@ -251,12 +251,15 @@ export default function ComplaintAE() {
             </Card>
           )}
 
-          {/* ── SAER submitted — acknowledgment ── */}
+          {/* ── SAER submitted — print + acknowledgment ── */}
           {saer?.submittedAt && !saer.acknowledgmentRef && (
             <Card>
               <CardHeader><CardTitle className="text-sm">Capture FDA Acknowledgment</CardTitle></CardHeader>
               <CardContent className="space-y-3">
-                <div className="text-xs text-muted-foreground">Upload the printable form to the FDA portal manually, then enter the acknowledgment reference here.</div>
+                <div className="text-xs text-muted-foreground">Print the MedWatch 3500A form, upload it to the FDA portal manually, then enter the acknowledgment reference here.</div>
+                <Button size="sm" variant="outline" onClick={() => window.open(`/api/complaints/${id}/ae/print`, "_blank")}>
+                  Print MedWatch 3500A
+                </Button>
                 <div>
                   <Label className="text-xs">FDA portal acknowledgment ref</Label>
                   <Input value={ackForm.acknowledgmentRef} onChange={(e) => setAckForm((f) => ({ ...f, acknowledgmentRef: e.target.value }))} />
@@ -272,9 +275,12 @@ export default function ComplaintAE() {
           {saer?.acknowledgmentRef && (
             <Card>
               <CardHeader><CardTitle className="text-sm">Submission complete</CardTitle></CardHeader>
-              <CardContent className="text-sm space-y-1">
+              <CardContent className="text-sm space-y-2">
                 <div><span className="text-muted-foreground">Submitted at:</span> {saer.submittedAt ? new Date(saer.submittedAt).toLocaleString() : ""}</div>
                 <div><span className="text-muted-foreground">FDA acknowledgment:</span> {saer.acknowledgmentRef}</div>
+                <Button size="sm" variant="outline" onClick={() => window.open(`/api/complaints/${id}/ae/print`, "_blank")}>
+                  Print MedWatch 3500A
+                </Button>
               </CardContent>
             </Card>
           )}
