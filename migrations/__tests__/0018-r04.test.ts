@@ -193,17 +193,21 @@ describeIfDb("migration 0018 — R-04 labeling & reconciliation tables", () => {
   it("UNIQUE bpr_id on erp_label_reconciliations", async () => {
     // Insert a minimal BPR to get a valid bpr_id.
     // erp_batch_production_records.id is varchar (gen_random_uuid default).
+    const [prod] = (
+      await db.execute(sql`
+        INSERT INTO erp_products (name, sku)
+        VALUES ('R04-Rec-Product', 'R04-REC-' || extract(epoch from now())::bigint)
+        RETURNING id
+      `)
+    ).rows as Array<{ id: string }>;
+    const productId = prod.id;
+
+    const batchNum = `R04-BPR-${Date.now()}`;
     const [bpr] = (
       await db.execute(sql`
         INSERT INTO erp_batch_production_records
           (production_batch_id, batch_number, product_id, status)
-        SELECT
-          p.id,
-          'R04-BPR-' || extract(epoch from now())::bigint,
-          p.id,
-          'IN_PROGRESS'
-        FROM erp_products p
-        LIMIT 1
+        VALUES (${productId}, ${batchNum}, ${productId}, 'IN_PROGRESS')
         RETURNING id
       `)
     ).rows as Array<{ id: string }>;
@@ -226,22 +230,27 @@ describeIfDb("migration 0018 — R-04 labeling & reconciliation tables", () => {
     } finally {
       await db.execute(sql`DELETE FROM erp_label_reconciliations WHERE bpr_id = ${bprId}`);
       await db.execute(sql`DELETE FROM erp_batch_production_records WHERE id = ${bprId}`);
+      await db.execute(sql`DELETE FROM erp_products WHERE id = ${productId}`);
     }
   });
 
   it("CHECK (tolerance_exceeded = false) OR (deviation_id IS NOT NULL) on reconciliations", async () => {
     // When tolerance_exceeded = true and deviation_id IS NULL → should fail.
+    const [prod2] = (
+      await db.execute(sql`
+        INSERT INTO erp_products (name, sku)
+        VALUES ('R04-Check-Product', 'R04-CHK-' || extract(epoch from now())::bigint)
+        RETURNING id
+      `)
+    ).rows as Array<{ id: string }>;
+    const productId2 = prod2.id;
+
+    const batchNum2 = `R04-BPR2-${Date.now()}`;
     const [bpr] = (
       await db.execute(sql`
         INSERT INTO erp_batch_production_records
           (production_batch_id, batch_number, product_id, status)
-        SELECT
-          p.id,
-          'R04-BPR2-' || extract(epoch from now())::bigint,
-          p.id,
-          'IN_PROGRESS'
-        FROM erp_products p
-        LIMIT 1
+        VALUES (${productId2}, ${batchNum2}, ${productId2}, 'IN_PROGRESS')
         RETURNING id
       `)
     ).rows as Array<{ id: string }>;
@@ -258,6 +267,7 @@ describeIfDb("migration 0018 — R-04 labeling & reconciliation tables", () => {
     } finally {
       await db.execute(sql`DELETE FROM erp_label_reconciliations WHERE bpr_id = ${bprId}`);
       await db.execute(sql`DELETE FROM erp_batch_production_records WHERE id = ${bprId}`);
+      await db.execute(sql`DELETE FROM erp_products WHERE id = ${productId2}`);
     }
   });
 
