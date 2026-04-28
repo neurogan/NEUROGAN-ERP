@@ -4,62 +4,62 @@
     {
       "id": 76,
       "subject": "Task 1: Migration 0018 + Drizzle schema",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** All 6 new tables created, `erp_bpr_steps` extended with `sop_code`/`sop_version`, app_settings rows seeded, Drizzle schema in `shared/schema.ts` reflects everything.\n\n**Files:** migrations/0018_r04_labeling_reconciliation.sql, shared/schema.ts, migrations/__tests__/0018-r04.test.ts, migrations/meta/_journal.json\n\n**Verify:** `pnpm test migrations/__tests__/0018-r04.test.ts -- --run`\n\n```json:metadata\n{\"files\":[\"migrations/0018_r04_labeling_reconciliation.sql\",\"shared/schema.ts\",\"migrations/__tests__/0018-r04.test.ts\",\"migrations/meta/_journal.json\"],\"verifyCommand\":\"pnpm test migrations/__tests__/0018-r04.test.ts -- --run\",\"acceptanceCriteria\":[\"All 6 tables created with CHECK constraints + UNIQUE indexes\",\"bpr_steps.sop_code and sop_version added\",\"app_settings rows seeded\",\"Drizzle schema exports all new tables + Zod schemas\",\"Migration test asserts schema invariants\"]}\n```"
     },
     {
       "id": 77,
       "subject": "Task 2: Signature meanings + audit actions",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [76],
       "description": "**Goal:** 7 new signature meanings + 11 audit-action codes registered.\n\n**Files:** server/signatures/signatures.ts, server/audit/actions.ts\n\n**Verify:** `pnpm tsc --noEmit`\n\n```json:metadata\n{\"files\":[\"server/signatures/signatures.ts\",\"server/audit/actions.ts\"],\"verifyCommand\":\"pnpm tsc --noEmit\",\"acceptanceCriteria\":[\"7 signature meanings exported\",\"11 audit actions exported\",\"manifestation phrases added\"]}\n```"
     },
     {
       "id": 78,
       "subject": "Task 3: Print adapter module",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [76],
       "description": "**Goal:** `LabelPrintAdapter` interface + `ZplOverTcpAdapter` + `StubAdapter` + registry with test injection.\n\n**Files:** server/printing/adapter.ts, zpl-tcp-adapter.ts, stub-adapter.ts, registry.ts + 3 tests\n\n**Verify:** `pnpm test server/printing -- --run`\n\n```json:metadata\n{\"files\":[\"server/printing/adapter.ts\",\"server/printing/zpl-tcp-adapter.ts\",\"server/printing/stub-adapter.ts\",\"server/printing/registry.ts\",\"server/printing/__tests__/zpl-tcp.test.ts\",\"server/printing/__tests__/stub.test.ts\",\"server/printing/__tests__/registry.test.ts\"],\"verifyCommand\":\"pnpm test server/printing -- --run\",\"acceptanceCriteria\":[\"Interface + 2 impls + registry\",\"ZPL/TCP 5s connect / 10s total timeouts\",\"Stub always returns SUCCESS\",\"setLabelPrintAdapter test injection works\"]}\n```"
     },
     {
       "id": 79,
       "subject": "Task 4: Storage layer — artwork",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [76, 77],
       "description": "**Goal:** `server/storage/label-artwork.ts` with CRUD + F-04 approval/retire.\n\n**Verify:** `pnpm test server/__tests__/r04-artwork-storage.test.ts -- --run`\n\n```json:metadata\n{\"files\":[\"server/storage/label-artwork.ts\",\"server/__tests__/r04-artwork-storage.test.ts\"],\"verifyCommand\":\"pnpm test server/__tests__/r04-artwork-storage.test.ts -- --run\",\"acceptanceCriteria\":[\"createArtwork returns DRAFT\",\"approveArtwork F-04 ceremony\",\"retireArtwork F-04\",\"getActiveArtwork latest APPROVED\",\"invalid state throws\"]}\n```"
     },
     {
       "id": 80,
       "subject": "Task 5: Storage layer — spools",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [76, 77, 79],
       "description": "**Goal:** `server/storage/label-spools.ts` with receive/dispose + atomic qty decrement.\n\n**Verify:** `pnpm test server/__tests__/r04-spools-storage.test.ts -- --run`\n\n```json:metadata\n{\"files\":[\"server/storage/label-spools.ts\",\"server/__tests__/r04-spools-storage.test.ts\"],\"verifyCommand\":\"pnpm test server/__tests__/r04-spools-storage.test.ts -- --run\",\"acceptanceCriteria\":[\"receiveSpool F-04 ACTIVE\",\"disposeSpool F-04\",\"decrementSpoolQty atomic with 409 on insufficient\",\"listActiveSpools FIFO\",\"reject receive against non-APPROVED\"]}\n```"
     },
     {
       "id": 81,
       "subject": "Task 6: Storage layer — issuance + print jobs",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [76, 77, 78, 80],
       "description": "**Goal:** `server/storage/label-issuance.ts` for BPR↔spool check-out and print-job audit.\n\n**Verify:** `pnpm test server/__tests__/r04-issuance-storage.test.ts -- --run`\n\n```json:metadata\n{\"files\":[\"server/storage/label-issuance.ts\",\"server/__tests__/r04-issuance-storage.test.ts\"],\"verifyCommand\":\"pnpm test server/__tests__/r04-issuance-storage.test.ts -- --run\",\"acceptanceCriteria\":[\"issueLabels transactional with 3 error codes\",\"recordPrintJob F-04 writes audit\",\"listIssuanceForBpr joins jobs\",\"sumIssuedForBpr scalar\"]}\n```"
     },
     {
       "id": 82,
       "subject": "Task 7: Storage layer — reconciliation",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [76, 77, 81],
       "description": "**Goal:** `server/storage/label-reconciliations.ts` single-row-per-BPR with variance + tolerance gate.\n\n**Verify:** `pnpm test server/__tests__/r04-reconciliation-storage.test.ts -- --run`\n\n```json:metadata\n{\"files\":[\"server/storage/label-reconciliations.ts\",\"server/__tests__/r04-reconciliation-storage.test.ts\"],\"verifyCommand\":\"pnpm test server/__tests__/r04-reconciliation-storage.test.ts -- --run\",\"acceptanceCriteria\":[\"reconcileBpr F-04 with variance + tolerance\",\"Out-of-tolerance without deviation 409\",\"Double-reconcile 409\",\"Mismatched deviation rejected\",\"getReconciliationForBpr lookup\"]}\n```"
     },
     {
       "id": 83,
       "subject": "Task 8: BPR completion gate framework",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [82],
       "description": "**Goal:** `server/state/bpr-completion-gates.ts` mirrors `bpr-equipment-gates.ts`; runs before BPR transitions to COMPLETE.\n\n**Verify:** `pnpm test server/__tests__/r04-bpr-completion-gates.test.ts -- --run`\n\n```json:metadata\n{\"files\":[\"server/state/bpr-completion-gates.ts\",\"server/__tests__/r04-bpr-completion-gates.test.ts\",\"server/routes.ts\"],\"verifyCommand\":\"pnpm test server/__tests__/r04-bpr-completion-gates.test.ts -- --run\",\"acceptanceCriteria\":[\"CompletionGateError with status/code/payload\",\"2 gate codes\",\"runCompletionGates called only on COMPLETE transition\",\"ON_HOLD resume unaffected\"]}\n```"
     },
     {
       "id": 84,
       "subject": "Task 9: API routes — artwork",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [79],
       "description": "**Goal:** REST endpoints for label artwork.\n\n**Verify:** `pnpm test server/__tests__/r04-artwork-routes.test.ts -- --run`\n\n```json:metadata\n{\"files\":[\"server/routes.ts\",\"server/__tests__/r04-artwork-routes.test.ts\"],\"verifyCommand\":\"pnpm test server/__tests__/r04-artwork-routes.test.ts -- --run\",\"acceptanceCriteria\":[\"5 artwork endpoints\",\"Role gating\",\"F-04 ceremonies\",\"Error codes 403/404/409\"]}\n```"
     },
@@ -141,5 +141,5 @@
       "description": "**Goal:** Push branch, open PR against `FDA-EQMS-feature-package`.\n\n**Verify:** `gh pr view`\n\n```json:metadata\n{\"files\":[],\"verifyCommand\":\"gh pr view\",\"acceptanceCriteria\":[\"Branch pushed\",\"PR opened against FDA-EQMS-feature-package\",\"Body has summary + test plan\",\"CI green\"]}\n```"
     }
   ],
-  "lastUpdated": "2026-04-27T22:15:00Z"
+  "lastUpdated": "2026-04-27T23:20:00Z"
 }

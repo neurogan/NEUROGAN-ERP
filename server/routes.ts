@@ -44,6 +44,7 @@ import * as cleaningStorage from "./storage/cleaning-line-clearance";
 import * as artworkStorage from "./storage/label-artwork";
 import * as spoolStorage from "./storage/label-spools";
 import * as issuanceStorage from "./storage/label-issuance";
+import * as sopStorage from "./storage/sops";
 import { getLabelPrintAdapter } from "./printing/registry";
 import { runCompletionGates, CompletionGateError } from "./state/bpr-completion-gates";
 
@@ -1496,6 +1497,15 @@ export async function registerRoutes(
   app.post<{ id: string }>("/api/batch-production-records/:id/steps", requireAuth, async (req, res) => {
     try {
       const data = insertBprStepSchema.parse(req.body);
+
+      // R-04 Obs 10: If a SOP citation is provided, validate it is APPROVED.
+      if (data.sopCode && data.sopVersion) {
+        const sop = await sopStorage.getSopByCode(data.sopCode, data.sopVersion);
+        if (!sop || sop.status !== "APPROVED") {
+          return res.status(409).json({ code: "SOP_NOT_APPROVED", message: "SOP must be APPROVED to cite in a BPR step" });
+        }
+      }
+
       const step = await storage.addBprStep(req.params.id, data);
       res.status(201).json(step);
     } catch (err) {
@@ -2414,6 +2424,103 @@ export async function registerRoutes(
     } catch (err) {
       const e = err as { status?: number; code?: string; message?: string };
       if (e.status === 404) return res.status(404).json({ message: "Label artwork not found" });
+      if (e.status === 409) return res.status(409).json({ code: e.code, message: e.message });
+      if (e.status === 401) return res.status(401).json({ error: { code: e.code, message: e.message } });
+      if (e.status === 423) return res.status(423).json({ error: { code: e.code, message: e.message } });
+      next(err);
+    }
+  });
+
+  // ─── SOPs (R-04) ───────────────────────────────────────
+
+  // POST /api/sops — roles QA|ADMIN, creates DRAFT
+  app.post("/api/sops", requireAuth, requireRole("QA", "ADMIN"), async (req, res, next) => {
+    try {
+      const body = req.body as {
+        code?: string;
+        version?: string;
+        title?: string;
+      };
+      if (!body.code) return res.status(400).json({ message: "code is required" });
+      if (!body.version) return res.status(400).json({ message: "version is required" });
+      if (!body.title) return res.status(400).json({ message: "title is required" });
+      const row = await sopStorage.createSop(
+        {
+          code: body.code,
+          version: body.version,
+          title: body.title,
+          status: "DRAFT",
+        },
+        req.user!.id,
+        req.requestId,
+        `${req.method} ${req.path}`,
+      );
+      res.status(201).json(row);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // GET /api/sops — any auth, list all
+  app.get("/api/sops", requireAuth, async (_req, res, next) => {
+    try {
+      const rows = await sopStorage.listSops();
+      res.json(rows);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // GET /api/sops/:id — any auth, single
+  app.get<{ id: string }>("/api/sops/:id", requireAuth, async (req, res, next) => {
+    try {
+      const row = await sopStorage.getSop(req.params.id);
+      if (!row) return res.status(404).json({ message: "SOP not found" });
+      res.json(row);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // POST /api/sops/:id/approve — roles QA|ADMIN, F-04
+  app.post<{ id: string }>("/api/sops/:id/approve", requireAuth, requireRole("QA", "ADMIN"), async (req, res, next) => {
+    try {
+      const body = req.body as { password?: string };
+      if (!body.password) return res.status(400).json({ message: "password is required" });
+      const row = await sopStorage.approveSop(
+        req.params.id,
+        req.user!.id,
+        body.password,
+        req.requestId,
+        `${req.method} ${req.path}`,
+      );
+      res.json(row);
+    } catch (err) {
+      const e = err as { status?: number; code?: string; message?: string };
+      if (e.status === 404) return res.status(404).json({ message: "SOP not found" });
+      if (e.status === 409) return res.status(409).json({ code: e.code, message: e.message });
+      if (e.status === 401) return res.status(401).json({ error: { code: e.code, message: e.message } });
+      if (e.status === 423) return res.status(423).json({ error: { code: e.code, message: e.message } });
+      next(err);
+    }
+  });
+
+  // POST /api/sops/:id/retire — roles QA|ADMIN, F-04
+  app.post<{ id: string }>("/api/sops/:id/retire", requireAuth, requireRole("QA", "ADMIN"), async (req, res, next) => {
+    try {
+      const body = req.body as { password?: string };
+      if (!body.password) return res.status(400).json({ message: "password is required" });
+      const row = await sopStorage.retireSop(
+        req.params.id,
+        req.user!.id,
+        body.password,
+        req.requestId,
+        `${req.method} ${req.path}`,
+      );
+      res.json(row);
+    } catch (err) {
+      const e = err as { status?: number; code?: string; message?: string };
+      if (e.status === 404) return res.status(404).json({ message: "SOP not found" });
       if (e.status === 409) return res.status(409).json({ code: e.code, message: e.message });
       if (e.status === 401) return res.status(401).json({ error: { code: e.code, message: e.message } });
       if (e.status === 423) return res.status(423).json({ error: { code: e.code, message: e.message } });
