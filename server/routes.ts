@@ -41,6 +41,7 @@ import { db } from "./db";
 import { eq, and, desc, ne } from "drizzle-orm";
 import * as equipmentStorage from "./storage/equipment";
 import * as cleaningStorage from "./storage/cleaning-line-clearance";
+import * as artworkStorage from "./storage/label-artwork";
 
 function formatZodError(error: ZodError): string {
   return error.errors.map(e => `${e.path.join(".")}: ${e.message}`).join(", ");
@@ -2297,6 +2298,108 @@ export async function registerRoutes(
       res.json(data);
     } catch (err) {
       res.status(500).json({ message: "Failed to fetch supply chain data" });
+    }
+  });
+
+  // ─── Label artwork (R-04) ──────────────────────────────
+
+  app.post("/api/label-artwork", requireAuth, requireRole("QA", "ADMIN"), async (req, res, next) => {
+    try {
+      const body = req.body as {
+        productId?: string;
+        version?: string;
+        artworkFileName?: string;
+        artworkFileData?: string;
+        artworkMimeType?: string;
+        variableDataSpec?: Record<string, boolean>;
+      };
+      if (!body.productId) return res.status(400).json({ message: "productId is required" });
+      if (!body.version) return res.status(400).json({ message: "version is required" });
+      if (!body.artworkFileName) return res.status(400).json({ message: "artworkFileName is required" });
+      if (!body.artworkFileData) return res.status(400).json({ message: "artworkFileData is required" });
+      if (!body.artworkMimeType) return res.status(400).json({ message: "artworkMimeType is required" });
+      const row = await artworkStorage.createArtwork(
+        {
+          productId: body.productId,
+          version: body.version,
+          artworkFileName: body.artworkFileName,
+          artworkFileData: body.artworkFileData,
+          artworkMimeType: body.artworkMimeType,
+          variableDataSpec: body.variableDataSpec ?? null,
+          status: "DRAFT",
+        },
+        req.user!.id,
+        req.requestId,
+        `${req.method} ${req.path}`,
+      );
+      res.status(201).json(row);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.get("/api/label-artwork", requireAuth, async (req, res, next) => {
+    try {
+      const { productId } = req.query as { productId?: string };
+      if (!productId) return res.status(400).json({ message: "productId query param is required" });
+      const rows = await artworkStorage.listArtworkByProduct(productId);
+      res.json(rows);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.get<{ id: string }>("/api/label-artwork/:id", requireAuth, async (req, res, next) => {
+    try {
+      const row = await artworkStorage.getArtwork(req.params.id);
+      if (!row) return res.status(404).json({ message: "Label artwork not found" });
+      res.json(row);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.post<{ id: string }>("/api/label-artwork/:id/approve", requireAuth, requireRole("QA", "ADMIN"), async (req, res, next) => {
+    try {
+      const body = req.body as { password?: string };
+      if (!body.password) return res.status(400).json({ message: "password is required" });
+      const row = await artworkStorage.approveArtwork(
+        req.params.id,
+        req.user!.id,
+        body.password,
+        req.requestId,
+        `${req.method} ${req.path}`,
+      );
+      res.json(row);
+    } catch (err) {
+      const e = err as { status?: number; code?: string };
+      if (e.status === 404) return res.status(404).json({ message: "Label artwork not found" });
+      if (e.status === 409) return res.status(409).json({ code: (e as any).code, message: (err as Error).message });
+      if (e.status === 401) return res.status(401).json({ code: (e as any).code, message: "Password is incorrect" });
+      if (e.status === 423) return res.status(423).json({ code: (e as any).code, message: (err as Error).message });
+      next(err);
+    }
+  });
+
+  app.post<{ id: string }>("/api/label-artwork/:id/retire", requireAuth, requireRole("QA", "ADMIN"), async (req, res, next) => {
+    try {
+      const body = req.body as { password?: string };
+      if (!body.password) return res.status(400).json({ message: "password is required" });
+      const row = await artworkStorage.retireArtwork(
+        req.params.id,
+        req.user!.id,
+        body.password,
+        req.requestId,
+        `${req.method} ${req.path}`,
+      );
+      res.json(row);
+    } catch (err) {
+      const e = err as { status?: number; code?: string };
+      if (e.status === 404) return res.status(404).json({ message: "Label artwork not found" });
+      if (e.status === 409) return res.status(409).json({ code: (e as any).code, message: (err as Error).message });
+      if (e.status === 401) return res.status(401).json({ code: (e as any).code, message: "Password is incorrect" });
+      if (e.status === 423) return res.status(423).json({ code: (e as any).code, message: (err as Error).message });
+      next(err);
     }
   });
 
