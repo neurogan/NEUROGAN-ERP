@@ -4,16 +4,17 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import LabelingPage from "./labeling";
 import SopsPage from "./sops";
+import ComplaintsPage from "./complaints";
 
-type QualityTab = "labeling" | "sops";
+type QualityTab = "labeling" | "sops" | "complaints";
 
 const ACTIVE_TABS: { value: QualityTab; label: string }[] = [
   { value: "labeling", label: "Labeling" },
   { value: "sops", label: "SOPs" },
+  { value: "complaints", label: "Complaints" },
 ];
 
 const DISABLED_TABS: { value: string; label: string; tooltip: string }[] = [
-  { value: "complaints", label: "Complaints", tooltip: "Coming in R-05" },
   { value: "returns", label: "Returns", tooltip: "Coming in R-05" },
   { value: "validation", label: "Validation", tooltip: "Coming in R-06" },
 ];
@@ -24,13 +25,13 @@ export default function QualityPage() {
   const tabParam = params?.tab;
 
   useEffect(() => {
-    if (!tabParam || (tabParam !== "labeling" && tabParam !== "sops")) {
+    if (!tabParam || !["labeling", "sops", "complaints"].includes(tabParam)) {
       setLocation("/quality/labeling", { replace: true });
     }
   }, [tabParam, setLocation]);
 
   const activeTab: QualityTab =
-    tabParam === "sops" ? "sops" : "labeling";
+    tabParam === "sops" ? "sops" : tabParam === "complaints" ? "complaints" : "labeling";
 
   return (
     <div className="p-6 space-y-4">
@@ -70,6 +71,7 @@ export default function QualityPage() {
 
       {activeTab === "labeling" && <LabelingPage />}
       {activeTab === "sops" && <SopsPage />}
+      {activeTab === "complaints" && <ComplaintsPage />}
     </div>
   );
 }

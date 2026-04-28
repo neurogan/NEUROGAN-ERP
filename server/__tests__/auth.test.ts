@@ -42,12 +42,15 @@ describeIfDb("F-02 — /api/auth", () => {
   });
 
   beforeEach(async () => {
-    // Clean tables in FK-safe order. auditTrail must come before users
-    // because of the erp_audit_trail_user_id_fkey FK constraint (F-03).
-    await db.delete(schema.auditTrail);
-    await db.delete(schema.passwordHistory);
-    await db.delete(schema.userRoles);
-    await db.delete(schema.users);
+    // Wrap cleanup in a transaction so concurrent parallel tests cannot insert
+    // audit-trail rows between delete(auditTrail) and delete(users), which would
+    // trigger the erp_audit_trail_user_id_fkey FK constraint violation.
+    await db.transaction(async (tx) => {
+      await tx.delete(schema.auditTrail);
+      await tx.delete(schema.passwordHistory);
+      await tx.delete(schema.userRoles);
+      await tx.delete(schema.users);
+    });
 
     adminEmail = "admin@test.local";
     const hash = await hashPassword(VALID_PASSWORD);

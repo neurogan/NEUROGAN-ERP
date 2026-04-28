@@ -401,20 +401,20 @@ describeIfDb("T06-B — getUserTasks routes FULL_LAB_TEST to LAB_TECH, not QA", 
 
   it("LAB_TECH user sees FULL_LAB_TEST tasks (LAB_TEST_REQUIRED)", async () => {
     const tasks = await storage.getUserTasks(labTechUserId, ["LAB_TECH"]);
-    const labTask = tasks.find(t => t.receivingRecordId === seedRecordId);
+    const labTask = tasks.find(t => t.sourceRecordId === seedRecordId);
     expect(labTask).toBeDefined();
     expect(labTask!.taskType).toBe("LAB_TEST_REQUIRED");
   });
 
   it("QA user does NOT see FULL_LAB_TEST tasks in getUserTasks", async () => {
     const tasks = await storage.getUserTasks(qaUserId, ["QA"]);
-    const labTask = tasks.find(t => t.receivingRecordId === seedRecordId);
+    const labTask = tasks.find(t => t.sourceRecordId === seedRecordId);
     expect(labTask).toBeUndefined();
   });
 
   it("ADMIN user sees FULL_LAB_TEST tasks (via isLabTech)", async () => {
     const tasks = await storage.getUserTasks(adminId, ["ADMIN"]);
-    const labTask = tasks.find(t => t.receivingRecordId === seedRecordId);
+    const labTask = tasks.find(t => t.sourceRecordId === seedRecordId);
     expect(labTask).toBeDefined();
     expect(labTask!.taskType).toBe("LAB_TEST_REQUIRED");
   });

@@ -25,6 +25,9 @@ import SkuManager from "@/pages/sku-manager";
 import Login from "@/pages/login";
 import ValidationDetail from "@/pages/quality/ValidationDetail";
 import QualityPage from "@/pages/quality";
+import ComplaintDetail from "@/pages/quality/ComplaintDetail";
+import ComplaintAE from "@/pages/quality/ComplaintAE";
+import ComplaintTrends from "@/pages/quality/ComplaintTrends";
 import OosInvestigations from "@/pages/OosInvestigations";
 import EquipmentPage from "@/pages/equipment";
 import EquipmentDetailPage from "@/pages/equipment/detail";
@@ -191,6 +194,10 @@ function AppLayout() {
           <Route path="/quality/labeling/spools" component={QualityPage} />
           <Route path="/quality/labeling/reconciliation" component={QualityPage} />
           <Route path="/quality/sops" component={QualityPage} />
+          <Route path="/quality/complaints" component={QualityPage} />
+          <Route path="/quality/complaints/trends" component={ComplaintTrends} />
+          <Route path="/quality/complaints/:id/ae" component={ComplaintAE} />
+          <Route path="/quality/complaints/:id" component={ComplaintDetail} />
           <Route path="/equipment" component={EquipmentPage} />
           <Route path="/equipment/master" component={EquipmentPage} />
           <Route path="/equipment/calibration" component={EquipmentPage} />
