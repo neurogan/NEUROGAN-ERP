@@ -24,6 +24,13 @@ import BatchPrint from "@/pages/batch-print";
 import SkuManager from "@/pages/sku-manager";
 import Login from "@/pages/login";
 import ValidationDetail from "@/pages/quality/ValidationDetail";
+import QualityPage from "@/pages/quality";
+import ComplaintDetail from "@/pages/quality/ComplaintDetail";
+import ComplaintAE from "@/pages/quality/ComplaintAE";
+import ComplaintTrends from "@/pages/quality/ComplaintTrends";
+import OosInvestigations from "@/pages/OosInvestigations";
+import EquipmentPage from "@/pages/equipment";
+import EquipmentDetailPage from "@/pages/equipment/detail";
 import { useAuth, useLogout } from "@/lib/auth";
 import { InactivityWarning } from "@/components/InactivityWarning";
 
@@ -40,7 +47,10 @@ const navItems: NavItem[] = [
   { href: "/suppliers", label: "Suppliers" },
   { href: "/receiving", label: "Receiving" },
   { href: "/production", label: "Production" },
+  { href: "/equipment", label: "Equipment" },
   { href: "/transactions", label: "Transactions" },
+  { href: "/oos-investigations", label: "OOS", requiredRoles: ["QA", "ADMIN"] },
+  { href: "/quality", label: "Quality", requiredRoles: ["QA", "ADMIN"] },
 ];
 
 function ThemeToggle() {
@@ -177,6 +187,23 @@ function AppLayout() {
           <Route path="/settings/validation/:id" component={ValidationDetail} />
           <Route path="/settings/users" component={SettingsUsers} />
           <Route path="/settings" component={Settings} />
+          <Route path="/oos-investigations" component={OosInvestigations} />
+          <Route path="/quality" component={QualityPage} />
+          <Route path="/quality/labeling" component={QualityPage} />
+          <Route path="/quality/labeling/artwork" component={QualityPage} />
+          <Route path="/quality/labeling/spools" component={QualityPage} />
+          <Route path="/quality/labeling/reconciliation" component={QualityPage} />
+          <Route path="/quality/sops" component={QualityPage} />
+          <Route path="/quality/complaints" component={QualityPage} />
+          <Route path="/quality/complaints/trends" component={ComplaintTrends} />
+          <Route path="/quality/complaints/:id/ae" component={ComplaintAE} />
+          <Route path="/quality/complaints/:id" component={ComplaintDetail} />
+          <Route path="/equipment" component={EquipmentPage} />
+          <Route path="/equipment/master" component={EquipmentPage} />
+          <Route path="/equipment/calibration" component={EquipmentPage} />
+          <Route path="/equipment/cleaning" component={EquipmentPage} />
+          <Route path="/equipment/line-clearance" component={EquipmentPage} />
+          <Route path="/equipment/:id" component={EquipmentDetailPage} />
           <Route path="/profile/rotate-password" component={Profile} />
           <Route path="/profile" component={Profile} />
           <Route component={NotFound} />

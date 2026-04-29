@@ -34,25 +34,50 @@ import {
   type Lab, type InsertLab,
   type LabQualificationWithDetails,
   type ApprovedMaterial,
+  type OosInvestigation,
+  type OosInvestigationDetail,
+  type OosInvestigationSummary,
+  type OosStatus,
+  type OosRecallClass,
+  type OosNoInvestigationReason,
 } from "@shared/schema";
 import type { Tx } from "./db";
 
+export type ReceivingTaskType =
+  | "LAB_TEST_REQUIRED"
+  | "QUALIFICATION_REQUIRED"
+  | "PENDING_QC"
+  | "IDENTITY_CHECK_REQUIRED"
+  | "REJECTED_LOT";
+
+export type ComplaintTaskType =
+  | "COMPLAINT_TRIAGE_REQUIRED"
+  | "COMPLAINT_LOT_UNRESOLVED"
+  | "COMPLAINT_INVESTIGATION_REQUIRED"
+  | "COMPLAINT_AE_URGENT_REVIEW"
+  | "COMPLAINT_LAB_RETEST"
+  | "COMPLAINT_DISPOSITION_REQUIRED"
+  | "SAER_DUE_SOON"
+  | "SAER_OVERDUE";
+
+export type ReturnTaskType =
+  | "RETURN_PENDING_DISPOSITION"
+  | "RETURN_INVESTIGATION_OPEN";
+
 export interface UserTask {
-  id: string; // composite key like "lab-<recordId>"
-  taskType:
-    | "LAB_TEST_REQUIRED"
-    | "QUALIFICATION_REQUIRED"
-    | "PENDING_QC"
-    | "IDENTITY_CHECK_REQUIRED"
-    | "REJECTED_LOT";
-  receivingRecordId: string;
-  receivingIdentifier: string;
-  materialName: string | null;
-  supplierName: string | null;
+  id: string;
+  taskType: ReceivingTaskType | ComplaintTaskType | ReturnTaskType;
+  sourceModule: "RECEIVING" | "COMPLAINT" | "RETURN";
+  sourceRecordId: string;
+  sourceIdentifier: string;
+  primaryLabel: string | null;
+  secondaryLabel: string | null;
+  // Receiving-only fields (null for complaint tasks)
   quantityReceived: string | null;
   uom: string | null;
   dateReceived: string | null;
   isUrgent: boolean;
+  dueAt: string | null;
 }
 
 export interface ApprovedMaterialWithDetails {
@@ -232,6 +257,7 @@ export interface IStorage {
   getProductionBatch(id: string): Promise<ProductionBatchWithDetails | undefined>;
   createProductionBatch(data: InsertProductionBatch, inputs: Omit<InsertProductionInput, "batchId">[]): Promise<ProductionBatchWithDetails>;
   updateProductionBatch(id: string, data: Partial<InsertProductionBatch>, inputs?: Omit<InsertProductionInput, "batchId">[]): Promise<ProductionBatch | undefined>;
+  startProductionBatch(batchId: string, userId: string, equipmentIds: string[], requestId: string | null, route: string | null): Promise<ProductionBatch>;
   deleteProductionBatch(id: string): Promise<boolean>;
   completeProductionBatch(id: string, actualQuantity: number, outputLotNumber: string, outputExpirationDate: string | null, locationId: string, qcStatus?: string, qcNotes?: string, endDate?: string, qcDisposition?: string, qcReviewedBy?: string, yieldPercentage?: string): Promise<ProductionBatchWithDetails>;
   getNextBatchNumber(): Promise<string>;
@@ -302,6 +328,17 @@ export interface IStorage {
   // Lab Test Results (T-06)
   addLabTestResult(coaId: string, data: InsertLabTestResult, userId: string, tx?: Tx): Promise<LabTestResult>;
   getLabTestResults(coaId: string): Promise<LabTestResult[]>;
+
+  // OOS investigations (T-08)
+  getOrCreateOpenOosInvestigation(coaDocumentId: string, lotId: string, labTestResultId: string, userId: string, requestId: string, route: string, tx: Tx): Promise<OosInvestigation>;
+  getOosInvestigationById(id: string): Promise<OosInvestigationDetail | null>;
+  listOosInvestigations(filters: { status?: OosStatus | "ALL"; lotId?: string; dateFrom?: Date; dateTo?: Date }): Promise<OosInvestigationSummary[]>;
+  assignOosLeadInvestigator(investigationId: string, leadUserId: string, actingUserId: string, requestId: string, route: string, tx: Tx): Promise<OosInvestigation>;
+  setOosRetestPending(investigationId: string, actingUserId: string, requestId: string, route: string, tx: Tx): Promise<OosInvestigation>;
+  clearOosRetestPending(investigationId: string, actingUserId: string, requestId: string, route: string, tx: Tx): Promise<OosInvestigation>;
+  closeOosInvestigation(investigationId: string, payload: { disposition: "APPROVED" | "REJECTED" | "RECALL"; dispositionReason: string; leadInvestigatorUserId: string; recallDetails?: { class: OosRecallClass; distributionScope: string; fdaNotificationDate?: Date; customerNotificationDate?: Date; recoveryTargetDate?: Date; affectedLotIds?: string[]; }; }, closedByUserId: string, requestId: string, route: string, tx: Tx): Promise<OosInvestigation>;
+  markOosNoInvestigationNeeded(investigationId: string, reason: OosNoInvestigationReason, reasonNarrative: string, leadInvestigatorUserId: string, closedByUserId: string, requestId: string, route: string, tx: Tx): Promise<OosInvestigation>;
+  finalizeOosClosure(investigationId: string, signatureId: string): Promise<OosInvestigation>;
 
   // Supplier Qualifications
   getSupplierQualifications(supplierId?: string): Promise<SupplierQualificationWithDetails[]>;
