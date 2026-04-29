@@ -1005,7 +1005,7 @@ export default function Dashboard() {
               </Card>
             </Link>
 
-            <Link href="/quality/returns">
+            <Link href="/quality/return-investigations">
               <Card data-testid="card-returns-investigations" className="cursor-pointer hover:bg-muted/50 transition-colors">
                 <CardHeader className="pb-2">
                   <CardTitle className="text-sm font-semibold flex items-center justify-between">

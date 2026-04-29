@@ -21,8 +21,8 @@ describeIfDb("R-06 returned-products routes", () => {
 
   afterAll(async () => {
     await db.delete(schema.returnInvestigations);
-    await db.delete(schema.electronicSignatures);
     await db.delete(schema.returnedProducts);
+    await db.delete(schema.electronicSignatures);
     await db.delete(schema.auditTrail);
     await db.delete(schema.passwordHistory);
     await db.delete(schema.userRoles);
