@@ -53,7 +53,7 @@ export default function ReturnDetail() {
   });
 
   const { data: investigations = [] } = useQuery<ReturnInvestigation[]>({
-    queryKey: [`/api/return-investigations`, id],
+    queryKey: ["/api/return-investigations", { lotId: rp?.lotId }],
     queryFn: () => apiRequest("GET", `/api/return-investigations?lotId=${rp?.lotId ?? ""}`).then(r => r.json()),
     enabled: !!rp?.lotId,
   });

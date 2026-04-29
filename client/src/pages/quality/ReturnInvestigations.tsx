@@ -83,7 +83,7 @@ export default function ReturnInvestigations() {
           <Card key={inv.id} className={inv.status === "OPEN" ? "border-amber-500/30" : ""}>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm flex items-center justify-between">
-                <span>Lot {inv.lotId.slice(0, 8)}… — {inv.returnsCount} returns (threshold {inv.thresholdAtTrigger})</span>
+                <span>Lot {inv.lotId?.slice(0, 8)}… — {inv.returnsCount} returns (threshold {inv.thresholdAtTrigger})</span>
                 <div className="flex items-center gap-2">
                   {inv.status === "OPEN"
                     ? <Badge className="bg-amber-500/20 text-amber-300 border-0">Open</Badge>

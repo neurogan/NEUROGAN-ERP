@@ -176,7 +176,7 @@ export default function ReturnsPage() {
             <Button
               className="w-full"
               onClick={() => createMutation.mutate()}
-              disabled={!form.lotCodeRaw || !form.qtyReturned || createMutation.isPending}
+              disabled={!form.lotCodeRaw || parseInt(form.qtyReturned, 10) <= 0 || isNaN(parseInt(form.qtyReturned, 10)) || createMutation.isPending}
             >
               {createMutation.isPending ? "Logging…" : "Log return"}
             </Button>

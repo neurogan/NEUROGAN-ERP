@@ -38,6 +38,8 @@ const MEANING_VERB: Record<string, string> = {
   QA_RELEASE: "authorized QA release of",
   DEVIATION_DISPOSITION: "issued deviation disposition for",
   RETURN_DISPOSITION: "issued return disposition for",
+  RETURNED_PRODUCT_DISPOSITION: "issued return disposition for",
+  RETURN_INVESTIGATION_CLOSE: "closed return investigation for",
   COMPLAINT_REVIEW: "reviewed complaint for",
   SAER_SUBMIT: "submitted SAER for",
   MMR_APPROVAL: "approved MMR for",
