@@ -28,6 +28,8 @@ import QualityPage from "@/pages/quality";
 import ComplaintDetail from "@/pages/quality/ComplaintDetail";
 import ComplaintAE from "@/pages/quality/ComplaintAE";
 import ComplaintTrends from "@/pages/quality/ComplaintTrends";
+import ReturnDetail from "@/pages/quality/ReturnDetail";
+import ReturnInvestigations from "@/pages/quality/ReturnInvestigations";
 import OosInvestigations from "@/pages/OosInvestigations";
 import EquipmentPage from "@/pages/equipment";
 import EquipmentDetailPage from "@/pages/equipment/detail";
@@ -198,6 +200,9 @@ function AppLayout() {
           <Route path="/quality/complaints/trends" component={ComplaintTrends} />
           <Route path="/quality/complaints/:id/ae" component={ComplaintAE} />
           <Route path="/quality/complaints/:id" component={ComplaintDetail} />
+          <Route path="/quality/returns" component={QualityPage} />
+          <Route path="/quality/returns/:id" component={ReturnDetail} />
+          <Route path="/quality/return-investigations" component={ReturnInvestigations} />
           <Route path="/equipment" component={EquipmentPage} />
           <Route path="/equipment/master" component={EquipmentPage} />
           <Route path="/equipment/calibration" component={EquipmentPage} />
