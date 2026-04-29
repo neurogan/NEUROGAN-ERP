@@ -12,6 +12,7 @@ import * as schema from "@shared/schema";
 import { eq, and, ilike, desc, sql } from "drizzle-orm";
 import { storage } from "../storage";
 import { verifyPassword } from "../auth/password";
+import { MEANING_VERB } from "../signatures/signatures";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -270,7 +271,7 @@ export async function signDisposition(input: {
         titleAtSigning: fullUser.title ?? null,
         requestId: input.requestId,
         manifestationJson: {
-          text: `I, ${fullUser.fullName}${titlePart}, hereby issued return disposition for this record on ${signedAt.toISOString()}.`,
+          text: `I, ${fullUser.fullName}${titlePart}, hereby ${MEANING_VERB.RETURNED_PRODUCT_DISPOSITION} this record on ${signedAt.toISOString()}.`,
           fullName: fullUser.fullName,
           title: fullUser.title ?? null,
           meaning: "RETURNED_PRODUCT_DISPOSITION",
@@ -374,7 +375,7 @@ export async function closeReturnInvestigation(input: {
         titleAtSigning: fullUser.title ?? null,
         requestId: input.requestId,
         manifestationJson: {
-          text: `I, ${fullUser.fullName}${titlePart}, hereby closed return investigation for this record on ${signedAt.toISOString()}.`,
+          text: `I, ${fullUser.fullName}${titlePart}, hereby ${MEANING_VERB.RETURN_INVESTIGATION_CLOSE} this record on ${signedAt.toISOString()}.`,
           fullName: fullUser.fullName,
           title: fullUser.title ?? null,
           meaning: "RETURN_INVESTIGATION_CLOSE",
