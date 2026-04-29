@@ -11,9 +11,6 @@ import NotFound from "@/pages/not-found";
 import Dashboard from "@/pages/dashboard";
 import Inventory from "@/pages/inventory";
 import Transactions from "@/pages/transactions";
-import SuppliersTab from "@/pages/suppliers-tab";
-import Production from "@/pages/production";
-import Receiving from "@/pages/receiving";
 import CoaLibrary from "@/pages/coa-library";
 import Settings from "@/pages/settings";
 import SettingsUsers from "@/pages/settings-users";
@@ -30,9 +27,9 @@ import ComplaintAE from "@/pages/quality/ComplaintAE";
 import ComplaintTrends from "@/pages/quality/ComplaintTrends";
 import ReturnDetail from "@/pages/quality/ReturnDetail";
 import ReturnInvestigations from "@/pages/quality/ReturnInvestigations";
-import OosInvestigations from "@/pages/OosInvestigations";
-import EquipmentPage from "@/pages/equipment";
 import EquipmentDetailPage from "@/pages/equipment/detail";
+import ProcurementPage from "@/pages/procurement";
+import OperationsPage from "@/pages/operations";
 import { useAuth, useLogout } from "@/lib/auth";
 import { InactivityWarning } from "@/components/InactivityWarning";
 
@@ -44,14 +41,10 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { href: "/", label: "Dashboard" },
-  { href: "/inventory", label: "Inventory" },
   { href: "/supply-chain", label: "Supply Chain" },
-  { href: "/suppliers", label: "Suppliers" },
-  { href: "/receiving", label: "Receiving" },
-  { href: "/production", label: "Production" },
-  { href: "/equipment", label: "Equipment" },
-  { href: "/transactions", label: "Transactions" },
-  { href: "/oos-investigations", label: "OOS", requiredRoles: ["QA", "ADMIN"] },
+  { href: "/inventory", label: "Inventory" },
+  { href: "/procurement", label: "Procurement" },
+  { href: "/operations", label: "Operations" },
   { href: "/quality", label: "Quality", requiredRoles: ["QA", "ADMIN"] },
 ];
 
@@ -74,6 +67,7 @@ function TopNav() {
   const { user } = useAuth();
   const logout = useLogout();
   const canViewAudit = user?.roles?.some((r) => r === "ADMIN" || r === "QA") ?? false;
+  const canManageTransactions = user?.roles?.some((r) => r === "ADMIN") ?? false;
   const userRoles: string[] = user?.roles ?? [];
   const visibleNavItems = navItems.filter(
     (item) => !item.requiredRoles || item.requiredRoles.some((r) => userRoles.includes(r)),
@@ -91,6 +85,20 @@ function TopNav() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {canManageTransactions && (
+            <Link href="/transactions">
+              <button
+                className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs transition-colors hover:bg-muted ${
+                  location.startsWith("/transactions")
+                    ? "bg-muted text-foreground"
+                    : "text-muted-foreground"
+                }`}
+                data-testid="nav-transactions"
+              >
+                <span>Transactions</span>
+              </button>
+            </Link>
+          )}
           {canViewAudit && (
             <Link href="/audit">
               <button
@@ -179,18 +187,26 @@ function AppLayout() {
           <Route path="/" component={Dashboard} />
           <Route path="/inventory" component={Inventory} />
           <Route path="/supply-chain" component={SupplyChain} />
-          <Route path="/suppliers" component={SuppliersTab} />
-          <Route path="/receiving" component={Receiving} />
+          <Route path="/procurement" component={ProcurementPage} />
+          <Route path="/procurement/purchasing" component={ProcurementPage} />
+          <Route path="/procurement/receiving" component={ProcurementPage} />
+          <Route path="/operations" component={OperationsPage} />
+          <Route path="/operations/production" component={OperationsPage} />
+          <Route path="/operations/equipment" component={OperationsPage} />
+          <Route path="/operations/equipment/master" component={OperationsPage} />
+          <Route path="/operations/equipment/calibration" component={OperationsPage} />
+          <Route path="/operations/equipment/cleaning" component={OperationsPage} />
+          <Route path="/operations/equipment/line-clearance" component={OperationsPage} />
+          <Route path="/operations/equipment/:id" component={EquipmentDetailPage} />
           <Route path="/coa" component={CoaLibrary} />
-          <Route path="/production" component={Production} />
           <Route path="/transactions" component={Transactions} />
           <Route path="/sku-manager" component={SkuManager} />
           <Route path="/audit" component={AuditTrail} />
           <Route path="/settings/validation/:id" component={ValidationDetail} />
           <Route path="/settings/users" component={SettingsUsers} />
           <Route path="/settings" component={Settings} />
-          <Route path="/oos-investigations" component={OosInvestigations} />
           <Route path="/quality" component={QualityPage} />
+          <Route path="/quality/oos" component={QualityPage} />
           <Route path="/quality/labeling" component={QualityPage} />
           <Route path="/quality/labeling/artwork" component={QualityPage} />
           <Route path="/quality/labeling/spools" component={QualityPage} />
@@ -203,14 +219,17 @@ function AppLayout() {
           <Route path="/quality/returns" component={QualityPage} />
           <Route path="/quality/returns/:id" component={ReturnDetail} />
           <Route path="/quality/return-investigations" component={ReturnInvestigations} />
-          <Route path="/equipment" component={EquipmentPage} />
-          <Route path="/equipment/master" component={EquipmentPage} />
-          <Route path="/equipment/calibration" component={EquipmentPage} />
-          <Route path="/equipment/cleaning" component={EquipmentPage} />
-          <Route path="/equipment/line-clearance" component={EquipmentPage} />
-          <Route path="/equipment/:id" component={EquipmentDetailPage} />
           <Route path="/profile/rotate-password" component={Profile} />
           <Route path="/profile" component={Profile} />
+          <Route path="/suppliers"><Redirect to="/procurement/purchasing" /></Route>
+          <Route path="/receiving"><Redirect to="/procurement/receiving" /></Route>
+          <Route path="/production"><Redirect to="/operations/production" /></Route>
+          <Route path="/equipment"><Redirect to="/operations/equipment" /></Route>
+          <Route path="/equipment/master"><Redirect to="/operations/equipment/master" /></Route>
+          <Route path="/equipment/calibration"><Redirect to="/operations/equipment/calibration" /></Route>
+          <Route path="/equipment/cleaning"><Redirect to="/operations/equipment/cleaning" /></Route>
+          <Route path="/equipment/line-clearance"><Redirect to="/operations/equipment/line-clearance" /></Route>
+          <Route path="/oos-investigations"><Redirect to="/quality/oos" /></Route>
           <Route component={NotFound} />
         </Switch>
       </main>
