@@ -47,6 +47,7 @@ import * as issuanceStorage from "./storage/label-issuance";
 import * as sopStorage from "./storage/sops";
 import * as reconciliationStorage from "./storage/label-reconciliations";
 import * as complaintsStorage from "./storage/complaints";
+import * as returnsStorage from "./storage/returned-products";
 import { requireHmacOrAuth } from "./auth/middleware";
 import { HELPCORE_SYSTEM_USER_ID } from "./seed/ids";
 import { getLabelPrintAdapter } from "./printing/registry";
@@ -3154,6 +3155,113 @@ export async function registerRoutes(
       const updated = await complaintsStorage.acknowledgesSaer({
         saerSubmissionId: saer.id, acknowledgmentRef, submissionProofPath,
         userId: req.user!.id, requestId: req.requestId, route: req.path,
+      });
+      return res.json(updated);
+    } catch (err) { next(err); }
+  });
+
+  // ─── R-06 Returned Products ────────────────────────────────────────────────
+
+  // GET /api/returned-products/summary — dashboard counts (MUST come before :id route)
+  app.get("/api/returned-products/summary", requireAuth, async (_req, res, next) => {
+    try {
+      const summary = await returnsStorage.getReturnsSummary();
+      return res.json(summary);
+    } catch (err) { next(err); }
+  });
+
+  // POST /api/returned-products — create intake
+  app.post("/api/returned-products", requireAuth, requireRole("WAREHOUSE", "QA", "ADMIN"), async (req, res, next) => {
+    try {
+      const { source, lotCodeRaw, lotId, qtyReturned, uom, wholesaleCustomerName, carrierTrackingRef, conditionNotes, receivedAt } =
+        z.object({
+          source: z.enum(["AMAZON_FBA", "WHOLESALE", "OTHER"]),
+          lotCodeRaw: z.string().min(1),
+          lotId: z.string().uuid().optional(),
+          qtyReturned: z.number().int().positive(),
+          uom: z.string().min(1),
+          wholesaleCustomerName: z.string().optional(),
+          carrierTrackingRef: z.string().optional(),
+          conditionNotes: z.string().optional(),
+          receivedAt: z.string().datetime(),
+        }).parse(req.body);
+      const result = await returnsStorage.createReturnIntake({
+        source, lotCodeRaw, lotId, qtyReturned, uom,
+        wholesaleCustomerName, carrierTrackingRef, conditionNotes,
+        receivedAt: new Date(receivedAt),
+        userId: req.user!.id,
+        requestId: req.requestId,
+        route: req.path,
+      });
+      return res.status(201).json(result);
+    } catch (err) { next(err); }
+  });
+
+  // GET /api/returned-products — list
+  app.get("/api/returned-products", requireAuth, requireRole("QA", "ADMIN"), async (req, res, next) => {
+    try {
+      const { status, lotId } = z.object({
+        status: z.enum(["QUARANTINE", "DISPOSED"]).optional(),
+        lotId: z.string().optional(),
+      }).parse(req.query);
+      return res.json(await returnsStorage.listReturnedProducts({ status, lotId }));
+    } catch (err) { next(err); }
+  });
+
+  // GET /api/returned-products/:id — detail
+  app.get<{ id: string }>("/api/returned-products/:id", requireAuth, requireRole("QA", "ADMIN"), async (req, res, next) => {
+    try {
+      return res.json(await returnsStorage.getReturnedProduct(req.params.id));
+    } catch (err) { next(err); }
+  });
+
+  // POST /api/returned-products/:id/disposition — F-04
+  app.post<{ id: string }>("/api/returned-products/:id/disposition", requireAuth, requireRole("QA", "ADMIN"), async (req, res, next) => {
+    try {
+      const { disposition, dispositionNotes, password } = z.object({
+        disposition: z.enum(["RETURN_TO_INVENTORY", "DESTROY"]),
+        dispositionNotes: z.string().optional(),
+        password: z.string().min(1),
+      }).parse(req.body);
+      const updated = await returnsStorage.signDisposition({
+        returnedProductId: req.params.id, disposition, dispositionNotes,
+        userId: req.user!.id, password,
+        requestId: req.requestId, route: req.path,
+      });
+      return res.json(updated);
+    } catch (err) { next(err); }
+  });
+
+  // GET /api/return-investigations — list
+  app.get("/api/return-investigations", requireAuth, requireRole("QA", "ADMIN"), async (req, res, next) => {
+    try {
+      const { status, lotId } = z.object({
+        status: z.enum(["OPEN", "CLOSED"]).optional(),
+        lotId: z.string().optional(),
+      }).parse(req.query);
+      return res.json(await returnsStorage.listReturnInvestigations({ status, lotId }));
+    } catch (err) { next(err); }
+  });
+
+  // GET /api/return-investigations/:id — detail
+  app.get<{ id: string }>("/api/return-investigations/:id", requireAuth, requireRole("QA", "ADMIN"), async (req, res, next) => {
+    try {
+      return res.json(await returnsStorage.getReturnInvestigation(req.params.id));
+    } catch (err) { next(err); }
+  });
+
+  // POST /api/return-investigations/:id/close — F-04
+  app.post<{ id: string }>("/api/return-investigations/:id/close", requireAuth, requireRole("QA", "ADMIN"), async (req, res, next) => {
+    try {
+      const { rootCause, correctiveAction, password } = z.object({
+        rootCause: z.string().min(1),
+        correctiveAction: z.string().min(1),
+        password: z.string().min(1),
+      }).parse(req.body);
+      const updated = await returnsStorage.closeReturnInvestigation({
+        investigationId: req.params.id, rootCause, correctiveAction,
+        userId: req.user!.id, password,
+        requestId: req.requestId, route: req.path,
       });
       return res.json(updated);
     } catch (err) { next(err); }

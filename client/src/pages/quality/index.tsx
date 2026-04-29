@@ -5,18 +5,19 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import LabelingPage from "./labeling";
 import SopsPage from "./sops";
 import ComplaintsPage from "./complaints";
+import ReturnsPage from "./returns";
 
-type QualityTab = "labeling" | "sops" | "complaints";
+type QualityTab = "labeling" | "sops" | "complaints" | "returns";
 
 const ACTIVE_TABS: { value: QualityTab; label: string }[] = [
   { value: "labeling", label: "Labeling" },
   { value: "sops", label: "SOPs" },
   { value: "complaints", label: "Complaints" },
+  { value: "returns", label: "Returns" },
 ];
 
 const DISABLED_TABS: { value: string; label: string; tooltip: string }[] = [
-  { value: "returns", label: "Returns", tooltip: "Coming in R-05" },
-  { value: "validation", label: "Validation", tooltip: "Coming in R-06" },
+  { value: "validation", label: "Validation", tooltip: "Coming soon" },
 ];
 
 export default function QualityPage() {
@@ -24,14 +25,19 @@ export default function QualityPage() {
   const [, setLocation] = useLocation();
   const tabParam = params?.tab;
 
+  const validTabs: QualityTab[] = ["labeling", "sops", "complaints", "returns"];
+
   useEffect(() => {
-    if (!tabParam || !["labeling", "sops", "complaints"].includes(tabParam)) {
+    if (!tabParam || !validTabs.includes(tabParam as QualityTab)) {
       setLocation("/quality/labeling", { replace: true });
     }
   }, [tabParam, setLocation]);
 
   const activeTab: QualityTab =
-    tabParam === "sops" ? "sops" : tabParam === "complaints" ? "complaints" : "labeling";
+    tabParam === "sops" ? "sops"
+    : tabParam === "complaints" ? "complaints"
+    : tabParam === "returns" ? "returns"
+    : "labeling";
 
   return (
     <div className="p-6 space-y-4">
@@ -39,10 +45,7 @@ export default function QualityPage() {
         <h1 className="text-xl font-semibold tracking-tight">Quality</h1>
       </div>
 
-      <Tabs
-        value={activeTab}
-        onValueChange={(v) => setLocation(`/quality/${v}`)}
-      >
+      <Tabs value={activeTab} onValueChange={(v) => setLocation(`/quality/${v}`)}>
         <TabsList>
           {ACTIVE_TABS.map((t) => (
             <TabsTrigger key={t.value} value={t.value} data-testid={`tab-quality-${t.value}`}>
@@ -53,12 +56,7 @@ export default function QualityPage() {
             <Tooltip key={t.value}>
               <TooltipTrigger asChild>
                 <span>
-                  <TabsTrigger
-                    value={t.value}
-                    disabled
-                    data-testid={`tab-quality-${t.value}`}
-                    className="cursor-not-allowed opacity-40"
-                  >
+                  <TabsTrigger value={t.value} disabled data-testid={`tab-quality-${t.value}`} className="cursor-not-allowed opacity-40">
                     {t.label}
                   </TabsTrigger>
                 </span>
@@ -72,6 +70,7 @@ export default function QualityPage() {
       {activeTab === "labeling" && <LabelingPage />}
       {activeTab === "sops" && <SopsPage />}
       {activeTab === "complaints" && <ComplaintsPage />}
+      {activeTab === "returns" && <ReturnsPage />}
     </div>
   );
 }

@@ -3309,6 +3309,65 @@ export class DatabaseStorage implements IStorage {
           });
         }
       }
+
+      // Return tasks — QA/ADMIN only
+      const pendingDispositionRows = await db
+        .select({
+          id: schema.returnedProducts.id,
+          returnRef: schema.returnedProducts.returnRef,
+          source: schema.returnedProducts.source,
+          qtyReturned: schema.returnedProducts.qtyReturned,
+          uom: schema.returnedProducts.uom,
+          receivedAt: schema.returnedProducts.receivedAt,
+        })
+        .from(schema.returnedProducts)
+        .where(eq(schema.returnedProducts.status, "QUARANTINE"));
+
+      for (const row of pendingDispositionRows) {
+        tasks.push({
+          id: `return-disp-${row.id}`,
+          taskType: "RETURN_PENDING_DISPOSITION",
+          sourceModule: "RETURN",
+          sourceRecordId: row.id,
+          sourceIdentifier: row.returnRef,
+          primaryLabel: `${row.source.replace(/_/g, " ")} — ${row.qtyReturned} ${row.uom}`,
+          secondaryLabel: new Date(row.receivedAt).toLocaleDateString(),
+          quantityReceived: null,
+          uom: null,
+          dateReceived: null,
+          isUrgent: false,
+          dueAt: null,
+        });
+      }
+
+      const openInvRows = await db
+        .select({
+          id: schema.returnInvestigations.id,
+          lotId: schema.returnInvestigations.lotId,
+          returnsCount: schema.returnInvestigations.returnsCount,
+          triggeredAt: schema.returnInvestigations.triggeredAt,
+          lotNumber: schema.lots.lotNumber,
+        })
+        .from(schema.returnInvestigations)
+        .leftJoin(schema.lots, eq(schema.lots.id, schema.returnInvestigations.lotId))
+        .where(eq(schema.returnInvestigations.status, "OPEN"));
+
+      for (const row of openInvRows) {
+        tasks.push({
+          id: `return-inv-${row.id}`,
+          taskType: "RETURN_INVESTIGATION_OPEN",
+          sourceModule: "RETURN",
+          sourceRecordId: row.id,
+          sourceIdentifier: row.lotNumber ?? row.lotId,
+          primaryLabel: `${row.returnsCount} returns — investigation required`,
+          secondaryLabel: row.lotNumber ?? null,
+          quantityReceived: null,
+          uom: null,
+          dateReceived: null,
+          isUrgent: true,
+          dueAt: null,
+        });
+      }
     }
 
     if (isWarehouse) {

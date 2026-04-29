@@ -141,6 +141,13 @@
       "when": 1745501100000,
       "tag": "0019_r05_complaints_saer",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1745501200000,
+      "tag": "0020_r06_returned_product",
+      "breakpoints": true
     }
   ]
 }

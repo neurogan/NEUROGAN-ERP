@@ -942,6 +942,10 @@ export const auditActionEnum = z.enum([
   "COMPLAINT_DISPOSITION_SIGNED",
   "SAER_SUBMITTED",
   "SAER_ACKNOWLEDGED",
+  "RETURN_INTAKE",
+  "RETURN_DISPOSITION_SIGNED",
+  "RETURN_INVESTIGATION_OPENED",
+  "RETURN_INVESTIGATION_CLOSED",
 ]);
 export type AuditAction = z.infer<typeof auditActionEnum>;
 
@@ -1003,6 +1007,8 @@ export const signatureMeaningEnum = z.enum([
   "LABEL_RECONCILED",
   "SOP_APPROVED",
   "SOP_RETIRED",
+  "RETURNED_PRODUCT_DISPOSITION",
+  "RETURN_INVESTIGATION_CLOSE",
 ]);
 export type SignatureMeaning = z.infer<typeof signatureMeaningEnum>;
 
@@ -1475,3 +1481,59 @@ export const saerSubmissions = pgTable("erp_saer_submissions", {
 });
 
 export type SaerSubmission = typeof saerSubmissions.$inferSelect;
+
+// ─── R-06 Returned Products ────────────────────────────────────────────────
+
+export type ReturnSource = "AMAZON_FBA" | "WHOLESALE" | "OTHER";
+export type ReturnedProductStatus = "QUARANTINE" | "DISPOSED";
+export type ReturnDisposition = "RETURN_TO_INVENTORY" | "DESTROY";
+export type ReturnInvestigationStatus = "OPEN" | "CLOSED";
+
+export const returnedProducts = pgTable("erp_returned_products", {
+  id:                     uuid("id").primaryKey().defaultRandom(),
+  returnRef:              text("return_ref").notNull().unique(),
+  source:                 text("source").$type<ReturnSource>().notNull(),
+  lotId:                  varchar("lot_id").references(() => lots.id),
+  lotCodeRaw:             text("lot_code_raw").notNull(),
+  qtyReturned:            integer("qty_returned").notNull(),
+  uom:                    text("uom").notNull(),
+  wholesaleCustomerName:  text("wholesale_customer_name"),
+  carrierTrackingRef:     text("carrier_tracking_ref"),
+  receivedByUserId:       uuid("received_by_user_id").notNull().references(() => users.id),
+  receivedAt:             timestamp("received_at", { withTimezone: true }).notNull(),
+  conditionNotes:         text("condition_notes"),
+  status:                 text("status").$type<ReturnedProductStatus>().notNull().default("QUARANTINE"),
+  disposition:            text("disposition").$type<ReturnDisposition>(),
+  dispositionNotes:       text("disposition_notes"),
+  dispositionSignatureId: uuid("disposition_signature_id").references(() => electronicSignatures.id),
+  dispositionedByUserId:  uuid("dispositioned_by_user_id").references(() => users.id),
+  dispositionedAt:        timestamp("dispositioned_at", { withTimezone: true }),
+  investigationTriggered: boolean("investigation_triggered").notNull().default(false),
+  createdByUserId:        uuid("created_by_user_id").notNull().references(() => users.id),
+  createdAt:              timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt:              timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type ReturnedProduct = typeof returnedProducts.$inferSelect;
+export const insertReturnedProductSchema = createInsertSchema(returnedProducts).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertReturnedProduct = z.infer<typeof insertReturnedProductSchema>;
+
+export const returnInvestigations = pgTable("erp_return_investigations", {
+  id:                 uuid("id").primaryKey().defaultRandom(),
+  lotId:              varchar("lot_id").notNull().references(() => lots.id),
+  triggeredAt:        timestamp("triggered_at", { withTimezone: true }).notNull(),
+  returnsCount:       integer("returns_count").notNull(),
+  thresholdAtTrigger: integer("threshold_at_trigger").notNull(),
+  status:             text("status").$type<ReturnInvestigationStatus>().notNull().default("OPEN"),
+  rootCause:          text("root_cause"),
+  correctiveAction:   text("corrective_action"),
+  closedByUserId:     uuid("closed_by_user_id").references(() => users.id),
+  closedAt:           timestamp("closed_at", { withTimezone: true }),
+  closeSignatureId:   uuid("close_signature_id").references(() => electronicSignatures.id),
+  createdAt:          timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt:          timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type ReturnInvestigation = typeof returnInvestigations.$inferSelect;
+export const insertReturnInvestigationSchema = createInsertSchema(returnInvestigations).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertReturnInvestigation = z.infer<typeof insertReturnInvestigationSchema>;

@@ -60,10 +60,14 @@ export type ComplaintTaskType =
   | "SAER_DUE_SOON"
   | "SAER_OVERDUE";
 
+export type ReturnTaskType =
+  | "RETURN_PENDING_DISPOSITION"
+  | "RETURN_INVESTIGATION_OPEN";
+
 export interface UserTask {
   id: string;
-  taskType: ReceivingTaskType | ComplaintTaskType;
-  sourceModule: "RECEIVING" | "COMPLAINT";
+  taskType: ReceivingTaskType | ComplaintTaskType | ReturnTaskType;
+  sourceModule: "RECEIVING" | "COMPLAINT" | "RETURN";
   sourceRecordId: string;
   sourceIdentifier: string;
   primaryLabel: string | null;

@@ -3,7 +3,7 @@ import { useLocation } from "wouter";
 import {
   AlertTriangle, FlaskConical, ClipboardCheck, Search, XCircle,
   MessageSquareWarning, PackageSearch, Microscope, HeartPulse,
-  TestTube, FileCheck, Clock, AlertOctagon,
+  TestTube, FileCheck, Clock, AlertOctagon, PackageX,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -26,10 +26,14 @@ type ComplaintTaskType =
   | "SAER_DUE_SOON"
   | "SAER_OVERDUE";
 
+type ReturnTaskType =
+  | "RETURN_PENDING_DISPOSITION"
+  | "RETURN_INVESTIGATION_OPEN";
+
 interface UserTask {
   id: string;
-  taskType: ReceivingTaskType | ComplaintTaskType;
-  sourceModule: "RECEIVING" | "COMPLAINT";
+  taskType: ReceivingTaskType | ComplaintTaskType | ReturnTaskType;
+  sourceModule: "RECEIVING" | "COMPLAINT" | "RETURN";
   sourceRecordId: string;
   sourceIdentifier: string;
   primaryLabel: string | null;
@@ -55,6 +59,8 @@ const TASK_CONFIG: Record<UserTask["taskType"], { label: string; icon: Component
   COMPLAINT_DISPOSITION_REQUIRED: { label: "Complaint awaiting disposition", icon: FileCheck },
   SAER_DUE_SOON:                  { label: "SAER due soon", icon: Clock },
   SAER_OVERDUE:                   { label: "SAER overdue", icon: AlertOctagon },
+  RETURN_PENDING_DISPOSITION:     { label: "Return awaiting QA disposition", icon: PackageX },
+  RETURN_INVESTIGATION_OPEN:      { label: "Return investigation open", icon: AlertTriangle },
 };
 
 function getTaskRoute(task: UserTask): string {
@@ -67,6 +73,10 @@ function getTaskRoute(task: UserTask): string {
       return `/quality/complaints/${task.sourceRecordId}/ae`;
     case "COMPLAINT_LAB_RETEST":
       return `/lab?retest=${task.id.replace("retest-", "")}`;
+    case "RETURN_PENDING_DISPOSITION":
+      return `/quality/returns/${task.sourceRecordId}`;
+    case "RETURN_INVESTIGATION_OPEN":
+      return `/quality/return-investigations`;
     default:
       return `/quality/complaints/${task.sourceRecordId}`;
   }

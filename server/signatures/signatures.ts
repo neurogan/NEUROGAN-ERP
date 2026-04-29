@@ -58,6 +58,8 @@ export const MEANING_VERB: Record<SignatureMeaning, string> = {
   LABEL_RECONCILED: "reconciled label inventory for",
   SOP_APPROVED: "approved SOP for",
   SOP_RETIRED: "retired SOP for",
+  RETURNED_PRODUCT_DISPOSITION: "issued return disposition for",
+  RETURN_INVESTIGATION_CLOSE: "closed return investigation for",
 };
 
 // Performs the signature ceremony then calls fn(tx) for the state change —

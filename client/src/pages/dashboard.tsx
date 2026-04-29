@@ -220,12 +220,24 @@ export default function Dashboard() {
   // ─── R-05 Complaints: dashboard cards ──────────────────────────
   const { data: complaintsSummary } = useQuery<{
     awaitingTriage: number;
+    triageOverdue: number;
     aeDueSoon: number;
     awaitingDisposition: number;
+    dispositionOverdue: number;
     callbackFailures: number;
   }>({
     queryKey: ["/api/complaints/summary"],
     queryFn: async () => (await apiRequest("GET", "/api/complaints/summary")).json(),
+    staleTime: 60_000,
+  });
+
+  // ─── R-06 Returns: dashboard cards ─────────────────────────────
+  const { data: returnsSummary } = useQuery<{
+    awaitingDisposition: number;
+    openInvestigations: number;
+  }>({
+    queryKey: ["/api/returned-products/summary"],
+    queryFn: async () => (await apiRequest("GET", "/api/returned-products/summary")).json(),
     staleTime: 60_000,
   });
 
@@ -916,7 +928,7 @@ export default function Dashboard() {
                   <p className="text-sm text-muted-foreground">
                     {complaintsSummary.awaitingTriage === 0
                       ? "No complaints awaiting triage."
-                      : `${complaintsSummary.awaitingTriage} complaint${complaintsSummary.awaitingTriage > 1 ? "s" : ""} need triage.`}
+                      : `${complaintsSummary.awaitingTriage} awaiting triage${complaintsSummary.triageOverdue > 0 ? ` (${complaintsSummary.triageOverdue} overdue)` : ""}.`}
                   </p>
                 </CardContent>
               </Card>
@@ -959,8 +971,57 @@ export default function Dashboard() {
                 <CardContent>
                   <p className="text-sm text-muted-foreground">
                     {complaintsSummary.awaitingDisposition === 0
-                      ? "No dispositions pending."
-                      : `${complaintsSummary.awaitingDisposition} complaint${complaintsSummary.awaitingDisposition > 1 ? "s" : ""} awaiting Director sign-off.`}
+                      ? "No complaints awaiting disposition."
+                      : `${complaintsSummary.awaitingDisposition} awaiting disposition${complaintsSummary.dispositionOverdue > 0 ? ` (${complaintsSummary.dispositionOverdue} overdue)` : ""}.`}
+                  </p>
+                </CardContent>
+              </Card>
+            </Link>
+          </>
+        )}
+
+        {/* R-06 Return tiles */}
+        {returnsSummary && (
+          <>
+            <Link href="/quality/returns">
+              <Card data-testid="card-returns-disposition" className="cursor-pointer hover:bg-muted/50 transition-colors">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-semibold flex items-center justify-between">
+                    Returns awaiting disposition
+                    {returnsSummary.awaitingDisposition > 0 && (
+                      <Badge className="bg-amber-500/20 text-amber-300 border-0 text-xs">
+                        {returnsSummary.awaitingDisposition}
+                      </Badge>
+                    )}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-muted-foreground">
+                    {returnsSummary.awaitingDisposition === 0
+                      ? "No returns in quarantine."
+                      : `${returnsSummary.awaitingDisposition} return${returnsSummary.awaitingDisposition > 1 ? "s" : ""} awaiting QA disposition.`}
+                  </p>
+                </CardContent>
+              </Card>
+            </Link>
+
+            <Link href="/quality/return-investigations">
+              <Card data-testid="card-returns-investigations" className="cursor-pointer hover:bg-muted/50 transition-colors">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-semibold flex items-center justify-between">
+                    Open return investigations
+                    {returnsSummary.openInvestigations > 0 && (
+                      <Badge className="bg-destructive/20 text-destructive border-0 text-xs">
+                        {returnsSummary.openInvestigations}
+                      </Badge>
+                    )}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-muted-foreground">
+                    {returnsSummary.openInvestigations === 0
+                      ? "No open return investigations."
+                      : `${returnsSummary.openInvestigations} lot${returnsSummary.openInvestigations > 1 ? "s" : ""} with open return investigation.`}
                   </p>
                 </CardContent>
               </Card>
