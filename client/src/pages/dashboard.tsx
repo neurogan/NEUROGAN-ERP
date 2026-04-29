@@ -1,4 +1,6 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMemo } from "react";
+import { useQuery, useQueries } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -18,11 +20,22 @@ import {
   ArrowRight,
   TrendingUp,
   AlertTriangle as AlertTriangleIcon,
+  Wrench,
+  BadgeCheck,
+  Tag,
+  AlertOctagon,
 } from "lucide-react";
 import { formatQty } from "@/lib/formatQty";
 import { formatDate } from "@/lib/formatDate";
 import { Link } from "wouter";
 import { DashboardTasks } from "@/components/DashboardTasks";
+import type {
+  Equipment,
+  CalibrationSchedule,
+  EquipmentQualification,
+  LabelArtwork,
+  LabelReconciliation,
+} from "@shared/schema";
 
 // ─── Types ───────────────────────────────────────────
 
@@ -198,6 +211,119 @@ export default function Dashboard() {
   const { data: supplyChainData } = useQuery<DashboardSupplyChain>({
     queryKey: ["/api/dashboard/supply-chain"],
   });
+
+  // ─── R-03 Equipment & Cleaning: dashboard cards ────────────────
+  const { data: equipmentList = [] } = useQuery<Equipment[]>({
+    queryKey: ["/api/equipment"],
+  });
+
+  // ─── R-05 Complaints: dashboard cards ──────────────────────────
+  const { data: complaintsSummary } = useQuery<{
+    awaitingTriage: number;
+    triageOverdue: number;
+    aeDueSoon: number;
+    awaitingDisposition: number;
+    dispositionOverdue: number;
+    callbackFailures: number;
+  }>({
+    queryKey: ["/api/complaints/summary"],
+    queryFn: async () => (await apiRequest("GET", "/api/complaints/summary")).json(),
+    staleTime: 60_000,
+  });
+
+  // ─── R-06 Returns: dashboard cards ─────────────────────────────
+  const { data: returnsSummary } = useQuery<{
+    awaitingDisposition: number;
+    openInvestigations: number;
+  }>({
+    queryKey: ["/api/returned-products/summary"],
+    queryFn: async () => (await apiRequest("GET", "/api/returned-products/summary")).json(),
+    staleTime: 60_000,
+  });
+
+  // ─── R-04 Label cage: dashboard cards ──────────────────────────
+  const { data: draftArtworks = [] } = useQuery<LabelArtwork[]>({
+    queryKey: ["/api/label-artwork/drafts"],
+    queryFn: async () => (await apiRequest("GET", "/api/label-artwork/drafts")).json(),
+  });
+
+  const { data: outOfToleranceRecons = [] } = useQuery<LabelReconciliation[]>({
+    queryKey: ["/api/label-reconciliations/out-of-tolerance"],
+    queryFn: async () => (await apiRequest("GET", "/api/label-reconciliations/out-of-tolerance")).json(),
+  });
+
+  // Filter to non-RETIRED first to keep fan-out small.
+  const activeEquipment = useMemo(
+    () => equipmentList.filter((e) => e.status !== "RETIRED"),
+    [equipmentList],
+  );
+
+  const calibrationQueries = useQueries({
+    queries: activeEquipment.map((e) => ({
+      queryKey: [`/api/equipment/${e.id}/calibration`],
+      enabled: !!e.id,
+    })),
+  });
+
+  const qualificationQueries = useQueries({
+    queries: activeEquipment.map((e) => ({
+      queryKey: [`/api/equipment/${e.id}/qualifications`],
+      enabled: !!e.id,
+    })),
+  });
+
+  const DAY_MS = 86_400_000;
+  const now = Date.now();
+
+  const calibrationsDue = useMemo(() => {
+    const out: { equipment: Equipment; nextDueAt: Date; daysUntil: number }[] = [];
+    activeEquipment.forEach((e, i) => {
+      const result = calibrationQueries[i]?.data as
+        | { schedule: CalibrationSchedule | null }
+        | undefined;
+      if (!result?.schedule) return;
+      const due = new Date(result.schedule.nextDueAt).getTime();
+      const days = (due - now) / DAY_MS;
+      if (days <= 7) {
+        out.push({
+          equipment: e,
+          nextDueAt: new Date(result.schedule.nextDueAt),
+          daysUntil: days,
+        });
+      }
+    });
+    return out.sort((a, b) => a.daysUntil - b.daysUntil);
+  }, [activeEquipment, calibrationQueries]);
+
+  const qualificationsExpiring = useMemo(() => {
+    const out: {
+      equipment: Equipment;
+      type: string;
+      validUntil: Date;
+      daysUntil: number;
+    }[] = [];
+    activeEquipment.forEach((e, i) => {
+      const quals = qualificationQueries[i]?.data as
+        | EquipmentQualification[]
+        | undefined;
+      if (!quals) return;
+      quals.forEach((q) => {
+        if (!q.validUntil) return;
+        if (q.status !== "QUALIFIED") return;
+        const until = new Date(q.validUntil).getTime();
+        const days = (until - now) / DAY_MS;
+        if (days <= 30) {
+          out.push({
+            equipment: e,
+            type: q.type,
+            validUntil: new Date(q.validUntil),
+            daysUntil: days,
+          });
+        }
+      });
+    });
+    return out.sort((a, b) => a.daysUntil - b.daysUntil);
+  }, [activeEquipment, qualificationQueries]);
 
   if (isLoading) return <DashboardSkeleton />;
   if (!data) return null;
@@ -537,6 +663,372 @@ export default function Dashboard() {
             )}
           </CardContent>
         </Card>
+      </div>
+
+      {/* Equipment row: Calibrations Due + Qualifications Expiring */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+        {/* Calibrations Due This Week */}
+        <Card data-testid="card-calibrations-due">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base font-semibold flex items-center gap-2">
+                <Wrench className="h-4 w-4 text-amber-400" />
+                Calibrations Due This Week
+                {calibrationsDue.length > 0 && (
+                  <Badge className="bg-amber-500/20 text-amber-300 border-0 text-xs ml-1">
+                    {calibrationsDue.length}
+                  </Badge>
+                )}
+              </CardTitle>
+              <Link href="/equipment/calibration">
+                <span className="text-xs text-primary hover:underline cursor-pointer flex items-center gap-1">
+                  View all <ArrowRight className="h-3 w-3" />
+                </span>
+              </Link>
+            </div>
+          </CardHeader>
+          <CardContent className="p-0">
+            {calibrationsDue.length === 0 ? (
+              <p className="text-sm text-muted-foreground px-6 pb-4">
+                All calibrations current.
+              </p>
+            ) : (
+              <div className="divide-y divide-border">
+                {calibrationsDue.map((row) => {
+                  const isOverdue = row.daysUntil < 0;
+                  const focusHref = row.equipment.assetTag
+                    ? `/equipment/calibration?focus=${encodeURIComponent(row.equipment.assetTag)}`
+                    : `/equipment/calibration`;
+                  return (
+                    <Link key={row.equipment.id} href={focusHref}>
+                      <div
+                        className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-muted/50 transition-colors"
+                        data-testid={`row-cal-due-${row.equipment.id}`}
+                      >
+                        <div className="min-w-0 flex-1 mr-3">
+                          <p className="text-sm font-medium font-mono truncate">
+                            {row.equipment.assetTag}
+                          </p>
+                          <p className="text-xs text-muted-foreground truncate">
+                            {row.equipment.name}
+                          </p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          {isOverdue ? (
+                            <Badge variant="destructive" className="text-xs">
+                              Overdue
+                            </Badge>
+                          ) : (
+                            <Badge className="bg-amber-500/20 text-amber-300 border-0 text-xs">
+                              {Math.max(0, Math.ceil(row.daysUntil))}d
+                            </Badge>
+                          )}
+                          <p className="text-[10px] text-muted-foreground mt-0.5">
+                            {formatDate(row.nextDueAt)}
+                          </p>
+                        </div>
+                      </div>
+                    </Link>
+                  );
+                })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Qualifications Expiring in 30 Days */}
+        <Card data-testid="card-qualifications-expiring">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base font-semibold flex items-center gap-2">
+                <BadgeCheck className="h-4 w-4 text-amber-400" />
+                Qualifications Expiring in 30d
+                {qualificationsExpiring.length > 0 && (
+                  <Badge className="bg-amber-500/20 text-amber-300 border-0 text-xs ml-1">
+                    {qualificationsExpiring.length}
+                  </Badge>
+                )}
+              </CardTitle>
+              <Link href="/equipment">
+                <span className="text-xs text-primary hover:underline cursor-pointer flex items-center gap-1">
+                  View all <ArrowRight className="h-3 w-3" />
+                </span>
+              </Link>
+            </div>
+          </CardHeader>
+          <CardContent className="p-0">
+            {qualificationsExpiring.length === 0 ? (
+              <p className="text-sm text-muted-foreground px-6 pb-4">
+                All qualifications current.
+              </p>
+            ) : (
+              <div className="divide-y divide-border">
+                {qualificationsExpiring.map((row, idx) => {
+                  const isExpired = row.daysUntil < 0;
+                  return (
+                    <Link
+                      key={`${row.equipment.id}-${row.type}-${idx}`}
+                      href={`/equipment/${row.equipment.id}`}
+                    >
+                      <div
+                        className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-muted/50 transition-colors"
+                        data-testid={`row-qual-expiring-${row.equipment.id}-${row.type}`}
+                      >
+                        <div className="min-w-0 flex-1 mr-3">
+                          <p className="text-sm font-medium font-mono truncate">
+                            {row.equipment.assetTag}
+                          </p>
+                          <p className="text-xs text-muted-foreground truncate">
+                            {row.equipment.name}{" "}
+                            <span className="font-mono text-[10px]">({row.type})</span>
+                          </p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          {isExpired ? (
+                            <Badge variant="destructive" className="text-xs">
+                              Expired
+                            </Badge>
+                          ) : (
+                            <Badge className="bg-amber-500/20 text-amber-300 border-0 text-xs">
+                              {Math.max(0, Math.ceil(row.daysUntil))}d
+                            </Badge>
+                          )}
+                          <p className="text-[10px] text-muted-foreground mt-0.5">
+                            {formatDate(row.validUntil)}
+                          </p>
+                        </div>
+                      </div>
+                    </Link>
+                  );
+                })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* R-04 Label cage cards */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+        {/* Label artwork pending QA */}
+        <Card data-testid="card-artwork-pending-qa">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base font-semibold flex items-center gap-2">
+                <Tag className="h-4 w-4 text-amber-400" />
+                Label Artwork Pending QA
+                {draftArtworks.length > 0 && (
+                  <Badge className="bg-amber-500/20 text-amber-300 border-0 text-xs ml-1">
+                    {draftArtworks.length}
+                  </Badge>
+                )}
+              </CardTitle>
+              <Link href="/quality/labeling/artwork">
+                <span className="text-xs text-primary hover:underline cursor-pointer flex items-center gap-1">
+                  View all <ArrowRight className="h-3 w-3" />
+                </span>
+              </Link>
+            </div>
+          </CardHeader>
+          <CardContent className="p-0">
+            {draftArtworks.length === 0 ? (
+              <p className="text-sm text-muted-foreground px-6 pb-4" data-testid="text-artwork-all-approved">
+                All artwork approved.
+              </p>
+            ) : (
+              <div className="divide-y divide-border">
+                {draftArtworks.slice(0, 5).map((a) => (
+                  <Link key={a.id} href="/quality/labeling/artwork">
+                    <div
+                      className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-muted/50 transition-colors"
+                      data-testid={`row-artwork-pending-${a.id}`}
+                    >
+                      <div className="min-w-0 flex-1 mr-3">
+                        <p className="text-sm font-medium font-mono truncate">{a.version}</p>
+                        <p className="text-xs text-muted-foreground truncate">Product: {a.productId}</p>
+                      </div>
+                      <Badge className="bg-yellow-500/20 text-yellow-300 border-0 text-xs shrink-0">
+                        DRAFT
+                      </Badge>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Reconciliations out-of-tolerance */}
+        <Card data-testid="card-recons-out-of-tolerance">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base font-semibold flex items-center gap-2">
+                <AlertOctagon className="h-4 w-4 text-amber-400" />
+                Reconciliations Out-of-Tolerance
+                {outOfToleranceRecons.length > 0 && (
+                  <Badge className="bg-amber-500/20 text-amber-300 border-0 text-xs ml-1">
+                    {outOfToleranceRecons.length}
+                  </Badge>
+                )}
+              </CardTitle>
+              <Link href="/production">
+                <span className="text-xs text-primary hover:underline cursor-pointer flex items-center gap-1">
+                  View all <ArrowRight className="h-3 w-3" />
+                </span>
+              </Link>
+            </div>
+          </CardHeader>
+          <CardContent className="p-0">
+            {outOfToleranceRecons.length === 0 ? (
+              <p className="text-sm text-muted-foreground px-6 pb-4" data-testid="text-recons-all-ok">
+                All reconciliations within tolerance.
+              </p>
+            ) : (
+              <div className="divide-y divide-border">
+                {outOfToleranceRecons.slice(0, 5).map((r) => (
+                  <Link key={r.id} href="/production">
+                    <div
+                      className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-muted/50 transition-colors"
+                      data-testid={`row-recon-oot-${r.id}`}
+                    >
+                      <div className="min-w-0 flex-1 mr-3">
+                        <p className="text-sm font-medium font-mono truncate">{r.bprId}</p>
+                        <p className="text-xs text-muted-foreground truncate">
+                          Variance: {r.variance} — deviation required
+                        </p>
+                      </div>
+                      <Badge className="bg-amber-500/20 text-amber-300 border-0 text-xs shrink-0">
+                        OOT
+                      </Badge>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* R-05 Complaint tiles */}
+        {complaintsSummary && (
+          <>
+            <Link href="/quality/complaints">
+              <Card data-testid="card-complaints-triage" className="cursor-pointer hover:bg-muted/50 transition-colors">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-semibold flex items-center justify-between">
+                    Complaints awaiting triage
+                    {complaintsSummary.awaitingTriage > 0 && (
+                      <Badge className="bg-amber-500/20 text-amber-300 border-0 text-xs">
+                        {complaintsSummary.awaitingTriage}
+                      </Badge>
+                    )}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-muted-foreground">
+                    {complaintsSummary.awaitingTriage === 0
+                      ? "No complaints awaiting triage."
+                      : `${complaintsSummary.awaitingTriage} awaiting triage${complaintsSummary.triageOverdue > 0 ? ` (${complaintsSummary.triageOverdue} overdue)` : ""}.`}
+                  </p>
+                </CardContent>
+              </Card>
+            </Link>
+
+            <Link href="/quality/complaints">
+              <Card data-testid="card-ae-due-soon" className="cursor-pointer hover:bg-muted/50 transition-colors">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-semibold flex items-center justify-between">
+                    AE clocks due ≤2 BD
+                    {complaintsSummary.aeDueSoon > 0 && (
+                      <Badge className="bg-destructive/20 text-destructive border-0 text-xs">
+                        {complaintsSummary.aeDueSoon}
+                      </Badge>
+                    )}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-muted-foreground">
+                    {complaintsSummary.aeDueSoon === 0
+                      ? "No SAER clocks due soon."
+                      : `${complaintsSummary.aeDueSoon} SAER clock${complaintsSummary.aeDueSoon > 1 ? "s" : ""} due within 2 business days.`}
+                  </p>
+                </CardContent>
+              </Card>
+            </Link>
+
+            <Link href="/quality/complaints">
+              <Card data-testid="card-complaints-disposition" className="cursor-pointer hover:bg-muted/50 transition-colors">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-semibold flex items-center justify-between">
+                    Dispositions awaiting signature
+                    {complaintsSummary.awaitingDisposition > 0 && (
+                      <Badge className="bg-amber-500/20 text-amber-300 border-0 text-xs">
+                        {complaintsSummary.awaitingDisposition}
+                      </Badge>
+                    )}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-muted-foreground">
+                    {complaintsSummary.awaitingDisposition === 0
+                      ? "No complaints awaiting disposition."
+                      : `${complaintsSummary.awaitingDisposition} awaiting disposition${complaintsSummary.dispositionOverdue > 0 ? ` (${complaintsSummary.dispositionOverdue} overdue)` : ""}.`}
+                  </p>
+                </CardContent>
+              </Card>
+            </Link>
+          </>
+        )}
+
+        {/* R-06 Return tiles */}
+        {returnsSummary && (
+          <>
+            <Link href="/quality/returns">
+              <Card data-testid="card-returns-disposition" className="cursor-pointer hover:bg-muted/50 transition-colors">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-semibold flex items-center justify-between">
+                    Returns awaiting disposition
+                    {returnsSummary.awaitingDisposition > 0 && (
+                      <Badge className="bg-amber-500/20 text-amber-300 border-0 text-xs">
+                        {returnsSummary.awaitingDisposition}
+                      </Badge>
+                    )}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-muted-foreground">
+                    {returnsSummary.awaitingDisposition === 0
+                      ? "No returns in quarantine."
+                      : `${returnsSummary.awaitingDisposition} return${returnsSummary.awaitingDisposition > 1 ? "s" : ""} awaiting QA disposition.`}
+                  </p>
+                </CardContent>
+              </Card>
+            </Link>
+
+            <Link href="/quality/return-investigations">
+              <Card data-testid="card-returns-investigations" className="cursor-pointer hover:bg-muted/50 transition-colors">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-semibold flex items-center justify-between">
+                    Open return investigations
+                    {returnsSummary.openInvestigations > 0 && (
+                      <Badge className="bg-destructive/20 text-destructive border-0 text-xs">
+                        {returnsSummary.openInvestigations}
+                      </Badge>
+                    )}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-muted-foreground">
+                    {returnsSummary.openInvestigations === 0
+                      ? "No open return investigations."
+                      : `${returnsSummary.openInvestigations} lot${returnsSummary.openInvestigations > 1 ? "s" : ""} with open return investigation.`}
+                  </p>
+                </CardContent>
+              </Card>
+            </Link>
+          </>
+        )}
+
       </div>
     </div>
   );

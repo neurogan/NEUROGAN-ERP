@@ -1,5 +1,6 @@
-import { eq, ne, desc, asc, and, sql, gte, lte, inArray, getTableColumns, type SQL } from "drizzle-orm";
+import { eq, ne, desc, asc, and, sql, gte, lte, inArray, notInArray, getTableColumns, isNull, isNotNull, type SQL } from "drizzle-orm";
 import { computeZ14Plan } from "./lib/z14-sampling";
+import { businessDaysUntil } from "./lib/business-days";
 import { db, type Tx } from "./db";
 import * as schema from "@shared/schema";
 import {
@@ -36,6 +37,8 @@ import {
   type Lab, type InsertLab,
   type LabQualificationWithDetails,
   type ApprovedMaterial,
+  type OosInvestigationDetail,
+  type OosInvestigationSummary,
 } from "@shared/schema";
 import type {
   IStorage,
@@ -55,6 +58,7 @@ import type {
 } from "./storage";
 import { computeRoleDelta } from "./storage/users";
 import { assertNotLocked, assertValidTransition } from "./state/transitions";
+import { runAllGates, GateError } from "./state/bpr-equipment-gates";
 
 // ─── QC Workflow type derivation ──────────────────────────────────────────────
 
@@ -677,15 +681,13 @@ export class DatabaseStorage implements IStorage {
     const [existing] = await db.select().from(schema.productionBatches).where(eq(schema.productionBatches.id, id));
     if (!existing) return undefined;
 
-    // If transitioning to IN_PROGRESS, validate all input lots are approved
+    // R-03 Task 9: All transitions to IN_PROGRESS must go through
+    // POST /api/production-batches/:id/start so equipment list + gates run.
     if (data.status === "IN_PROGRESS" && existing.status !== "IN_PROGRESS") {
-      const batchInputs = await db.select().from(schema.productionInputs).where(eq(schema.productionInputs.batchId, id));
-      for (const input of batchInputs) {
-        const lot = await this.getLot(input.lotId);
-        if (lot && lot.quarantineStatus && lot.quarantineStatus !== "APPROVED") {
-          throw new Error(`Lot ${lot.lotNumber} is ${lot.quarantineStatus} and cannot be used in production. Only APPROVED lots can be used.`);
-        }
-      }
+      throw Object.assign(
+        new Error("Use POST /api/production-batches/:id/start to transition to IN_PROGRESS — equipment list and gates are required"),
+        { status: 400, code: "USE_START_ENDPOINT" },
+      );
     }
 
     // If new inputs are provided, validate they are all approved
@@ -736,27 +738,91 @@ export class DatabaseStorage implements IStorage {
       }
     }
 
-    // Auto-create BPR when batch starts production
-    if (data.status === "IN_PROGRESS") {
-      const existingBpr = await this.getBprByBatchId(id);
-      if (!existingBpr) {
-        const batch = updated;
-        const recipeRows = await db.select().from(schema.recipes).where(eq(schema.recipes.productId, batch.productId));
-        const recipe = recipeRows[0];
-        await this.createBpr({
-          productionBatchId: id,
-          batchNumber: batch.batchNumber,
-          lotNumber: batch.outputLotNumber ?? null,
-          productId: batch.productId,
-          recipeId: recipe?.id ?? null,
-          status: "IN_PROGRESS",
-          theoreticalYield: batch.plannedQuantity,
-          startedAt: new Date(),
-        });
+    return updated;
+  }
+
+  // R-03 Task 9 — Gated start. Runs read-only gates outside the transaction so
+  // the START_BLOCKED audit row persists on gate failure, then writes equipment
+  // list + status flip + auto-created BPR atomically inside the transaction.
+  async startProductionBatch(
+    batchId: string,
+    userId: string,
+    equipmentIds: string[],
+    requestId: string | null,
+    route: string | null,
+  ): Promise<ProductionBatch> {
+    const [existing] = await db
+      .select()
+      .from(schema.productionBatches)
+      .where(eq(schema.productionBatches.id, batchId));
+    if (!existing) throw Object.assign(new Error("Batch not found"), { status: 404 });
+    if (existing.status === "IN_PROGRESS") {
+      throw Object.assign(new Error("Batch already started"), { status: 409 });
+    }
+    if (existing.status !== "DRAFT" && existing.status !== "PENDING") {
+      throw Object.assign(new Error(`Cannot start from ${existing.status}`), { status: 409 });
+    }
+
+    const batchInputs = await db
+      .select()
+      .from(schema.productionInputs)
+      .where(eq(schema.productionInputs.batchId, batchId));
+    for (const input of batchInputs) {
+      const lot = await this.getLot(input.lotId);
+      if (lot && lot.quarantineStatus && lot.quarantineStatus !== "APPROVED") {
+        throw Object.assign(
+          new Error(`Lot ${lot.lotNumber} is ${lot.quarantineStatus} and cannot be used in production. Only APPROVED lots can be used.`),
+          { status: 400, code: "LOT_NOT_APPROVED" },
+        );
       }
     }
 
-    return updated;
+    try {
+      await runAllGates(db, batchId, existing.productId, equipmentIds);
+    } catch (e: unknown) {
+      if (GateError.is(e)) {
+        await db.insert(schema.auditTrail).values({
+          userId,
+          action: "START_BLOCKED",
+          entityType: "production_batch",
+          entityId: batchId,
+          after: { code: e.code, payload: e.payload } as Record<string, unknown>,
+          requestId,
+          route,
+        });
+      }
+      throw e;
+    }
+
+    return await db.transaction(async (tx) => {
+      for (const eid of equipmentIds) {
+        await tx.insert(schema.productionBatchEquipmentUsed).values({
+          productionBatchId: batchId,
+          equipmentId: eid,
+        });
+      }
+      const [updated] = await tx
+        .update(schema.productionBatches)
+        .set({ status: "IN_PROGRESS", updatedAt: new Date() })
+        .where(eq(schema.productionBatches.id, batchId))
+        .returning();
+      const recipeRows = await tx
+        .select()
+        .from(schema.recipes)
+        .where(eq(schema.recipes.productId, updated!.productId));
+      const recipe = recipeRows[0];
+      await this.createBpr({
+        productionBatchId: batchId,
+        batchNumber: updated!.batchNumber,
+        lotNumber: updated!.outputLotNumber ?? null,
+        productId: updated!.productId,
+        recipeId: recipe?.id ?? null,
+        status: "IN_PROGRESS",
+        theoreticalYield: updated!.plannedQuantity,
+        startedAt: new Date(),
+      }, tx);
+      return updated!;
+    });
   }
 
   async deleteProductionBatch(id: string): Promise<boolean> {
@@ -1906,16 +1972,35 @@ export class DatabaseStorage implements IStorage {
   // ─── Lab Test Results (T-06) ────────────────────────
 
   async addLabTestResult(coaId: string, data: InsertLabTestResult, userId: string, tx?: Tx): Promise<LabTestResult> {
-    const [result] = await (tx ?? db).insert(schema.labTestResults).values({
+    const txOrDb = tx ?? db;
+    const [result] = await txOrDb.insert(schema.labTestResults).values({
       ...data,
       coaDocumentId: coaId,
       testedByUserId: userId,
     }).returning();
 
     if (!data.pass) {
-      await (tx ?? db).update(schema.coaDocuments)
+      await txOrDb.update(schema.coaDocuments)
         .set({ overallResult: "FAIL" })
         .where(eq(schema.coaDocuments.id, coaId));
+
+      // T-08: auto-create or attach OOS investigation, flip lot to ON_HOLD if not terminal
+      const [coa] = await txOrDb
+        .select({ lotId: schema.coaDocuments.lotId })
+        .from(schema.coaDocuments)
+        .where(eq(schema.coaDocuments.id, coaId));
+      if (coa?.lotId) {
+        await this.getOrCreateOpenOosInvestigation(
+          coaId, coa.lotId, result!.id, userId,
+          "auto-hook", "addLabTestResult", txOrDb as Tx,
+        );
+        await txOrDb.update(schema.lots)
+          .set({ quarantineStatus: "ON_HOLD" })
+          .where(and(
+            eq(schema.lots.id, coa.lotId),
+            notInArray(schema.lots.quarantineStatus, ["ON_HOLD", "REJECTED"]),
+          ));
+      }
     }
 
     return result!;
@@ -1925,6 +2010,351 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(schema.labTestResults)
       .where(eq(schema.labTestResults.coaDocumentId, coaId))
       .orderBy(schema.labTestResults.testedAt);
+  }
+
+  // ─── OOS investigations (T-08) ───────────────────────
+
+  private async nextOosNumber(tx: Tx): Promise<string> {
+    const year = new Date().getFullYear();
+    const [row] = await tx
+      .insert(schema.oosInvestigationCounter)
+      .values({ year, lastSeq: 1 })
+      .onConflictDoUpdate({
+        target: schema.oosInvestigationCounter.year,
+        set: { lastSeq: sql`${schema.oosInvestigationCounter.lastSeq} + 1` },
+      })
+      .returning({ lastSeq: schema.oosInvestigationCounter.lastSeq });
+    const seq = String(row!.lastSeq).padStart(3, "0");
+    return `OOS-${year}-${seq}`;
+  }
+
+  async getOrCreateOpenOosInvestigation(
+    coaDocumentId: string,
+    lotId: string,
+    labTestResultId: string,
+    userId: string,
+    requestId: string,
+    route: string,
+    tx: Tx,
+  ): Promise<schema.OosInvestigation> {
+    // Look for existing OPEN or RETEST_PENDING investigation for this COA
+    const existing = await tx
+      .select()
+      .from(schema.oosInvestigations)
+      .where(and(
+        eq(schema.oosInvestigations.coaDocumentId, coaDocumentId),
+        inArray(schema.oosInvestigations.status, ["OPEN", "RETEST_PENDING"]),
+      ))
+      .limit(1);
+
+    let investigation: schema.OosInvestigation;
+    let opened = false;
+    if (existing[0]) {
+      investigation = existing[0];
+    } else {
+      const oosNumber = await this.nextOosNumber(tx);
+      const [created] = await tx
+        .insert(schema.oosInvestigations)
+        .values({ oosNumber, coaDocumentId, lotId })
+        .returning();
+      investigation = created!;
+      opened = true;
+    }
+
+    // Attach test result via junction (idempotent)
+    await tx
+      .insert(schema.oosInvestigationTestResults)
+      .values({ investigationId: investigation.id, labTestResultId })
+      .onConflictDoNothing();
+
+    if (opened) {
+      await tx.insert(schema.auditTrail).values({
+        userId, action: "OOS_OPENED", entityType: "oos_investigation",
+        entityId: investigation.id,
+        after: { oosNumber: investigation.oosNumber, coaDocumentId, lotId, labTestResultId },
+        requestId, route,
+      });
+    }
+
+    return investigation;
+  }
+
+  async getOosInvestigationById(id: string): Promise<OosInvestigationDetail | null> {
+    const [invRow] = await db
+      .select({
+        inv: schema.oosInvestigations,
+        lotNumber: schema.lots.lotNumber,
+        coaDocumentNumber: schema.coaDocuments.documentNumber,
+        leadInvestigatorName: schema.users.fullName,
+      })
+      .from(schema.oosInvestigations)
+      .leftJoin(schema.lots, eq(schema.oosInvestigations.lotId, schema.lots.id))
+      .leftJoin(schema.coaDocuments, eq(schema.oosInvestigations.coaDocumentId, schema.coaDocuments.id))
+      .leftJoin(schema.users, eq(schema.oosInvestigations.leadInvestigatorUserId, schema.users.id))
+      .where(eq(schema.oosInvestigations.id, id));
+
+    if (!invRow) return null;
+    const inv = invRow.inv;
+
+    // Second query: closed-by user name (separate because it's a second FK to the same users table)
+    let closedByName: string | null = null;
+    if (inv.closedByUserId) {
+      const [u] = await db
+        .select({ fullName: schema.users.fullName })
+        .from(schema.users)
+        .where(eq(schema.users.id, inv.closedByUserId));
+      closedByName = u?.fullName ?? null;
+    }
+
+    const testResults = await db
+      .select({
+        id: schema.labTestResults.id,
+        analyteName: schema.labTestResults.analyteName,
+        resultValue: schema.labTestResults.resultValue,
+        specMin: schema.labTestResults.specMin,
+        specMax: schema.labTestResults.specMax,
+        pass: schema.labTestResults.pass,
+        testedAt: schema.labTestResults.testedAt,
+        testedByUserId: schema.labTestResults.testedByUserId,
+        testedByName: schema.users.fullName,
+        notes: schema.labTestResults.notes,
+      })
+      .from(schema.oosInvestigationTestResults)
+      .innerJoin(schema.labTestResults, eq(schema.oosInvestigationTestResults.labTestResultId, schema.labTestResults.id))
+      .leftJoin(schema.users, eq(schema.labTestResults.testedByUserId, schema.users.id))
+      .where(eq(schema.oosInvestigationTestResults.investigationId, id));
+
+    return {
+      ...inv,
+      lotNumber: invRow.lotNumber ?? null,
+      coaDocumentNumber: invRow.coaDocumentNumber ?? null,
+      testResults,
+      leadInvestigatorName: invRow.leadInvestigatorName ?? null,
+      closedByName,
+    };
+  }
+
+  async listOosInvestigations(filters: {
+    status?: schema.OosStatus | "ALL";
+    lotId?: string;
+    dateFrom?: Date;
+    dateTo?: Date;
+  }): Promise<OosInvestigationSummary[]> {
+    const conditions: SQL[] = [];
+    if (filters.status && filters.status !== "ALL") {
+      conditions.push(eq(schema.oosInvestigations.status, filters.status));
+    } else if (!filters.status) {
+      conditions.push(eq(schema.oosInvestigations.status, "OPEN"));
+    }
+    if (filters.lotId) conditions.push(eq(schema.oosInvestigations.lotId, filters.lotId));
+    if (filters.dateFrom) conditions.push(gte(schema.oosInvestigations.autoCreatedAt, filters.dateFrom));
+    if (filters.dateTo) conditions.push(lte(schema.oosInvestigations.autoCreatedAt, filters.dateTo));
+    const whereClause = conditions.length ? and(...conditions) : undefined;
+
+    const rows = await db
+      .select({
+        id: schema.oosInvestigations.id,
+        oosNumber: schema.oosInvestigations.oosNumber,
+        lotId: schema.oosInvestigations.lotId,
+        lotNumber: schema.lots.lotNumber,
+        coaDocumentId: schema.oosInvestigations.coaDocumentId,
+        status: schema.oosInvestigations.status,
+        disposition: schema.oosInvestigations.disposition,
+        autoCreatedAt: schema.oosInvestigations.autoCreatedAt,
+        closedAt: schema.oosInvestigations.closedAt,
+      })
+      .from(schema.oosInvestigations)
+      .leftJoin(schema.lots, eq(schema.oosInvestigations.lotId, schema.lots.id))
+      .where(whereClause)
+      .orderBy(desc(schema.oosInvestigations.autoCreatedAt));
+    return rows;
+  }
+
+  async assignOosLeadInvestigator(
+    investigationId: string,
+    leadUserId: string,
+    actingUserId: string,
+    requestId: string,
+    route: string,
+    tx: Tx,
+  ): Promise<schema.OosInvestigation> {
+    const [existing] = await tx.select().from(schema.oosInvestigations).where(eq(schema.oosInvestigations.id, investigationId));
+    if (!existing) throw Object.assign(new Error("Investigation not found"), { status: 404 });
+    if (existing.status === "CLOSED") throw Object.assign(new Error("Cannot modify a closed investigation"), { status: 409 });
+    if (existing.leadInvestigatorUserId === leadUserId) return existing;
+    const [updated] = await tx
+      .update(schema.oosInvestigations)
+      .set({ leadInvestigatorUserId: leadUserId, updatedAt: new Date() })
+      .where(eq(schema.oosInvestigations.id, investigationId))
+      .returning();
+    await tx.insert(schema.auditTrail).values({
+      userId: actingUserId, action: "UPDATE", entityType: "oos_investigation", entityId: investigationId,
+      before: { leadInvestigatorUserId: existing.leadInvestigatorUserId },
+      after: { leadInvestigatorUserId: leadUserId },
+      meta: { subtype: "ASSIGN_LEAD_INVESTIGATOR" },
+      requestId, route,
+    });
+    return updated!;
+  }
+
+  async setOosRetestPending(investigationId: string, actingUserId: string, requestId: string, route: string, tx: Tx): Promise<schema.OosInvestigation> {
+    const [existing] = await tx.select().from(schema.oosInvestigations).where(eq(schema.oosInvestigations.id, investigationId));
+    if (!existing) throw Object.assign(new Error("Investigation not found"), { status: 404 });
+    if (existing.status === "CLOSED") throw Object.assign(new Error("Investigation already closed"), { status: 409 });
+    if (existing.status === "RETEST_PENDING") return existing;
+    const [updated] = await tx
+      .update(schema.oosInvestigations)
+      .set({ status: "RETEST_PENDING", updatedAt: new Date() })
+      .where(eq(schema.oosInvestigations.id, investigationId))
+      .returning();
+    await tx.insert(schema.auditTrail).values({
+      userId: actingUserId, action: "UPDATE", entityType: "oos_investigation", entityId: investigationId,
+      before: { status: existing.status }, after: { status: "RETEST_PENDING" },
+      meta: { subtype: "RETEST_PENDING_SET" }, requestId, route,
+    });
+    return updated!;
+  }
+
+  async clearOosRetestPending(investigationId: string, actingUserId: string, requestId: string, route: string, tx: Tx): Promise<schema.OosInvestigation> {
+    const [existing] = await tx.select().from(schema.oosInvestigations).where(eq(schema.oosInvestigations.id, investigationId));
+    if (!existing) throw Object.assign(new Error("Investigation not found"), { status: 404 });
+    if (existing.status === "CLOSED") throw Object.assign(new Error("Investigation already closed"), { status: 409 });
+    if (existing.status !== "RETEST_PENDING") return existing;
+    const [updated] = await tx
+      .update(schema.oosInvestigations)
+      .set({ status: "OPEN", updatedAt: new Date() })
+      .where(eq(schema.oosInvestigations.id, investigationId))
+      .returning();
+    await tx.insert(schema.auditTrail).values({
+      userId: actingUserId, action: "UPDATE", entityType: "oos_investigation", entityId: investigationId,
+      before: { status: existing.status }, after: { status: "OPEN" },
+      meta: { subtype: "RETEST_PENDING_CLEARED" }, requestId, route,
+    });
+    return updated!;
+  }
+
+  async closeOosInvestigation(
+    investigationId: string,
+    payload: {
+      disposition: "APPROVED" | "REJECTED" | "RECALL";
+      dispositionReason: string;
+      leadInvestigatorUserId: string;
+      recallDetails?: {
+        class: schema.OosRecallClass;
+        distributionScope: string;
+        fdaNotificationDate?: Date;
+        customerNotificationDate?: Date;
+        recoveryTargetDate?: Date;
+        affectedLotIds?: string[];
+      };
+    },
+    closedByUserId: string,
+    requestId: string,
+    route: string,
+    tx: Tx,
+  ): Promise<schema.OosInvestigation> {
+    const [existing] = await tx.select().from(schema.oosInvestigations).where(eq(schema.oosInvestigations.id, investigationId));
+    if (!existing) throw Object.assign(new Error("Investigation not found"), { status: 404 });
+    if (existing.status === "CLOSED" || existing.closedAt !== null) {
+      throw Object.assign(new Error("Investigation already closed"), { status: 409 });
+    }
+    if (!payload.leadInvestigatorUserId) throw Object.assign(new Error("lead investigator required for closure"), { status: 422 });
+    if (!payload.dispositionReason) throw Object.assign(new Error("dispositionReason required"), { status: 422 });
+    if (payload.disposition === "RECALL" && !payload.recallDetails?.class) {
+      throw Object.assign(new Error("recallDetails.class required for RECALL disposition"), { status: 422 });
+    }
+    if (payload.disposition === "RECALL" && !payload.recallDetails?.distributionScope) {
+      throw Object.assign(new Error("recallDetails.distributionScope required for RECALL disposition"), { status: 422 });
+    }
+
+    const isoDate = (d?: Date) => d ? d.toISOString().slice(0, 10) : null;
+
+    const [updated] = await tx
+      .update(schema.oosInvestigations)
+      .set({
+        disposition: payload.disposition,
+        dispositionReason: payload.dispositionReason,
+        leadInvestigatorUserId: payload.leadInvestigatorUserId,
+        recallClass: payload.recallDetails?.class ?? null,
+        recallDistributionScope: payload.recallDetails?.distributionScope ?? null,
+        recallFdaNotificationDate: isoDate(payload.recallDetails?.fdaNotificationDate),
+        recallCustomerNotificationDate: isoDate(payload.recallDetails?.customerNotificationDate),
+        recallRecoveryTargetDate: isoDate(payload.recallDetails?.recoveryTargetDate),
+        recallAffectedLotIds: payload.recallDetails?.affectedLotIds ?? null,
+        closedByUserId,
+        closedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(schema.oosInvestigations.id, investigationId))
+      .returning();
+
+    if (payload.disposition === "REJECTED") {
+      await tx
+        .update(schema.lots)
+        .set({ quarantineStatus: "REJECTED" })
+        .where(eq(schema.lots.id, existing.lotId));
+    }
+
+    await tx.insert(schema.auditTrail).values({
+      userId: closedByUserId, action: "OOS_CLOSED", entityType: "oos_investigation", entityId: investigationId,
+      before: { status: existing.status, disposition: existing.disposition },
+      after: { disposition: payload.disposition, dispositionReason: payload.dispositionReason },
+      requestId, route,
+    });
+
+    return updated!;
+  }
+
+  async markOosNoInvestigationNeeded(
+    investigationId: string,
+    reason: schema.OosNoInvestigationReason,
+    reasonNarrative: string,
+    leadInvestigatorUserId: string,
+    closedByUserId: string,
+    requestId: string,
+    route: string,
+    tx: Tx,
+  ): Promise<schema.OosInvestigation> {
+    const [existing] = await tx.select().from(schema.oosInvestigations).where(eq(schema.oosInvestigations.id, investigationId));
+    if (!existing) throw Object.assign(new Error("Investigation not found"), { status: 404 });
+    if (existing.status === "CLOSED" || existing.closedAt !== null) {
+      throw Object.assign(new Error("Investigation already closed"), { status: 409 });
+    }
+    if (!leadInvestigatorUserId) throw Object.assign(new Error("lead investigator required for closure"), { status: 422 });
+    if (!reasonNarrative) throw Object.assign(new Error("reasonNarrative required"), { status: 422 });
+
+    const [updated] = await tx
+      .update(schema.oosInvestigations)
+      .set({
+        disposition: "NO_INVESTIGATION_NEEDED",
+        dispositionReason: reasonNarrative,
+        noInvestigationReason: reason,
+        leadInvestigatorUserId,
+        closedByUserId,
+        closedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(schema.oosInvestigations.id, investigationId))
+      .returning();
+
+    await tx.insert(schema.auditTrail).values({
+      userId: closedByUserId, action: "OOS_CLOSED", entityType: "oos_investigation", entityId: investigationId,
+      before: { status: existing.status }, after: { disposition: "NO_INVESTIGATION_NEEDED", noInvestigationReason: reason },
+      requestId, route,
+    });
+
+    return updated!;
+  }
+
+  async finalizeOosClosure(investigationId: string, signatureId: string): Promise<schema.OosInvestigation> {
+    if (!signatureId) throw Object.assign(new Error("signatureId required for closure finalization"), { status: 422 });
+    const [updated] = await db
+      .update(schema.oosInvestigations)
+      .set({ status: "CLOSED", closureSignatureId: signatureId, updatedAt: new Date() })
+      .where(eq(schema.oosInvestigations.id, investigationId))
+      .returning();
+    if (!updated) throw Object.assign(new Error("Investigation not found"), { status: 404 });
+    return updated;
   }
 
   // ─── Supplier Qualifications ─────────────────────────
@@ -2635,12 +3065,7 @@ export class DatabaseStorage implements IStorage {
   // ─── User tasks (R-01) ─────────────────────────────────
 
   async getUserTasks(_userId: string, roles: string[]): Promise<UserTask[]> {
-    // _userId reserved for future per-user scoped task types; currently returns all active records for the role.
     const tasks: UserTask[] = [];
-    // ADMIN gets LAB_TECH, QA and WAREHOUSE tasks. No deduplication risk: LAB_TECH queries
-    // FULL_LAB_TEST in QUARANTINED/SAMPLING; QA queries PENDING_QC; WAREHOUSE queries
-    // IDENTITY_CHECK/QUARANTINED + REJECTED. These are disjoint by qcWorkflowType/status
-    // combinations under current state machine rules.
     const isLabTech = roles.includes("LAB_TECH") || roles.includes("ADMIN");
     const isQa = roles.includes("QA") || roles.includes("ADMIN");
     const isWarehouse = roles.includes("WAREHOUSE") || roles.includes("ADMIN");
@@ -2677,14 +3102,16 @@ export class DatabaseStorage implements IStorage {
         tasks.push({
           id: `lab-${row.id}`,
           taskType: row.requiresQualification ? "QUALIFICATION_REQUIRED" : "LAB_TEST_REQUIRED",
-          receivingRecordId: row.id,
-          receivingIdentifier: row.receivingIdentifier,
-          materialName: row.materialName ?? null,
-          supplierName: row.supplierName ?? null,
+          sourceModule: "RECEIVING",
+          sourceRecordId: row.id,
+          sourceIdentifier: row.receivingIdentifier,
+          primaryLabel: row.materialName ?? null,
+          secondaryLabel: row.supplierName ?? null,
           quantityReceived: row.quantityReceived ?? null,
           uom: row.uom ?? null,
           dateReceived: row.dateReceived ?? null,
           isUrgent: !!row.requiresQualification,
+          dueAt: null,
         });
       }
     }
@@ -2702,14 +3129,243 @@ export class DatabaseStorage implements IStorage {
         tasks.push({
           id: `qc-${row.id}`,
           taskType: "PENDING_QC",
-          receivingRecordId: row.id,
-          receivingIdentifier: row.receivingIdentifier,
-          materialName: row.materialName ?? null,
-          supplierName: row.supplierName ?? null,
+          sourceModule: "RECEIVING",
+          sourceRecordId: row.id,
+          sourceIdentifier: row.receivingIdentifier,
+          primaryLabel: row.materialName ?? null,
+          secondaryLabel: row.supplierName ?? null,
           quantityReceived: row.quantityReceived ?? null,
           uom: row.uom ?? null,
           dateReceived: row.dateReceived ?? null,
           isUrgent: false,
+          dueAt: null,
+        });
+      }
+
+      // ─── R-05 complaint tasks (QA / ADMIN) ───────────────────────────────
+      const complaintTaskSelect = {
+        id: schema.complaints.id,
+        helpcoreRef: schema.complaints.helpcoreRef,
+        complaintText: schema.complaints.complaintText,
+        customerEmail: schema.complaints.customerEmail,
+        status: schema.complaints.status,
+      };
+
+      // TRIAGE
+      const triageRows = await db
+        .select(complaintTaskSelect)
+        .from(schema.complaints)
+        .where(eq(schema.complaints.status, "TRIAGE"));
+      for (const row of triageRows) {
+        tasks.push({
+          id: `complaint-triage-${row.id}`,
+          taskType: "COMPLAINT_TRIAGE_REQUIRED",
+          sourceModule: "COMPLAINT",
+          sourceRecordId: row.id,
+          sourceIdentifier: row.helpcoreRef,
+          primaryLabel: row.complaintText.slice(0, 80),
+          secondaryLabel: row.customerEmail,
+          quantityReceived: null,
+          uom: null,
+          dateReceived: null,
+          isUrgent: false,
+          dueAt: null,
+        });
+      }
+
+      // LOT_UNRESOLVED
+      const lotUnresolvedRows = await db
+        .select(complaintTaskSelect)
+        .from(schema.complaints)
+        .where(eq(schema.complaints.status, "LOT_UNRESOLVED"));
+      for (const row of lotUnresolvedRows) {
+        tasks.push({
+          id: `complaint-lot-${row.id}`,
+          taskType: "COMPLAINT_LOT_UNRESOLVED",
+          sourceModule: "COMPLAINT",
+          sourceRecordId: row.id,
+          sourceIdentifier: row.helpcoreRef,
+          primaryLabel: row.complaintText.slice(0, 80),
+          secondaryLabel: row.customerEmail,
+          quantityReceived: null,
+          uom: null,
+          dateReceived: null,
+          isUrgent: false,
+          dueAt: null,
+        });
+      }
+
+      // INVESTIGATION — complaint in INVESTIGATION with no packaged investigation
+      const investigationRows = await db
+        .select(complaintTaskSelect)
+        .from(schema.complaints)
+        .leftJoin(
+          schema.complaintInvestigations,
+          and(
+            eq(schema.complaintInvestigations.complaintId, schema.complaints.id),
+            isNotNull(schema.complaintInvestigations.packagedAt),
+          ),
+        )
+        .where(
+          and(
+            eq(schema.complaints.status, "INVESTIGATION"),
+            isNull(schema.complaintInvestigations.id),
+          ),
+        );
+      for (const row of investigationRows) {
+        tasks.push({
+          id: `complaint-inv-${row.id}`,
+          taskType: "COMPLAINT_INVESTIGATION_REQUIRED",
+          sourceModule: "COMPLAINT",
+          sourceRecordId: row.id,
+          sourceIdentifier: row.helpcoreRef,
+          primaryLabel: row.complaintText.slice(0, 80),
+          secondaryLabel: row.customerEmail,
+          quantityReceived: null,
+          uom: null,
+          dateReceived: null,
+          isUrgent: false,
+          dueAt: null,
+        });
+      }
+
+      // AE_URGENT_REVIEW
+      const aeUrgentRows = await db
+        .select(complaintTaskSelect)
+        .from(schema.complaints)
+        .where(eq(schema.complaints.status, "AE_URGENT_REVIEW"));
+      for (const row of aeUrgentRows) {
+        tasks.push({
+          id: `complaint-ae-${row.id}`,
+          taskType: "COMPLAINT_AE_URGENT_REVIEW",
+          sourceModule: "COMPLAINT",
+          sourceRecordId: row.id,
+          sourceIdentifier: row.helpcoreRef,
+          primaryLabel: row.complaintText.slice(0, 80),
+          secondaryLabel: row.customerEmail,
+          quantityReceived: null,
+          uom: null,
+          dateReceived: null,
+          isUrgent: true,
+          dueAt: null,
+        });
+      }
+
+      // AWAITING_DISPOSITION
+      const dispositionRows = await db
+        .select(complaintTaskSelect)
+        .from(schema.complaints)
+        .where(eq(schema.complaints.status, "AWAITING_DISPOSITION"));
+      for (const row of dispositionRows) {
+        tasks.push({
+          id: `complaint-disp-${row.id}`,
+          taskType: "COMPLAINT_DISPOSITION_REQUIRED",
+          sourceModule: "COMPLAINT",
+          sourceRecordId: row.id,
+          sourceIdentifier: row.helpcoreRef,
+          primaryLabel: row.complaintText.slice(0, 80),
+          secondaryLabel: row.customerEmail,
+          quantityReceived: null,
+          uom: null,
+          dateReceived: null,
+          isUrgent: false,
+          dueAt: null,
+        });
+      }
+
+      // SAER tasks — open adverse events with due_at
+      const now = new Date();
+      const saerRows = await db
+        .select({
+          complaintId: schema.adverseEvents.complaintId,
+          dueAt: schema.adverseEvents.dueAt,
+          helpcoreRef: schema.complaints.helpcoreRef,
+          customerEmail: schema.complaints.customerEmail,
+          complaintText: schema.complaints.complaintText,
+        })
+        .from(schema.adverseEvents)
+        .innerJoin(schema.complaints, eq(schema.complaints.id, schema.adverseEvents.complaintId))
+        .where(eq(schema.adverseEvents.status, "OPEN"));
+
+      for (const row of saerRows) {
+        const dueAt = row.dueAt;
+        const bdsRemaining = await businessDaysUntil(now, dueAt);
+        const isOverdue = bdsRemaining < 0;
+        const isDueSoon = !isOverdue && bdsRemaining <= 2;
+        if (isOverdue || isDueSoon) {
+          tasks.push({
+            id: `saer-${row.complaintId}`,
+            taskType: isOverdue ? "SAER_OVERDUE" : "SAER_DUE_SOON",
+            sourceModule: "COMPLAINT",
+            sourceRecordId: row.complaintId,
+            sourceIdentifier: row.helpcoreRef,
+            primaryLabel: row.complaintText.slice(0, 80),
+            secondaryLabel: row.customerEmail,
+            quantityReceived: null,
+            uom: null,
+            dateReceived: null,
+            isUrgent: isOverdue,
+            dueAt: dueAt.toISOString(),
+          });
+        }
+      }
+
+      // Return tasks — QA/ADMIN only
+      const pendingDispositionRows = await db
+        .select({
+          id: schema.returnedProducts.id,
+          returnRef: schema.returnedProducts.returnRef,
+          source: schema.returnedProducts.source,
+          qtyReturned: schema.returnedProducts.qtyReturned,
+          uom: schema.returnedProducts.uom,
+          receivedAt: schema.returnedProducts.receivedAt,
+        })
+        .from(schema.returnedProducts)
+        .where(eq(schema.returnedProducts.status, "QUARANTINE"));
+
+      for (const row of pendingDispositionRows) {
+        tasks.push({
+          id: `return-disp-${row.id}`,
+          taskType: "RETURN_PENDING_DISPOSITION",
+          sourceModule: "RETURN",
+          sourceRecordId: row.id,
+          sourceIdentifier: row.returnRef,
+          primaryLabel: `${row.source.replace(/_/g, " ")} — ${row.qtyReturned} ${row.uom}`,
+          secondaryLabel: new Date(row.receivedAt).toLocaleDateString(),
+          quantityReceived: null,
+          uom: null,
+          dateReceived: null,
+          isUrgent: false,
+          dueAt: null,
+        });
+      }
+
+      const openInvRows = await db
+        .select({
+          id: schema.returnInvestigations.id,
+          lotId: schema.returnInvestigations.lotId,
+          returnsCount: schema.returnInvestigations.returnsCount,
+          triggeredAt: schema.returnInvestigations.triggeredAt,
+          lotNumber: schema.lots.lotNumber,
+        })
+        .from(schema.returnInvestigations)
+        .leftJoin(schema.lots, eq(schema.lots.id, schema.returnInvestigations.lotId))
+        .where(eq(schema.returnInvestigations.status, "OPEN"));
+
+      for (const row of openInvRows) {
+        tasks.push({
+          id: `return-inv-${row.id}`,
+          taskType: "RETURN_INVESTIGATION_OPEN",
+          sourceModule: "RETURN",
+          sourceRecordId: row.id,
+          sourceIdentifier: row.lotNumber ?? row.lotId,
+          primaryLabel: `${row.returnsCount} returns — investigation required`,
+          secondaryLabel: row.lotNumber ?? null,
+          quantityReceived: null,
+          uom: null,
+          dateReceived: null,
+          isUrgent: true,
+          dueAt: null,
         });
       }
     }
@@ -2732,14 +3388,16 @@ export class DatabaseStorage implements IStorage {
         tasks.push({
           id: `id-check-${row.id}`,
           taskType: "IDENTITY_CHECK_REQUIRED",
-          receivingRecordId: row.id,
-          receivingIdentifier: row.receivingIdentifier,
-          materialName: row.materialName ?? null,
-          supplierName: row.supplierName ?? null,
+          sourceModule: "RECEIVING",
+          sourceRecordId: row.id,
+          sourceIdentifier: row.receivingIdentifier,
+          primaryLabel: row.materialName ?? null,
+          secondaryLabel: row.supplierName ?? null,
           quantityReceived: row.quantityReceived ?? null,
           uom: row.uom ?? null,
           dateReceived: row.dateReceived ?? null,
           isUrgent: false,
+          dueAt: null,
         });
       }
 
@@ -2755,14 +3413,48 @@ export class DatabaseStorage implements IStorage {
         tasks.push({
           id: `rejected-${row.id}`,
           taskType: "REJECTED_LOT",
-          receivingRecordId: row.id,
-          receivingIdentifier: row.receivingIdentifier,
-          materialName: row.materialName ?? null,
-          supplierName: row.supplierName ?? null,
+          sourceModule: "RECEIVING",
+          sourceRecordId: row.id,
+          sourceIdentifier: row.receivingIdentifier,
+          primaryLabel: row.materialName ?? null,
+          secondaryLabel: row.supplierName ?? null,
           quantityReceived: row.quantityReceived ?? null,
           uom: row.uom ?? null,
           dateReceived: row.dateReceived ?? null,
           isUrgent: true,
+          dueAt: null,
+        });
+      }
+    }
+
+    // LAB_TECH complaint lab retests
+    if (isLabTech) {
+      const retestRows = await db
+        .select({
+          id: schema.complaintLabRetests.id,
+          complaintId: schema.complaintLabRetests.complaintId,
+          method: schema.complaintLabRetests.method,
+          helpcoreRef: schema.complaints.helpcoreRef,
+          customerEmail: schema.complaints.customerEmail,
+        })
+        .from(schema.complaintLabRetests)
+        .innerJoin(schema.complaints, eq(schema.complaints.id, schema.complaintLabRetests.complaintId))
+        .where(isNull(schema.complaintLabRetests.completedAt));
+
+      for (const row of retestRows) {
+        tasks.push({
+          id: `retest-${row.id}`,
+          taskType: "COMPLAINT_LAB_RETEST",
+          sourceModule: "COMPLAINT",
+          sourceRecordId: row.complaintId,
+          sourceIdentifier: row.helpcoreRef,
+          primaryLabel: row.method,
+          secondaryLabel: row.customerEmail,
+          quantityReceived: null,
+          uom: null,
+          dateReceived: null,
+          isUrgent: false,
+          dueAt: null,
         });
       }
     }

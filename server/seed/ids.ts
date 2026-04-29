@@ -9,6 +9,8 @@
 // All IDs use only hex characters so they are valid for both uuid and varchar
 // columns. Pattern: 00000000-0000-00NN-0000-00000000000K where NN = namespace
 // (01..0b) and K = sequence within namespace.
+export const HELPCORE_SYSTEM_USER_ID = "00000000-0000-0000-cafe-000000000001";
+
 export const seedIds = {
   users: {
     frederik:       "00000000-0000-0001-0000-000000000008",

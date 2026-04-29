@@ -113,6 +113,41 @@
       "when": 1745500700000,
       "tag": "0015_t07_lab_qualifications",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1745500800000,
+      "tag": "0016_t08_oos_investigations",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1745500900000,
+      "tag": "0017_r03_equipment_cleaning",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1745501000000,
+      "tag": "0018_r04_labeling_reconciliation",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1745501100000,
+      "tag": "0019_r05_complaints_saer",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1745501200000,
+      "tag": "0020_r06_returned_product",
+      "breakpoints": true
     }
   ]
 }

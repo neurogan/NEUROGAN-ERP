@@ -11,7 +11,7 @@ export default defineConfig({
   test: {
     globals: true,
     environment: "node",
-    include: ["shared/**/*.test.ts", "server/**/*.test.ts", "client/**/*.test.{ts,tsx}"],
+    include: ["shared/**/*.test.ts", "server/**/*.test.ts", "client/**/*.test.{ts,tsx}", "migrations/**/*.test.ts"],
     exclude: ["node_modules/**", "dist/**", "build/**", "FDA/**"],
     testTimeout: 10_000,
   },

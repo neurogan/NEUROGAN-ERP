@@ -45,7 +45,7 @@ import {
   Clock,
   User,
 } from "lucide-react";
-import type { BprWithDetails, BprStep, BprDeviation } from "@shared/schema";
+import type { BprWithDetails, BprStep, BprDeviation, Sop } from "@shared/schema";
 import { SignatureCeremony } from "@/components/SignatureCeremony";
 
 // ── Status helpers ──
@@ -303,7 +303,7 @@ function EquipmentCleaning({
   const [processingLines, setProcessingLines] = useState(bpr.processingLines ?? "");
   const [cleaningVerified, setCleaningVerified] = useState(bpr.cleaningVerified === "true");
   const [cleaningVerifiedBy, setCleaningVerifiedBy] = useState(bpr.cleaningVerifiedBy ?? "");
-  const [cleaningRecordRef, setCleaningRecordRef] = useState(bpr.cleaningRecordReference ?? "");
+  const [cleaningRecordRef, setCleaningRecordRef] = useState(bpr.cleaningRecordLegacyText ?? "");
 
   const saveMutation = useMutation({
     mutationFn: async () => {
@@ -312,7 +312,7 @@ function EquipmentCleaning({
         cleaningVerified: cleaningVerified ? "true" : "false",
         cleaningVerifiedBy: cleaningVerified ? cleaningVerifiedBy : null,
         cleaningVerifiedAt: cleaningVerified ? new Date().toISOString() : null,
-        cleaningRecordReference: cleaningRecordRef || null,
+        cleaningRecordLegacyText: cleaningRecordRef || null,
       });
     },
     onSuccess: () => {
@@ -472,8 +472,18 @@ function StepCard({
   const [testResults, setTestResults] = useState(step.testResults ?? "");
   const [testReference, setTestReference] = useState(step.testReference ?? "");
   const [notes, setNotes] = useState(step.notes ?? "");
+  const [sopKey, setSopKey] = useState(
+    step.sopCode && step.sopVersion ? `${step.sopCode}::${step.sopVersion}` : "",
+  );
 
   const hasComponent = !!step.componentId;
+
+  const { data: allSops } = useQuery<Sop[]>({
+    queryKey: ["/api/sops"],
+    queryFn: async () => (await apiRequest("GET", "/api/sops")).json(),
+    enabled: !isReadOnly,
+  });
+  const approvedSops = (allSops ?? []).filter((s) => s.status === "APPROVED");
 
   // Dual verification checks
   const performVerifyConflict = performedBy.trim() !== "" && verifiedBy.trim() !== "" && performedBy.trim().toLowerCase() === verifiedBy.trim().toLowerCase();
@@ -498,6 +508,8 @@ function StepCard({
         testReference: testReference || null,
         notes: notes || null,
         status: verifiedBy ? "VERIFIED" : performedBy ? "COMPLETED" : "IN_PROGRESS",
+        sopCode: sopKey ? sopKey.split("::")[0] ?? null : null,
+        sopVersion: sopKey ? sopKey.split("::")[1] ?? null : null,
       });
     },
     onSuccess: () => {
@@ -675,6 +687,35 @@ function StepCard({
           data-testid={`input-step-notes-${step.id}`}
         />
       </div>
+
+      {/* SOP citation */}
+      {!isReadOnly && (
+        <div>
+          <Label className="text-xs text-muted-foreground">Referenced SOP (optional)</Label>
+          <Select
+            value={sopKey}
+            onValueChange={setSopKey}
+          >
+            <SelectTrigger className="mt-1 h-7 text-xs" data-testid={`select-sop-${step.id}`}>
+              <SelectValue placeholder="— None —" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="">— None —</SelectItem>
+              {approvedSops.map((s) => (
+                <SelectItem key={s.id} value={`${s.code}::${s.version}`}>
+                  {s.code} v{s.version} — {s.title}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+      {isReadOnly && (step.sopCode) && (
+        <div>
+          <Label className="text-xs text-muted-foreground">Referenced SOP</Label>
+          <p className="text-xs mt-1 font-mono" data-testid={`text-sop-${step.id}`}>{step.sopCode} v{step.sopVersion}</p>
+        </div>
+      )}
 
       {/* Save button */}
       {!isReadOnly && (

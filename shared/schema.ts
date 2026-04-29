@@ -4,6 +4,7 @@ import {
   varchar,
   decimal,
   timestamp,
+  date,
   pgEnum,
   uuid,
   integer,
@@ -345,7 +346,8 @@ export const batchProductionRecords = pgTable("erp_batch_production_records", {
   cleaningVerified: text("cleaning_verified"), // "true"/"false"
   cleaningVerifiedBy: text("cleaning_verified_by"),
   cleaningVerifiedAt: timestamp("cleaning_verified_at"),
-  cleaningRecordReference: text("cleaning_record_reference"),
+  cleaningRecordLegacyText: text("cleaning_record_legacy_text"),
+  cleaningLogId: uuid("cleaning_log_id"),
   // QC Review (Sec. 111.260(l))
   qcReviewedBy: text("qc_reviewed_by"),
   qcReviewedAt: timestamp("qc_reviewed_at"),
@@ -386,6 +388,9 @@ export const bprSteps = pgTable("erp_bpr_steps", {
   notes: text("notes"),
   status: text("status").notNull().default("PENDING"), // PENDING, IN_PROGRESS, COMPLETED, VERIFIED
   createdAt: timestamp("created_at").defaultNow(),
+  // R-04 Obs 10: SOP citation on BPR steps (soft FK — enforced in storage layer)
+  sopCode: text("sop_code"),
+  sopVersion: text("sop_version"),
 });
 
 // BPR Deviations (Sec. 111.140(b)(3))
@@ -416,6 +421,98 @@ export const productionNotes = pgTable("erp_production_notes", {
   author: text("author"),
   createdAt: timestamp("created_at").defaultNow(),
 });
+
+// ─── R-03 Equipment & Cleaning ────────────────────────────────────────────
+
+export const equipment = pgTable("erp_equipment", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  assetTag: text("asset_tag").notNull().unique(),
+  name: text("name").notNull(),
+  model: text("model"),
+  serial: text("serial"),
+  manufacturer: text("manufacturer"),
+  locationId: varchar("location_id"),
+  status: text("status").notNull().default("ACTIVE").$type<"ACTIVE" | "RETIRED">(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const equipmentQualifications = pgTable("erp_equipment_qualifications", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  equipmentId: uuid("equipment_id").notNull().references(() => equipment.id),
+  type: text("type").notNull().$type<"IQ" | "OQ" | "PQ">(),
+  status: text("status").notNull().$type<"PENDING" | "QUALIFIED" | "EXPIRED">(),
+  validFrom: text("valid_from"),    // ISO date "YYYY-MM-DD"
+  validUntil: text("valid_until"),  // ISO date "YYYY-MM-DD"
+  signatureId: uuid("signature_id").references(() => electronicSignatures.id),
+  documentUrl: text("document_url"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const calibrationSchedules = pgTable("erp_calibration_schedules", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  equipmentId: uuid("equipment_id").notNull().unique().references(() => equipment.id),
+  frequencyDays: integer("frequency_days").notNull(),
+  nextDueAt: timestamp("next_due_at", { withTimezone: true }).notNull(),
+  lastRecordId: uuid("last_record_id"),
+});
+
+export const calibrationRecords = pgTable("erp_calibration_records", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  equipmentId: uuid("equipment_id").notNull().references(() => equipment.id),
+  performedAt: timestamp("performed_at", { withTimezone: true }).notNull().defaultNow(),
+  performedByUserId: uuid("performed_by_user_id").notNull().references(() => users.id),
+  result: text("result").notNull().$type<"PASS" | "FAIL">(),
+  certUrl: text("cert_url"),
+  signatureId: uuid("signature_id").notNull().references(() => electronicSignatures.id),
+  notes: text("notes"),
+});
+
+export const cleaningLogs = pgTable("erp_cleaning_logs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  equipmentId: uuid("equipment_id").notNull().references(() => equipment.id),
+  cleanedAt: timestamp("cleaned_at", { withTimezone: true }).notNull().defaultNow(),
+  cleanedByUserId: uuid("cleaned_by_user_id").notNull().references(() => users.id),
+  verifiedByUserId: uuid("verified_by_user_id").notNull().references(() => users.id),
+  method: text("method"),
+  priorProductId: varchar("prior_product_id"),
+  nextProductId: varchar("next_product_id"),
+  signatureId: uuid("signature_id").notNull().references(() => electronicSignatures.id),
+  notes: text("notes"),
+});
+
+export const lineClearances = pgTable("erp_line_clearances", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  equipmentId: uuid("equipment_id").notNull().references(() => equipment.id),
+  productChangeFromId: varchar("product_change_from_id"),
+  productChangeToId: varchar("product_change_to_id").notNull(),
+  performedAt: timestamp("performed_at", { withTimezone: true }).notNull().defaultNow(),
+  performedByUserId: uuid("performed_by_user_id").notNull().references(() => users.id),
+  signatureId: uuid("signature_id").notNull().references(() => electronicSignatures.id),
+  notes: text("notes"),
+});
+
+export const productEquipment = pgTable("erp_product_equipment", {
+  productId: varchar("product_id").notNull(),
+  equipmentId: uuid("equipment_id").notNull().references(() => equipment.id),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.productId, t.equipmentId] }),
+}));
+
+export const productionBatchEquipmentUsed = pgTable("erp_production_batch_equipment_used", {
+  productionBatchId: varchar("production_batch_id").notNull(),
+  equipmentId: uuid("equipment_id").notNull().references(() => equipment.id),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.productionBatchId, t.equipmentId] }),
+}));
+
+export type Equipment = typeof equipment.$inferSelect;
+export type InsertEquipment = typeof equipment.$inferInsert;
+export type EquipmentQualification = typeof equipmentQualifications.$inferSelect;
+export type CalibrationSchedule = typeof calibrationSchedules.$inferSelect;
+export type CalibrationRecord = typeof calibrationRecords.$inferSelect;
+export type CleaningLog = typeof cleaningLogs.$inferSelect;
+export type LineClearance = typeof lineClearances.$inferSelect;
 
 // Supplier Documents (contracts, COAs, etc.)
 export const supplierDocuments = pgTable("erp_supplier_documents", {
@@ -478,6 +575,19 @@ export const insertSupplierQualificationSchema = createInsertSchema(supplierQual
 export const insertBprSchema = createInsertSchema(batchProductionRecords).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertBprStepSchema = createInsertSchema(bprSteps).omit({ id: true, createdAt: true });
 export const insertBprDeviationSchema = createInsertSchema(bprDeviations).omit({ id: true, createdAt: true });
+export const insertEquipmentSchema = createInsertSchema(equipment, {
+  assetTag: z.string().min(1),
+  name: z.string().min(1),
+}).pick({
+  assetTag: true,
+  name: true,
+  model: true,
+  serial: true,
+  manufacturer: true,
+  locationId: true,
+});
+
+export type InsertEquipmentDomain = z.infer<typeof insertEquipmentSchema>;
 
 // Types
 export type Product = typeof products.$inferSelect;
@@ -798,6 +908,44 @@ export const auditActionEnum = z.enum([
   "LAB_RESULT_ADDED",
   "LAB_QUALIFIED",
   "LAB_DISQUALIFIED",
+  "OOS_OPENED",
+  "OOS_CLOSED",
+  "EQUIPMENT_CREATED",
+  "EQUIPMENT_RETIRED",
+  "EQUIPMENT_QUALIFIED",
+  "EQUIPMENT_DISQUALIFIED",
+  "CALIBRATION_SCHEDULE_CREATED",
+  "CALIBRATION_LOGGED",
+  "CLEANING_LOGGED",
+  "LINE_CLEARANCE_LOGGED",
+  "START_BLOCKED",
+  "LABEL_ARTWORK_CREATED",
+  "LABEL_ARTWORK_APPROVED",
+  "LABEL_ARTWORK_RETIRED",
+  "LABEL_SPOOL_RECEIVED",
+  "LABEL_SPOOL_DISPOSED",
+  "LABEL_ISSUED",
+  "LABEL_PRINTED",
+  "LABEL_RECONCILED",
+  "SOP_CREATED",
+  "SOP_APPROVED",
+  "SOP_RETIRED",
+  // R-05 Complaints & SAER
+  "COMPLAINT_INTAKE",
+  "COMPLAINT_LOT_LINKED",
+  "COMPLAINT_TRIAGED",
+  "COMPLAINT_INVESTIGATED",
+  "COMPLAINT_INVESTIGATION_PACKAGED",
+  "COMPLAINT_LAB_RETEST_REQUESTED",
+  "COMPLAINT_LAB_RETEST_COMPLETED",
+  "COMPLAINT_AE_URGENT_REVIEWED",
+  "COMPLAINT_DISPOSITION_SIGNED",
+  "SAER_SUBMITTED",
+  "SAER_ACKNOWLEDGED",
+  "RETURN_INTAKE",
+  "RETURN_DISPOSITION_SIGNED",
+  "RETURN_INVESTIGATION_OPENED",
+  "RETURN_INVESTIGATION_CLOSED",
 ]);
 export type AuditAction = z.infer<typeof auditActionEnum>;
 
@@ -846,6 +994,21 @@ export const signatureMeaningEnum = z.enum([
   "SPEC_APPROVAL",
   "LAB_APPROVAL",
   "LAB_DISQUALIFICATION",
+  "OOS_INVESTIGATION_CLOSE",
+  "EQUIPMENT_QUALIFIED",
+  "EQUIPMENT_DISQUALIFIED",
+  "CALIBRATION_RECORDED",
+  "CLEANING_VERIFIED",
+  "LINE_CLEARANCE",
+  "ARTWORK_APPROVED",
+  "ARTWORK_RETIRED",
+  "LABEL_SPOOL_RECEIVED",
+  "LABEL_PRINT_BATCH",
+  "LABEL_RECONCILED",
+  "SOP_APPROVED",
+  "SOP_RETIRED",
+  "RETURNED_PRODUCT_DISPOSITION",
+  "RETURN_INVESTIGATION_CLOSE",
 ]);
 export type SignatureMeaning = z.infer<typeof signatureMeaningEnum>;
 
@@ -945,3 +1108,432 @@ export const insertLabQualificationSchema = createInsertSchema(labQualifications
 export type LabQualification = typeof labQualifications.$inferSelect;
 export type InsertLabQualification = z.infer<typeof insertLabQualificationSchema>;
 export type LabQualificationWithDetails = LabQualification & { performedByName: string };
+
+// ─── T-08 OOS investigations ──────────────────────────────────────────────
+
+export const oosStatusEnum = z.enum(["OPEN", "RETEST_PENDING", "CLOSED"]);
+export type OosStatus = z.infer<typeof oosStatusEnum>;
+
+export const oosDispositionEnum = z.enum(["APPROVED", "REJECTED", "RECALL", "NO_INVESTIGATION_NEEDED"]);
+export type OosDisposition = z.infer<typeof oosDispositionEnum>;
+
+export const oosNoInvestigationReasonEnum = z.enum([
+  "LAB_ERROR", "SAMPLE_INVALID", "INSTRUMENT_OUT_OF_CALIBRATION", "OTHER",
+]);
+export type OosNoInvestigationReason = z.infer<typeof oosNoInvestigationReasonEnum>;
+
+export const oosRecallClassEnum = z.enum(["I", "II", "III"]);
+export type OosRecallClass = z.infer<typeof oosRecallClassEnum>;
+
+export const oosInvestigations = pgTable("erp_oos_investigations", {
+  id:                              uuid("id").primaryKey().defaultRandom(),
+  oosNumber:                       text("oos_number").notNull().unique(),
+  coaDocumentId:                   varchar("coa_document_id").notNull().references(() => coaDocuments.id),
+  lotId:                           varchar("lot_id").notNull().references(() => lots.id),
+  status:                          text("status").$type<OosStatus>().notNull().default("OPEN"),
+  disposition:                     text("disposition").$type<OosDisposition | null>(),
+  dispositionReason:               text("disposition_reason"),
+  noInvestigationReason:           text("no_investigation_reason").$type<OosNoInvestigationReason | null>(),
+  recallClass:                     text("recall_class").$type<OosRecallClass | null>(),
+  recallDistributionScope:         text("recall_distribution_scope"),
+  recallFdaNotificationDate:       date("recall_fda_notification_date"),
+  recallCustomerNotificationDate:  date("recall_customer_notification_date"),
+  recallRecoveryTargetDate:        date("recall_recovery_target_date"),
+  recallAffectedLotIds:            varchar("recall_affected_lot_ids").array(),
+  leadInvestigatorUserId:          uuid("lead_investigator_user_id").references(() => users.id),
+  autoCreatedAt:                   timestamp("auto_created_at", { withTimezone: true }).notNull().defaultNow(),
+  closedByUserId:                  uuid("closed_by_user_id").references(() => users.id),
+  closedAt:                        timestamp("closed_at", { withTimezone: true }),
+  closureSignatureId:              uuid("closure_signature_id").references(() => electronicSignatures.id),
+  createdAt:                       timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt:                       timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type OosInvestigation = typeof oosInvestigations.$inferSelect;
+export const insertOosInvestigationSchema = createInsertSchema(oosInvestigations);
+export type InsertOosInvestigation = z.infer<typeof insertOosInvestigationSchema>;
+
+export type OosInvestigationDetail = OosInvestigation & {
+  lotNumber: string | null;
+  coaDocumentNumber: string | null;
+  testResults: Array<{
+    id: string;
+    analyteName: string;
+    resultValue: string;
+    specMin: string | null;
+    specMax: string | null;
+    pass: boolean;
+    testedAt: Date;
+    testedByUserId: string;
+    testedByName: string | null;
+    notes: string | null;
+  }>;
+  leadInvestigatorName: string | null;
+  closedByName: string | null;
+};
+
+export type OosInvestigationSummary = {
+  id: string;
+  oosNumber: string;
+  lotId: string;
+  lotNumber: string | null;
+  coaDocumentId: string;
+  status: OosStatus;
+  disposition: OosDisposition | null;
+  autoCreatedAt: Date;
+  closedAt: Date | null;
+};
+
+export const oosInvestigationTestResults = pgTable("erp_oos_investigation_test_results", {
+  investigationId:  uuid("investigation_id").notNull().references(() => oosInvestigations.id, { onDelete: "cascade" }),
+  labTestResultId:  uuid("lab_test_result_id").notNull().references(() => labTestResults.id),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.investigationId, t.labTestResultId] }),
+}));
+
+export const oosInvestigationCounter = pgTable("erp_oos_investigation_counter", {
+  year:    integer("year").primaryKey(),
+  lastSeq: integer("last_seq").notNull().default(0),
+});
+
+// ─── R-04 Labeling & Reconciliation ───────────────────────────────────────
+//
+// Closes FDA Form 483 Obs 9 (§111.415(f), §111.260(g) — label reconciliation)
+// and the ERP side of Obs 10 (§111.415 — labeling/packaging SOPs).
+
+// App settings key-value store (distinct from the wide erp_app_settings table).
+// Used for runtime-configurable labeling settings: adapter, tolerance, host, port.
+export const appSettingsKv = pgTable("erp_app_settings_kv", {
+  key:       text("key").primaryKey().notNull(),
+  value:     text("value").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type AppSettingsKv = typeof appSettingsKv.$inferSelect;
+export const insertAppSettingsKvSchema = createInsertSchema(appSettingsKv).omit({ updatedAt: true });
+export type InsertAppSettingsKv = z.infer<typeof insertAppSettingsKvSchema>;
+
+// Label artwork master — one row per product/version pair.
+export const labelArtwork = pgTable("erp_label_artwork", {
+  id:                      uuid("id").primaryKey().defaultRandom(),
+  productId:               varchar("product_id").notNull().references(() => products.id),
+  version:                 text("version").notNull(),
+  artworkFileData:         text("artwork_file_data").notNull(),
+  artworkFileName:         text("artwork_file_name").notNull(),
+  artworkMimeType:         text("artwork_mime_type").notNull(),
+  variableDataSpec:        jsonb("variable_data_spec")
+                             .notNull()
+                             .$type<Record<string, boolean>>()
+                             .default({}),
+  status:                  text("status").notNull().default("DRAFT")
+                             .$type<"DRAFT" | "APPROVED" | "RETIRED">(),
+  approvedBySignatureId:   uuid("approved_by_signature_id")
+                             .references(() => electronicSignatures.id),
+  approvedAt:              timestamp("approved_at", { withTimezone: true }),
+  retiredBySignatureId:    uuid("retired_by_signature_id")
+                             .references(() => electronicSignatures.id),
+  retiredAt:               timestamp("retired_at", { withTimezone: true }),
+  createdAt:               timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  uniqProductVersion: unique().on(t.productId, t.version),
+}));
+
+export type LabelArtwork = typeof labelArtwork.$inferSelect;
+export const insertLabelArtworkSchema = createInsertSchema(labelArtwork).omit({
+  id: true, createdAt: true,
+});
+export type InsertLabelArtwork = z.infer<typeof insertLabelArtworkSchema>;
+
+// Label spools — physical rolls of pre-printed labels in the label cage.
+export const labelSpools = pgTable("erp_label_spools", {
+  id:                       uuid("id").primaryKey().defaultRandom(),
+  artworkId:                uuid("artwork_id").notNull().references(() => labelArtwork.id),
+  spoolNumber:              text("spool_number").notNull(),
+  qtyInitial:               integer("qty_initial").notNull(),
+  qtyOnHand:                integer("qty_on_hand").notNull(),
+  locationId:               varchar("location_id").references(() => locations.id),
+  status:                   text("status").notNull().default("ACTIVE")
+                              .$type<"ACTIVE" | "DEPLETED" | "QUARANTINED" | "DISPOSED">(),
+  receivedBySignatureId:    uuid("received_by_signature_id")
+                              .references(() => electronicSignatures.id),
+  disposedBySignatureId:    uuid("disposed_by_signature_id")
+                              .references(() => electronicSignatures.id),
+  disposedAt:               timestamp("disposed_at", { withTimezone: true }),
+  disposeReason:            text("dispose_reason"),
+  createdAt:                timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  uniqArtworkSpool: unique().on(t.artworkId, t.spoolNumber),
+}));
+
+export type LabelSpool = typeof labelSpools.$inferSelect;
+export const insertLabelSpoolSchema = createInsertSchema(labelSpools).omit({
+  id: true, createdAt: true,
+});
+export type InsertLabelSpool = z.infer<typeof insertLabelSpoolSchema>;
+
+// Label issuance log — spool check-out events tied to a BPR.
+export const labelIssuanceLog = pgTable("erp_label_issuance_log", {
+  id:              uuid("id").primaryKey().defaultRandom(),
+  bprId:           varchar("bpr_id").notNull().references(() => batchProductionRecords.id),
+  spoolId:         uuid("spool_id").notNull().references(() => labelSpools.id),
+  artworkId:       uuid("artwork_id").notNull().references(() => labelArtwork.id),
+  quantityIssued:  integer("quantity_issued").notNull(),
+  issuedByUserId:  uuid("issued_by_user_id").notNull().references(() => users.id),
+  issuedAt:        timestamp("issued_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type LabelIssuanceLog = typeof labelIssuanceLog.$inferSelect;
+export const insertLabelIssuanceLogSchema = createInsertSchema(labelIssuanceLog).omit({
+  id: true, issuedAt: true,
+});
+export type InsertLabelIssuanceLog = z.infer<typeof insertLabelIssuanceLogSchema>;
+
+// Label print jobs — audit trail for each thermal print event.
+export const labelPrintJobs = pgTable("erp_label_print_jobs", {
+  id:               uuid("id").primaryKey().defaultRandom(),
+  issuanceLogId:    uuid("issuance_log_id").notNull().references(() => labelIssuanceLog.id),
+  lot:              text("lot").notNull(),
+  expiry:           date("expiry").notNull(),
+  qtyPrinted:       integer("qty_printed").notNull(),
+  adapter:          text("adapter").notNull().$type<"ZPL_TCP" | "STUB">(),
+  status:           text("status").notNull().$type<"SUCCESS" | "FAILED" | "PARTIAL">(),
+  resultJson:       jsonb("result_json").$type<Record<string, unknown>>(),
+  signatureId:      uuid("signature_id").references(() => electronicSignatures.id),
+  createdAt:        timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type LabelPrintJob = typeof labelPrintJobs.$inferSelect;
+export const insertLabelPrintJobSchema = createInsertSchema(labelPrintJobs).omit({
+  id: true, createdAt: true,
+});
+export type InsertLabelPrintJob = z.infer<typeof insertLabelPrintJobSchema>;
+
+// Label reconciliations — one-per-BPR mandatory closure record.
+export const labelReconciliations = pgTable("erp_label_reconciliations", {
+  id:                 uuid("id").primaryKey().defaultRandom(),
+  bprId:              varchar("bpr_id").notNull().references(() => batchProductionRecords.id),
+  qtyIssued:          integer("qty_issued").notNull(),
+  qtyApplied:         integer("qty_applied").notNull(),
+  qtyDestroyed:       integer("qty_destroyed").notNull(),
+  qtyReturned:        integer("qty_returned").notNull(),
+  variance:           integer("variance").notNull(),
+  toleranceExceeded:  boolean("tolerance_exceeded").notNull().default(false),
+  proofFileData:      text("proof_file_data"),
+  proofMimeType:      text("proof_mime_type"),
+  deviationId:        varchar("deviation_id").references(() => bprDeviations.id),
+  signatureId:        uuid("signature_id").references(() => electronicSignatures.id),
+  reconciledAt:       timestamp("reconciled_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  uniqBpr: unique().on(t.bprId),
+}));
+
+export type LabelReconciliation = typeof labelReconciliations.$inferSelect;
+export const insertLabelReconciliationSchema = createInsertSchema(labelReconciliations).omit({
+  id: true, reconciledAt: true,
+});
+export type InsertLabelReconciliation = z.infer<typeof insertLabelReconciliationSchema>;
+
+// SOPs registry — minimal table for Obs 10.
+export const sops = pgTable("erp_sops", {
+  id:                     uuid("id").primaryKey().defaultRandom(),
+  code:                   text("code").notNull(),
+  title:                  text("title").notNull(),
+  version:                text("version").notNull(),
+  status:                 text("status").notNull().default("DRAFT")
+                            .$type<"DRAFT" | "APPROVED" | "RETIRED">(),
+  approvedBySignatureId:  uuid("approved_by_signature_id")
+                            .references(() => electronicSignatures.id),
+  approvedAt:             timestamp("approved_at", { withTimezone: true }),
+  retiredBySignatureId:   uuid("retired_by_signature_id")
+                            .references(() => electronicSignatures.id),
+  retiredAt:              timestamp("retired_at", { withTimezone: true }),
+  createdAt:              timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  uniqCodeVersion: unique().on(t.code, t.version),
+}));
+
+export type Sop = typeof sops.$inferSelect;
+export const insertSopSchema = createInsertSchema(sops).omit({
+  id: true, createdAt: true,
+});
+export type InsertSop = z.infer<typeof insertSopSchema>;
+
+// ─── R-05: Complaints & SAER ──────────────────────────────────────────────────
+
+export type ComplaintStatus = "TRIAGE" | "LOT_UNRESOLVED" | "INVESTIGATION" | "AE_URGENT_REVIEW" | "AWAITING_DISPOSITION" | "CLOSED" | "CANCELLED";
+export type ComplaintSeverity = "LOW" | "MEDIUM" | "HIGH";
+export type ComplaintDefectCategory = "FOREIGN_MATTER" | "LABEL" | "POTENCY" | "TASTE_SMELL" | "PACKAGE" | "CUSTOMER_USE_ERROR" | "OTHER";
+export type ComplaintSource = "HELPCORE" | "MANUAL";
+export type AdverseEventStatus = "OPEN" | "SUBMITTED" | "CLOSED";
+
+export const complaints = pgTable("erp_complaints", {
+  id:                     uuid("id").primaryKey().defaultRandom(),
+  helpcoreRef:            text("helpcore_ref").notNull().unique(),
+  source:                 text("source").$type<ComplaintSource>().notNull(),
+  customerName:           text("customer_name").notNull(),
+  customerEmail:          text("customer_email").notNull(),
+  customerPhone:          text("customer_phone"),
+  complaintText:          text("complaint_text").notNull(),
+  lotCodeRaw:             text("lot_code_raw").notNull(),
+  lotId:                  varchar("lot_id").references(() => lots.id),
+  status:                 text("status").$type<ComplaintStatus>().notNull(),
+  severity:               text("severity").$type<ComplaintSeverity>(),
+  defectCategory:         text("defect_category").$type<ComplaintDefectCategory>(),
+  aeFlag:                 boolean("ae_flag").notNull().default(false),
+  assignedUserId:         uuid("assigned_user_id").references(() => users.id),
+  intakeAt:               timestamp("intake_at", { withTimezone: true }).notNull(),
+  triagedAt:              timestamp("triaged_at", { withTimezone: true }),
+  investigatedAt:         timestamp("investigated_at", { withTimezone: true }),
+  dispositionedAt:        timestamp("dispositioned_at", { withTimezone: true }),
+  closedAt:               timestamp("closed_at", { withTimezone: true }),
+  dispositionSignatureId: uuid("disposition_signature_id").references(() => electronicSignatures.id),
+  dispositionSummary:     text("disposition_summary"),
+  capaRequired:           boolean("capa_required"),
+  capaRef:                text("capa_ref"),
+  helpcoreCallbackAt:     timestamp("helpcore_callback_at", { withTimezone: true }),
+  createdAt:              timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt:              timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  createdByUserId:        uuid("created_by_user_id").notNull().references(() => users.id),
+});
+
+export type Complaint = typeof complaints.$inferSelect;
+export const insertComplaintSchema = createInsertSchema(complaints).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertComplaint = z.infer<typeof insertComplaintSchema>;
+
+export const complaintTriages = pgTable("erp_complaint_triages", {
+  id:                 uuid("id").primaryKey().defaultRandom(),
+  complaintId:        uuid("complaint_id").notNull().references(() => complaints.id),
+  triagedByUserId:    uuid("triaged_by_user_id").notNull().references(() => users.id),
+  triagedAt:          timestamp("triaged_at", { withTimezone: true }).notNull(),
+  severity:           text("severity").$type<ComplaintSeverity>().notNull(),
+  defectCategory:     text("defect_category").$type<ComplaintDefectCategory>().notNull(),
+  aeFlag:             boolean("ae_flag").notNull(),
+  batchLinkConfirmed: boolean("batch_link_confirmed").notNull(),
+  notes:              text("notes"),
+  createdAt:          timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type ComplaintTriage = typeof complaintTriages.$inferSelect;
+
+export const complaintInvestigations = pgTable("erp_complaint_investigations", {
+  id:                    uuid("id").primaryKey().defaultRandom(),
+  complaintId:           uuid("complaint_id").notNull().references(() => complaints.id),
+  investigatedByUserId:  uuid("investigated_by_user_id").notNull().references(() => users.id),
+  investigatedAt:        timestamp("investigated_at", { withTimezone: true }).notNull(),
+  rootCause:             text("root_cause").notNull(),
+  scope:                 text("scope").notNull(),
+  bprId:                 varchar("bpr_id").references(() => batchProductionRecords.id),
+  coaId:                 varchar("coa_id").references(() => coaDocuments.id),
+  retestRequired:        boolean("retest_required").notNull(),
+  summaryForReview:      text("summary_for_review").notNull(),
+  packagedAt:            timestamp("packaged_at", { withTimezone: true }),
+  packagedByUserId:      uuid("packaged_by_user_id").references(() => users.id),
+  createdAt:             timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt:             timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type ComplaintInvestigation = typeof complaintInvestigations.$inferSelect;
+
+export const complaintLabRetests = pgTable("erp_complaint_lab_retests", {
+  id:                  uuid("id").primaryKey().defaultRandom(),
+  complaintId:         uuid("complaint_id").notNull().references(() => complaints.id),
+  investigationId:     uuid("investigation_id").notNull().references(() => complaintInvestigations.id),
+  requestedByUserId:   uuid("requested_by_user_id").notNull().references(() => users.id),
+  requestedAt:         timestamp("requested_at", { withTimezone: true }).notNull(),
+  lotId:               varchar("lot_id").notNull().references(() => lots.id),
+  method:              text("method").notNull(),
+  assignedLabUserId:   uuid("assigned_lab_user_id").notNull().references(() => users.id),
+  labTestResultId:     uuid("lab_test_result_id").references(() => labTestResults.id),
+  completedAt:         timestamp("completed_at", { withTimezone: true }),
+  createdAt:           timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type ComplaintLabRetest = typeof complaintLabRetests.$inferSelect;
+
+export const adverseEvents = pgTable("erp_adverse_events", {
+  id:                       uuid("id").primaryKey().defaultRandom(),
+  complaintId:              uuid("complaint_id").notNull().unique().references(() => complaints.id),
+  serious:                  boolean("serious").notNull(),
+  seriousCriteria:          jsonb("serious_criteria").$type<Record<string, boolean>>().notNull(),
+  urgentReviewedByUserId:   uuid("urgent_reviewed_by_user_id").notNull().references(() => users.id),
+  urgentReviewedAt:         timestamp("urgent_reviewed_at", { withTimezone: true }).notNull(),
+  medwatchRequired:         boolean("medwatch_required").notNull(),
+  clockStartedAt:           timestamp("clock_started_at", { withTimezone: true }).notNull(),
+  dueAt:                    timestamp("due_at", { withTimezone: true }).notNull(),
+  status:                   text("status").$type<AdverseEventStatus>().notNull().default("OPEN"),
+  createdAt:                timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt:                timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type AdverseEvent = typeof adverseEvents.$inferSelect;
+
+export const saerSubmissions = pgTable("erp_saer_submissions", {
+  id:                    uuid("id").primaryKey().defaultRandom(),
+  adverseEventId:        uuid("adverse_event_id").notNull().unique().references(() => adverseEvents.id),
+  draftJson:             jsonb("draft_json").$type<Record<string, unknown>>().notNull(),
+  submittedAt:           timestamp("submitted_at", { withTimezone: true }),
+  submittedByUserId:     uuid("submitted_by_user_id").references(() => users.id),
+  signatureId:           uuid("signature_id").references(() => electronicSignatures.id),
+  acknowledgmentRef:     text("acknowledgment_ref"),
+  submissionProofPath:   text("submission_proof_path"),
+  createdAt:             timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt:             timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type SaerSubmission = typeof saerSubmissions.$inferSelect;
+
+// ─── R-06 Returned Products ────────────────────────────────────────────────
+
+export type ReturnSource = "AMAZON_FBA" | "WHOLESALE" | "OTHER";
+export type ReturnedProductStatus = "QUARANTINE" | "DISPOSED";
+export type ReturnDisposition = "RETURN_TO_INVENTORY" | "DESTROY";
+export type ReturnInvestigationStatus = "OPEN" | "CLOSED";
+
+export const returnedProducts = pgTable("erp_returned_products", {
+  id:                     uuid("id").primaryKey().defaultRandom(),
+  returnRef:              text("return_ref").notNull().unique(),
+  source:                 text("source").$type<ReturnSource>().notNull(),
+  lotId:                  varchar("lot_id").references(() => lots.id),
+  lotCodeRaw:             text("lot_code_raw").notNull(),
+  qtyReturned:            integer("qty_returned").notNull(),
+  uom:                    text("uom").notNull(),
+  wholesaleCustomerName:  text("wholesale_customer_name"),
+  carrierTrackingRef:     text("carrier_tracking_ref"),
+  receivedByUserId:       uuid("received_by_user_id").notNull().references(() => users.id),
+  receivedAt:             timestamp("received_at", { withTimezone: true }).notNull(),
+  conditionNotes:         text("condition_notes"),
+  status:                 text("status").$type<ReturnedProductStatus>().notNull().default("QUARANTINE"),
+  disposition:            text("disposition").$type<ReturnDisposition>(),
+  dispositionNotes:       text("disposition_notes"),
+  dispositionSignatureId: uuid("disposition_signature_id").references(() => electronicSignatures.id),
+  dispositionedByUserId:  uuid("dispositioned_by_user_id").references(() => users.id),
+  dispositionedAt:        timestamp("dispositioned_at", { withTimezone: true }),
+  investigationTriggered: boolean("investigation_triggered").notNull().default(false),
+  createdByUserId:        uuid("created_by_user_id").notNull().references(() => users.id),
+  createdAt:              timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt:              timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type ReturnedProduct = typeof returnedProducts.$inferSelect;
+export const insertReturnedProductSchema = createInsertSchema(returnedProducts).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertReturnedProduct = z.infer<typeof insertReturnedProductSchema>;
+
+export const returnInvestigations = pgTable("erp_return_investigations", {
+  id:                 uuid("id").primaryKey().defaultRandom(),
+  lotId:              varchar("lot_id").notNull().references(() => lots.id),
+  triggeredAt:        timestamp("triggered_at", { withTimezone: true }).notNull(),
+  returnsCount:       integer("returns_count").notNull(),
+  thresholdAtTrigger: integer("threshold_at_trigger").notNull(),
+  status:             text("status").$type<ReturnInvestigationStatus>().notNull().default("OPEN"),
+  rootCause:          text("root_cause"),
+  correctiveAction:   text("corrective_action"),
+  closedByUserId:     uuid("closed_by_user_id").references(() => users.id),
+  closedAt:           timestamp("closed_at", { withTimezone: true }),
+  closeSignatureId:   uuid("close_signature_id").references(() => electronicSignatures.id),
+  createdAt:          timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt:          timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type ReturnInvestigation = typeof returnInvestigations.$inferSelect;
+export const insertReturnInvestigationSchema = createInsertSchema(returnInvestigations).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertReturnInvestigation = z.infer<typeof insertReturnInvestigationSchema>;

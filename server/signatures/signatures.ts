@@ -30,7 +30,7 @@ export interface SignatureContext {
 }
 
 // Human-readable verb for each meaning, used in the manifestation text.
-const MEANING_VERB: Record<SignatureMeaning, string> = {
+export const MEANING_VERB: Record<SignatureMeaning, string> = {
   AUTHORED: "authored",
   REVIEWED: "reviewed",
   APPROVED: "approved",
@@ -45,6 +45,21 @@ const MEANING_VERB: Record<SignatureMeaning, string> = {
   SPEC_APPROVAL: "approved specification for",
   LAB_APPROVAL: "approved laboratory result for",
   LAB_DISQUALIFICATION: "disqualified laboratory",
+  OOS_INVESTIGATION_CLOSE: "closed OOS investigation for",
+  EQUIPMENT_QUALIFIED: "qualified equipment for",
+  EQUIPMENT_DISQUALIFIED: "disqualified equipment for",
+  CALIBRATION_RECORDED: "recorded calibration for",
+  CLEANING_VERIFIED: "verified cleaning for",
+  LINE_CLEARANCE: "approved line clearance for",
+  ARTWORK_APPROVED: "approved label artwork for",
+  ARTWORK_RETIRED: "retired label artwork for",
+  LABEL_SPOOL_RECEIVED: "received label spool for",
+  LABEL_PRINT_BATCH: "authorized print batch for",
+  LABEL_RECONCILED: "reconciled label inventory for",
+  SOP_APPROVED: "approved SOP for",
+  SOP_RETIRED: "retired SOP for",
+  RETURNED_PRODUCT_DISPOSITION: "issued return disposition for",
+  RETURN_INVESTIGATION_CLOSE: "closed return investigation for",
 };
 
 // Performs the signature ceremony then calls fn(tx) for the state change —
