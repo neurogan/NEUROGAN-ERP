@@ -44,7 +44,7 @@ const navItems: NavItem[] = [
   { href: "/supply-chain", label: "Supply Chain" },
   { href: "/inventory", label: "Inventory" },
   { href: "/procurement", label: "Procurement" },
-  { href: "/operations", label: "Operations" },
+  { href: "/operations", label: "Manufacturing" },
   { href: "/quality", label: "Quality", requiredRoles: ["QA", "ADMIN"] },
 ];
 
@@ -80,8 +80,7 @@ function TopNav() {
         <div className="flex items-center gap-2.5">
           <img src={neuroganLogo} alt="Neurogan" className="h-8 w-8 rounded-lg object-cover" />
           <div>
-            <div className="text-sm font-semibold tracking-tight text-foreground">Neurogan Inventory</div>
-            <div className="text-[10px] text-muted-foreground">Inventory Management</div>
+            <div className="text-sm font-semibold tracking-tight text-foreground">NeuroganERP</div>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -188,10 +187,12 @@ function AppLayout() {
           <Route path="/inventory" component={Inventory} />
           <Route path="/supply-chain" component={SupplyChain} />
           <Route path="/procurement" component={ProcurementPage} />
-          <Route path="/procurement/purchasing" component={ProcurementPage} />
+          <Route path="/procurement/purchase-orders" component={ProcurementPage} />
+          <Route path="/procurement/suppliers" component={ProcurementPage} />
           <Route path="/procurement/receiving" component={ProcurementPage} />
           <Route path="/operations" component={OperationsPage} />
-          <Route path="/operations/production" component={OperationsPage} />
+          <Route path="/operations/production-batches" component={OperationsPage} />
+          <Route path="/operations/mmr" component={OperationsPage} />
           <Route path="/operations/equipment" component={OperationsPage} />
           <Route path="/operations/equipment/master" component={OperationsPage} />
           <Route path="/operations/equipment/calibration" component={OperationsPage} />
@@ -221,9 +222,11 @@ function AppLayout() {
           <Route path="/quality/return-investigations" component={ReturnInvestigations} />
           <Route path="/profile/rotate-password" component={Profile} />
           <Route path="/profile" component={Profile} />
-          <Route path="/suppliers"><Redirect to="/procurement/purchasing" /></Route>
+          <Route path="/suppliers"><Redirect to="/procurement/suppliers" /></Route>
           <Route path="/receiving"><Redirect to="/procurement/receiving" /></Route>
-          <Route path="/production"><Redirect to="/operations/production" /></Route>
+          <Route path="/procurement/purchasing"><Redirect to="/procurement/purchase-orders" /></Route>
+          <Route path="/production"><Redirect to="/operations/production-batches" /></Route>
+          <Route path="/operations/production"><Redirect to="/operations/production-batches" /></Route>
           <Route path="/equipment"><Redirect to="/operations/equipment" /></Route>
           <Route path="/equipment/master"><Redirect to="/operations/equipment/master" /></Route>
           <Route path="/equipment/calibration"><Redirect to="/operations/equipment/calibration" /></Route>

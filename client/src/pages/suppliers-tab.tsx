@@ -911,7 +911,7 @@ function SupplierDetail({
 
 // ─── Suppliers Sub-Tab ──────────────────────────────────────
 
-function SuppliersContent({ initialSelectedId }: { initialSelectedId?: string | null }) {
+export function SuppliersContent({ initialSelectedId }: { initialSelectedId?: string | null }) {
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(initialSelectedId ?? null);
   const [dialogOpen, setDialogOpen] = useState(false);

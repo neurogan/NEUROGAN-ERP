@@ -4,27 +4,38 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import Production from "@/pages/production";
 import EquipmentPage from "@/pages/equipment";
 
-type OperationsTab = "production" | "equipment";
+type ManufacturingTab = "production-batches" | "mmr" | "equipment";
 
-const TABS: { value: OperationsTab; label: string }[] = [
-  { value: "production", label: "Production" },
+const TABS: { value: ManufacturingTab; label: string }[] = [
+  { value: "production-batches", label: "Production Batches" },
+  { value: "mmr", label: "Master Manufacturing Records" },
   { value: "equipment", label: "Equipment" },
 ];
 
-export default function OperationsPage() {
+function MmrPlaceholder() {
+  return (
+    <div className="px-6 pt-8 text-sm text-muted-foreground">
+      Master Manufacturing Records — coming in R-07.
+    </div>
+  );
+}
+
+export default function ManufacturingPage() {
   const [location, setLocation] = useLocation();
   const tabParam = location.split("/")[2] as string | undefined;
 
-  const validTabs: OperationsTab[] = ["production", "equipment"];
+  const validTabs: ManufacturingTab[] = ["production-batches", "mmr", "equipment"];
 
   useEffect(() => {
-    if (!tabParam || !validTabs.includes(tabParam as OperationsTab)) {
-      setLocation("/operations/production", { replace: true });
+    if (!tabParam || !validTabs.includes(tabParam as ManufacturingTab)) {
+      setLocation("/operations/production-batches", { replace: true });
     }
   }, [tabParam, setLocation]);
 
-  const activeTab: OperationsTab =
-    tabParam === "equipment" ? "equipment" : "production";
+  const activeTab: ManufacturingTab =
+    tabParam === "mmr" ? "mmr"
+    : tabParam === "equipment" ? "equipment"
+    : "production-batches";
 
   return (
     <div>
@@ -32,14 +43,15 @@ export default function OperationsPage() {
         <Tabs value={activeTab} onValueChange={(v) => setLocation(`/operations/${v}`)}>
           <TabsList>
             {TABS.map((t) => (
-              <TabsTrigger key={t.value} value={t.value} data-testid={`tab-operations-${t.value}`}>
+              <TabsTrigger key={t.value} value={t.value} data-testid={`tab-manufacturing-${t.value}`}>
                 {t.label}
               </TabsTrigger>
             ))}
           </TabsList>
         </Tabs>
       </div>
-      {activeTab === "production" && <Production />}
+      {activeTab === "production-batches" && <Production />}
+      {activeTab === "mmr" && <MmrPlaceholder />}
       {activeTab === "equipment" && <EquipmentPage />}
     </div>
   );
