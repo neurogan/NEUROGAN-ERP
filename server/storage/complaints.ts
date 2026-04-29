@@ -855,7 +855,7 @@ export async function getComplaintsSummary(): Promise<{
   callbackFailures: number;
 }> {
   const { getFailedCallbackIds } = await import("../integrations/helpcore");
-  const { businessDaysUntil } = await import("../lib/business-days");
+  const { businessDaysUntil, businessDaysElapsed } = await import("../lib/business-days");
 
   const triageRows = await db
     .select({ intakeAt: schema.complaints.intakeAt })
@@ -877,7 +877,7 @@ export async function getComplaintsSummary(): Promise<{
   const now = new Date();
   let triageOverdue = 0;
   for (const { intakeAt } of triageRows) {
-    const elapsed = await businessDaysUntil(new Date(intakeAt), now);
+    const elapsed = await businessDaysElapsed(new Date(intakeAt), now);
     if (elapsed >= triageSla) triageOverdue++;
   }
 
@@ -889,7 +889,7 @@ export async function getComplaintsSummary(): Promise<{
   let dispositionOverdue = 0;
   for (const { investigatedAt } of dispositionRows) {
     if (!investigatedAt) continue;
-    const elapsed = await businessDaysUntil(new Date(investigatedAt), now);
+    const elapsed = await businessDaysElapsed(new Date(investigatedAt), now);
     if (elapsed >= dispSla) dispositionOverdue++;
   }
 

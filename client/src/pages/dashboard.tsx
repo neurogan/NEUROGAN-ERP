@@ -238,6 +238,7 @@ export default function Dashboard() {
   }>({
     queryKey: ["/api/returned-products/summary"],
     queryFn: async () => (await apiRequest("GET", "/api/returned-products/summary")).json(),
+    staleTime: 60_000,
   });
 
   // ─── R-04 Label cage: dashboard cards ──────────────────────────
@@ -983,7 +984,7 @@ export default function Dashboard() {
         {returnsSummary && (
           <>
             <Link href="/quality/returns">
-              <Card className="cursor-pointer hover:bg-muted/50 transition-colors">
+              <Card data-testid="card-returns-disposition" className="cursor-pointer hover:bg-muted/50 transition-colors">
                 <CardHeader className="pb-2">
                   <CardTitle className="text-sm font-semibold flex items-center justify-between">
                     Returns awaiting disposition
@@ -1005,7 +1006,7 @@ export default function Dashboard() {
             </Link>
 
             <Link href="/quality/returns">
-              <Card className="cursor-pointer hover:bg-muted/50 transition-colors">
+              <Card data-testid="card-returns-investigations" className="cursor-pointer hover:bg-muted/50 transition-colors">
                 <CardHeader className="pb-2">
                   <CardTitle className="text-sm font-semibold flex items-center justify-between">
                     Open return investigations
