@@ -6,14 +6,16 @@ import LabelingPage from "./labeling";
 import SopsPage from "./sops";
 import ComplaintsPage from "./complaints";
 import ReturnsPage from "./returns";
+import OosInvestigations from "@/pages/OosInvestigations";
 
-type QualityTab = "labeling" | "sops" | "complaints" | "returns";
+type QualityTab = "labeling" | "sops" | "complaints" | "returns" | "oos";
 
 const ACTIVE_TABS: { value: QualityTab; label: string }[] = [
   { value: "labeling", label: "Labeling" },
   { value: "sops", label: "SOPs" },
   { value: "complaints", label: "Complaints" },
   { value: "returns", label: "Returns" },
+  { value: "oos", label: "OOS" },
 ];
 
 const DISABLED_TABS: { value: string; label: string; tooltip: string }[] = [
@@ -26,7 +28,7 @@ export default function QualityPage() {
   // because wouter's :param stops at "/". Extract the tab segment directly from location instead.
   const tabParam = location.split("/")[2] as string | undefined;
 
-  const validTabs: QualityTab[] = ["labeling", "sops", "complaints", "returns"];
+  const validTabs: QualityTab[] = ["labeling", "sops", "complaints", "returns", "oos"];
 
   useEffect(() => {
     if (!tabParam || !validTabs.includes(tabParam as QualityTab)) {
@@ -38,6 +40,7 @@ export default function QualityPage() {
     tabParam === "sops" ? "sops"
     : tabParam === "complaints" ? "complaints"
     : tabParam === "returns" ? "returns"
+    : tabParam === "oos" ? "oos"
     : "labeling";
 
   return (
@@ -72,6 +75,7 @@ export default function QualityPage() {
       {activeTab === "sops" && <SopsPage />}
       {activeTab === "complaints" && <ComplaintsPage />}
       {activeTab === "returns" && <ReturnsPage />}
+      {activeTab === "oos" && <OosInvestigations />}
     </div>
   );
 }
