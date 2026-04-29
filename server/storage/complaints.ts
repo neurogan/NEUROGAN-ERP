@@ -848,38 +848,66 @@ export async function acknowledgesSaer(input: {
 
 export async function getComplaintsSummary(): Promise<{
   awaitingTriage: number;
+  triageOverdue: number;
   aeDueSoon: number;
   awaitingDisposition: number;
+  dispositionOverdue: number;
   callbackFailures: number;
 }> {
   const { getFailedCallbackIds } = await import("../integrations/helpcore");
-  const { sql: sqlFn } = await import("drizzle-orm");
+  const { businessDaysUntil } = await import("../lib/business-days");
 
-  const [triageRow] = await db
-    .select({ count: sqlFn<number>`count(*)::int` })
+  const triageRows = await db
+    .select({ intakeAt: schema.complaints.intakeAt })
     .from(schema.complaints)
     .where(eq(schema.complaints.status, "TRIAGE"));
 
-  const [dispositionRow] = await db
-    .select({ count: sqlFn<number>`count(*)::int` })
+  const [slaTriageRow] = await db
+    .select()
+    .from(schema.appSettingsKv)
+    .where(eq(schema.appSettingsKv.key, "complaintTriageSlaBusinessDays"));
+  const triageSla = slaTriageRow ? parseInt(slaTriageRow.value, 10) : 1;
+
+  const [slaDispRow] = await db
+    .select()
+    .from(schema.appSettingsKv)
+    .where(eq(schema.appSettingsKv.key, "dispositionSlaBusinessDays"));
+  const dispSla = slaDispRow ? parseInt(slaDispRow.value, 10) : 5;
+
+  const now = new Date();
+  let triageOverdue = 0;
+  for (const { intakeAt } of triageRows) {
+    const elapsed = await businessDaysUntil(new Date(intakeAt), now);
+    if (elapsed >= triageSla) triageOverdue++;
+  }
+
+  const dispositionRows = await db
+    .select({ investigatedAt: schema.complaints.investigatedAt })
     .from(schema.complaints)
     .where(eq(schema.complaints.status, "AWAITING_DISPOSITION"));
 
-  const now = new Date();
-  const twoDaysMs = 2 * 24 * 60 * 60 * 1000;
-  const twoDbWindow = new Date(now.getTime() + twoDaysMs);
+  let dispositionOverdue = 0;
+  for (const { investigatedAt } of dispositionRows) {
+    if (!investigatedAt) continue;
+    const elapsed = await businessDaysUntil(new Date(investigatedAt), now);
+    if (elapsed >= dispSla) dispositionOverdue++;
+  }
 
   const openAes = await db
     .select({ dueAt: schema.adverseEvents.dueAt })
     .from(schema.adverseEvents)
     .where(eq(schema.adverseEvents.status, "OPEN"));
 
-  const aeDueSoon = openAes.filter((ae) => ae.dueAt <= twoDbWindow).length;
+  const aeDueSoon = (
+    await Promise.all(openAes.map(ae => businessDaysUntil(now, ae.dueAt)))
+  ).filter(bds => bds <= 2).length;
 
   return {
-    awaitingTriage: triageRow?.count ?? 0,
+    awaitingTriage: triageRows.length,
+    triageOverdue,
     aeDueSoon,
-    awaitingDisposition: dispositionRow?.count ?? 0,
+    awaitingDisposition: dispositionRows.length,
+    dispositionOverdue,
     callbackFailures: getFailedCallbackIds().length,
   };
 }
