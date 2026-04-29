@@ -73,7 +73,7 @@ const promoteSchema = z
 type PromoteForm = z.infer<typeof promoteSchema>;
 
 export default function EquipmentDetailPage() {
-  const [, params] = useRoute<{ id: string }>("/equipment/:id");
+  const [, params] = useRoute<{ id: string }>("/operations/equipment/:id");
   const equipmentId = params?.id ?? "";
   const [activeTab, setActiveTab] = useState<DetailTab>("overview");
 
@@ -102,7 +102,7 @@ export default function EquipmentDetailPage() {
   return (
     <div className="p-6 space-y-4">
       <div className="flex items-center gap-3">
-        <Link href="/equipment">
+        <Link href="/operations/equipment">
           <Button
             variant="ghost"
             size="sm"

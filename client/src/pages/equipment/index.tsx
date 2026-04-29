@@ -90,7 +90,7 @@ const createEquipmentSchema = z.object({
 type CreateEquipmentForm = z.infer<typeof createEquipmentSchema>;
 
 export default function EquipmentPage() {
-  const [, params] = useRoute<{ tab?: string }>("/equipment/:tab");
+  const [, params] = useRoute<{ tab?: string }>("/operations/equipment/:tab");
   const tabParam = params?.tab;
   const activeTab: SubTab =
     tabParam === "calibration" || tabParam === "cleaning" || tabParam === "line-clearance"
@@ -120,8 +120,8 @@ function SubTabNav({ activeTab }: { activeTab: SubTab }) {
     <Tabs
       value={activeTab}
       onValueChange={(v) => {
-        if (v === "master") setLocation("/equipment");
-        else setLocation(`/equipment/${v}`);
+        if (v === "master") setLocation("/operations/equipment");
+        else setLocation(`/operations/equipment/${v}`);
       }}
     >
       <TabsList>
@@ -240,7 +240,7 @@ function MasterTab() {
                 </TableCell>
                 <TableCell className="text-right">
                   <div className="flex justify-end gap-2">
-                    <Link href={`/equipment/${e.id}`}>
+                    <Link href={`/operations/equipment/${e.id}`}>
                       <Button
                         variant="outline"
                         size="sm"
