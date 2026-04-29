@@ -125,4 +125,52 @@ describeIfDb("R-06 returned-products routes", () => {
     expect(res.status).toBe(200);
     expect(Array.isArray(res.body)).toBe(true);
   });
+
+  it("GET /api/return-investigations/:id — 200 for QA", async () => {
+    // Seed threshold to 1 so first return triggers investigation
+    await db.insert(schema.appSettingsKv).values({ key: "returnsInvestigationThresholdCount", value: "1" })
+      .onConflictDoUpdate({ target: schema.appSettingsKv.key, set: { value: "1" } });
+
+    await request(app)
+      .post("/api/returned-products")
+      .set("x-test-user-id", qaUser.id)
+      .send({ source: "AMAZON_FBA", lotCodeRaw: "LOT-001", lotId, qtyReturned: 1, uom: "UNITS", receivedAt: new Date().toISOString() });
+
+    const invList = await request(app).get("/api/return-investigations").set("x-test-user-id", qaUser.id);
+    expect(invList.body.length).toBeGreaterThanOrEqual(1);
+
+    const invId = invList.body[0].id;
+    const res = await request(app).get(`/api/return-investigations/${invId}`).set("x-test-user-id", qaUser.id);
+    expect(res.status).toBe(200);
+    expect(res.body.id).toBe(invId);
+
+    // reset threshold
+    await db.insert(schema.appSettingsKv).values({ key: "returnsInvestigationThresholdCount", value: "3" })
+      .onConflictDoUpdate({ target: schema.appSettingsKv.key, set: { value: "3" } });
+  });
+
+  it("POST /api/return-investigations/:id/close — 200 on valid F-04", async () => {
+    await db.insert(schema.appSettingsKv).values({ key: "returnsInvestigationThresholdCount", value: "1" })
+      .onConflictDoUpdate({ target: schema.appSettingsKv.key, set: { value: "1" } });
+
+    await request(app)
+      .post("/api/returned-products")
+      .set("x-test-user-id", qaUser.id)
+      .send({ source: "AMAZON_FBA", lotCodeRaw: "LOT-001", lotId, qtyReturned: 1, uom: "UNITS", receivedAt: new Date().toISOString() });
+
+    const invList = await request(app).get("/api/return-investigations").set("x-test-user-id", qaUser.id);
+    const invId = invList.body[0].id;
+
+    const res = await request(app)
+      .post(`/api/return-investigations/${invId}/close`)
+      .set("x-test-user-id", qaUser.id)
+      .send({ rootCause: "Quality issue identified", correctiveAction: "Supplier notified", password: PASS });
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe("CLOSED");
+    expect(res.body.rootCause).toBe("Quality issue identified");
+    expect(res.body.closeSignatureId).toBeDefined();
+
+    await db.insert(schema.appSettingsKv).values({ key: "returnsInvestigationThresholdCount", value: "3" })
+      .onConflictDoUpdate({ target: schema.appSettingsKv.key, set: { value: "3" } });
+  });
 });
