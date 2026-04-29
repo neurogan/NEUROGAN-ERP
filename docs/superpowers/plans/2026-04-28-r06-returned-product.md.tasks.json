@@ -31,10 +31,10 @@
     {
       "id": 4,
       "subject": "Task 4: Frontend pages + Quality tab navigation",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [3],
       "description": "**Goal:** Build the three return pages (list, detail, investigations) and wire them into the Quality tab and App router.\n\n**Files:**\n- Create: `client/src/pages/quality/returns.tsx`\n- Create: `client/src/pages/quality/ReturnDetail.tsx`\n- Create: `client/src/pages/quality/ReturnInvestigations.tsx`\n- Modify: `client/src/pages/quality/index.tsx`\n- Modify: `client/src/App.tsx`\n\n**Acceptance Criteria:**\n- [ ] Returns subtab visible in Quality tab\n- [ ] List page shows table with ref, source badge, lot, qty, received date, status badge\n- [ ] \"Log return\" button opens intake modal; submits successfully\n- [ ] Detail page shows disposition form for QUARANTINE returns with F-04 ceremony\n- [ ] Detail page shows read-only disposition summary for DISPOSED returns\n- [ ] Investigations page shows expandable OPEN investigations with F-04 close form\n- [ ] pnpm typecheck passes\n\n**Verify:** `pnpm typecheck` → no errors; manual browser test of golden path\n\n```json:metadata\n{\"files\": [\"client/src/pages/quality/returns.tsx\", \"client/src/pages/quality/ReturnDetail.tsx\", \"client/src/pages/quality/ReturnInvestigations.tsx\", \"client/src/pages/quality/index.tsx\", \"client/src/App.tsx\"], \"verifyCommand\": \"pnpm typecheck\", \"acceptanceCriteria\": [\"Returns subtab visible in Quality tab\", \"List page shows correct columns and badges\", \"Log return modal submits successfully\", \"Detail page shows disposition form for QUARANTINE\", \"Detail page shows read-only for DISPOSED\", \"Investigations page shows expandable OPEN items with close form\"]}\n```"
     }
   ],
-  "lastUpdated": "2026-04-28T12:00:00.000Z"
+  "lastUpdated": "2026-04-28T13:00:00.000Z"
 }
