@@ -1,13 +1,15 @@
 import { useEffect } from "react";
 import { useLocation } from "wouter";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import SuppliersTab from "@/pages/suppliers-tab";
+import PurchaseOrders from "@/pages/purchase-orders";
+import { SuppliersContent } from "@/pages/suppliers-tab";
 import Receiving from "@/pages/receiving";
 
-type ProcurementTab = "purchasing" | "receiving";
+type ProcurementTab = "purchase-orders" | "suppliers" | "receiving";
 
 const TABS: { value: ProcurementTab; label: string }[] = [
-  { value: "purchasing", label: "Purchasing" },
+  { value: "purchase-orders", label: "Purchase Orders" },
+  { value: "suppliers", label: "Suppliers" },
   { value: "receiving", label: "Receiving" },
 ];
 
@@ -15,16 +17,18 @@ export default function ProcurementPage() {
   const [location, setLocation] = useLocation();
   const tabParam = location.split("/")[2] as string | undefined;
 
-  const validTabs: ProcurementTab[] = ["purchasing", "receiving"];
+  const validTabs: ProcurementTab[] = ["purchase-orders", "suppliers", "receiving"];
 
   useEffect(() => {
     if (!tabParam || !validTabs.includes(tabParam as ProcurementTab)) {
-      setLocation("/procurement/purchasing", { replace: true });
+      setLocation("/procurement/purchase-orders", { replace: true });
     }
   }, [tabParam, setLocation]);
 
   const activeTab: ProcurementTab =
-    tabParam === "receiving" ? "receiving" : "purchasing";
+    tabParam === "suppliers" ? "suppliers"
+    : tabParam === "receiving" ? "receiving"
+    : "purchase-orders";
 
   return (
     <div>
@@ -39,7 +43,8 @@ export default function ProcurementPage() {
           </TabsList>
         </Tabs>
       </div>
-      {activeTab === "purchasing" && <SuppliersTab />}
+      {activeTab === "purchase-orders" && <PurchaseOrders />}
+      {activeTab === "suppliers" && <SuppliersContent />}
       {activeTab === "receiving" && <Receiving />}
     </div>
   );
