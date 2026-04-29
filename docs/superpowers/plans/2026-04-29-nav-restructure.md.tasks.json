@@ -4,35 +4,35 @@
     {
       "id": 7,
       "subject": "Task 0: Create ProcurementPage wrapper",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** New page at `/procurement` with Purchasing and Receiving subtabs.\n\n**Files:**\n- Create: `client/src/pages/procurement/index.tsx`\n\n**Acceptance Criteria:**\n- [ ] `/procurement` redirects to `/procurement/purchasing`\n- [ ] `/procurement/purchasing` renders SuppliersTab content\n- [ ] `/procurement/receiving` renders Receiving content\n- [ ] Tab strip shows correct active tab\n- [ ] `pnpm typecheck` passes\n\n**Verify:** `pnpm typecheck` → exit 0\n\n```json:metadata\n{\"files\": [\"client/src/pages/procurement/index.tsx\"], \"verifyCommand\": \"pnpm typecheck\", \"acceptanceCriteria\": [\"/procurement redirects to /procurement/purchasing\", \"/procurement/purchasing renders SuppliersTab\", \"/procurement/receiving renders Receiving\", \"pnpm typecheck passes\"]}\n```"
     },
     {
       "id": 8,
       "subject": "Task 1: Create OperationsPage wrapper",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [7],
       "description": "**Goal:** New page at `/operations` with Production and Equipment subtabs.\n\n**Files:**\n- Create: `client/src/pages/operations/index.tsx`\n\n**Acceptance Criteria:**\n- [ ] `/operations` redirects to `/operations/production`\n- [ ] `/operations/production` renders Production content\n- [ ] `/operations/equipment` renders EquipmentPage content\n- [ ] Tab strip shows correct active tab\n- [ ] `pnpm typecheck` passes\n\n**Verify:** `pnpm typecheck` → exit 0\n\n```json:metadata\n{\"files\": [\"client/src/pages/operations/index.tsx\"], \"verifyCommand\": \"pnpm typecheck\", \"acceptanceCriteria\": [\"/operations redirects to /operations/production\", \"/operations/production renders Production\", \"/operations/equipment renders EquipmentPage\", \"pnpm typecheck passes\"]}\n```"
     },
     {
       "id": 9,
       "subject": "Task 2: Fix Equipment internal routing for /operations/equipment prefix",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** EquipmentPage and detail page update all hardcoded `/equipment` paths to `/operations/equipment`.\n\n**Files:**\n- Modify: `client/src/pages/equipment/index.tsx` (lines 93, 123-125, 243)\n- Modify: `client/src/pages/equipment/detail.tsx` (lines 76, 105)\n\n**Acceptance Criteria:**\n- [ ] Equipment subtab clicks navigate to `/operations/equipment/:tab`\n- [ ] View button links to `/operations/equipment/:id`\n- [ ] Detail page back link goes to `/operations/equipment`\n- [ ] `pnpm typecheck` passes\n\n**Verify:** `pnpm typecheck` → exit 0\n\n```json:metadata\n{\"files\": [\"client/src/pages/equipment/index.tsx\", \"client/src/pages/equipment/detail.tsx\"], \"verifyCommand\": \"pnpm typecheck\", \"acceptanceCriteria\": [\"Equipment subtabs navigate to /operations/equipment/:tab\", \"View button links to /operations/equipment/:id\", \"Back link goes to /operations/equipment\", \"pnpm typecheck passes\"]}\n```"
     },
     {
       "id": 10,
       "subject": "Task 3: Add OOS subtab to QualityPage",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** QualityPage gains a 5th subtab \"OOS\" rendering OosInvestigations at `/quality/oos`.\n\n**Files:**\n- Modify: `client/src/pages/quality/index.tsx`\n\n**Acceptance Criteria:**\n- [ ] Quality tab strip shows: Labeling · SOPs · Complaints · Returns · OOS\n- [ ] `/quality/oos` renders OosInvestigations content\n- [ ] Other Quality subtabs unchanged\n- [ ] `pnpm typecheck` passes\n\n**Verify:** `pnpm typecheck` → exit 0\n\n```json:metadata\n{\"files\": [\"client/src/pages/quality/index.tsx\"], \"verifyCommand\": \"pnpm typecheck\", \"acceptanceCriteria\": [\"Quality shows 5 subtabs including OOS\", \"/quality/oos renders OosInvestigations\", \"pnpm typecheck passes\"]}\n```"
     },
     {
       "id": 11,
       "subject": "Task 4: Wire App.tsx — new nav, routes, redirects, Transactions header",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [7, 8, 9, 10],
       "description": "**Goal:** App.tsx updated with 6-tab navItems, new routes, redirect handlers for old paths, and Transactions demoted to a header link.\n\n**Files:**\n- Modify: `client/src/App.tsx`\n\n**Acceptance Criteria:**\n- [ ] Nav shows: Dashboard · Supply Chain · Inventory · Procurement · Operations · Quality\n- [ ] Transactions appears in header (ADMIN only)\n- [ ] Old routes redirect correctly\n- [ ] All new routes render their components\n- [ ] `pnpm typecheck` passes\n\n**Verify:** `pnpm typecheck` → exit 0\n\n```json:metadata\n{\"files\": [\"client/src/App.tsx\"], \"verifyCommand\": \"pnpm typecheck\", \"acceptanceCriteria\": [\"Nav shows 6 tabs\", \"Transactions in header for ADMIN\", \"Old routes redirect\", \"pnpm typecheck passes\"]}\n```"
     }
   ],
-  "lastUpdated": "2026-04-29T00:00:00.000Z"
+  "lastUpdated": "2026-04-29T10:00:00.000Z"
 }
