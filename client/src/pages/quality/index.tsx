@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { useRoute, useLocation } from "wouter";
+import { useLocation } from "wouter";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import LabelingPage from "./labeling";
@@ -21,9 +21,10 @@ const DISABLED_TABS: { value: string; label: string; tooltip: string }[] = [
 ];
 
 export default function QualityPage() {
-  const [, params] = useRoute<{ tab?: string }>("/quality/:tab");
-  const [, setLocation] = useLocation();
-  const tabParam = params?.tab;
+  const [location, setLocation] = useLocation();
+  // useRoute("/quality/:tab") doesn't match three-segment paths like /quality/labeling/artwork
+  // because wouter's :param stops at "/". Extract the tab segment directly from location instead.
+  const tabParam = location.split("/")[2] as string | undefined;
 
   const validTabs: QualityTab[] = ["labeling", "sops", "complaints", "returns"];
 
