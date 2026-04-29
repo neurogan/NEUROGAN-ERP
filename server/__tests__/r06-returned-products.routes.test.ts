@@ -5,6 +5,7 @@ import { buildTestApp } from "./helpers/test-app";
 import { db } from "../db";
 import * as schema from "@shared/schema";
 import { hashPassword } from "../auth/password";
+import { eq, and } from "drizzle-orm";
 
 const PASS = "Test1234!Password";
 const dbUrl = process.env.DATABASE_URL;
@@ -147,6 +148,53 @@ describeIfDb("R-06 returned-products routes", () => {
     // reset threshold
     await db.insert(schema.appSettingsKv).values({ key: "returnsInvestigationThresholdCount", value: "3" })
       .onConflictDoUpdate({ target: schema.appSettingsKv.key, set: { value: "3" } });
+  });
+
+  it("POST /api/returned-products — 401 without session", async () => {
+    const res = await request(app)
+      .post("/api/returned-products")
+      .send({ source: "AMAZON_FBA", lotCodeRaw: "LOT-001", lotId, qtyReturned: 1, uom: "UNITS", receivedAt: new Date().toISOString() });
+    expect(res.status).toBe(401);
+  });
+
+  it("POST /api/returned-products/:id/disposition — 409 on already-DISPOSED record", async () => {
+    const create = await request(app)
+      .post("/api/returned-products")
+      .set("x-test-user-id", qaUser.id)
+      .send({ source: "AMAZON_FBA", lotCodeRaw: "LOT-001", lotId, qtyReturned: 1, uom: "UNITS", receivedAt: new Date().toISOString() });
+    const returnId = create.body.returnedProduct.id;
+
+    await request(app)
+      .post(`/api/returned-products/${returnId}/disposition`)
+      .set("x-test-user-id", qaUser.id)
+      .send({ disposition: "DESTROY", password: PASS });
+
+    const res = await request(app)
+      .post(`/api/returned-products/${returnId}/disposition`)
+      .set("x-test-user-id", qaUser.id)
+      .send({ disposition: "DESTROY", password: PASS });
+    expect(res.status).toBe(409);
+  });
+
+  it("POST /api/returned-products — writes RETURN_INTAKE audit row", async () => {
+    const res = await request(app)
+      .post("/api/returned-products")
+      .set("x-test-user-id", qaUser.id)
+      .send({ source: "WHOLESALE", lotCodeRaw: "LOT-001", lotId, qtyReturned: 2, uom: "UNITS", receivedAt: new Date().toISOString() });
+    expect(res.status).toBe(201);
+    const returnId = res.body.returnedProduct.id;
+
+    const rows = await db
+      .select()
+      .from(schema.auditTrail)
+      .where(and(
+        eq(schema.auditTrail.entityId, returnId),
+        eq(schema.auditTrail.action, "RETURN_INTAKE"),
+      ));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.entityType).toBe("returned_product");
+    expect(rows[0]!.userId).toBe(qaUser.id);
+    expect(rows[0]!.before).toBeNull();
   });
 
   it("POST /api/return-investigations/:id/close — 200 on valid F-04", async () => {
