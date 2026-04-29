@@ -4,27 +4,27 @@
     {
       "id": 0,
       "subject": "Task 0: Migration + schema foundation",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** Create migration 0020, add two tables to schema.ts, extend enums, register in journal.\n\n**Files:**\n- Create: `migrations/0020_r06_returned_product.sql`\n- Modify: `migrations/meta/_journal.json`\n- Modify: `shared/schema.ts`\n- Modify: `server/signatures/signatures.ts`\n- Modify: `server/storage.ts`\n\n**Acceptance Criteria:**\n- [ ] `pnpm migrate:up` applies cleanly against a fresh DB\n- [ ] `pnpm check:migrations` passes\n- [ ] `pnpm typecheck` passes\n\n**Verify:** `pnpm migrate:up && pnpm check:migrations && pnpm typecheck` → no errors\n\n```json:metadata\n{\"files\": [\"migrations/0020_r06_returned_product.sql\", \"migrations/meta/_journal.json\", \"shared/schema.ts\", \"server/signatures/signatures.ts\", \"server/storage.ts\"], \"verifyCommand\": \"pnpm migrate:up && pnpm check:migrations && pnpm typecheck\", \"acceptanceCriteria\": [\"pnpm migrate:up applies cleanly against a fresh DB\", \"pnpm check:migrations passes\", \"pnpm typecheck passes\"]}\n```"
     },
     {
       "id": 1,
       "subject": "Task 1: Storage layer — intake, list, get, investigations",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [0],
       "description": "**Goal:** Implement all storage functions for returned products and return investigations in a standalone module.\n\n**Files:**\n- Create: `server/storage/returned-products.ts`\n- Test: `server/__tests__/r06-returned-products.storage.test.ts`\n\n**Acceptance Criteria:**\n- [ ] `createReturnIntake` creates a QUARANTINE record with RET-YYYYMMDD-NNN ref\n- [ ] `createReturnIntake` opens an investigation when lot count >= threshold\n- [ ] A second intake for the same lot does NOT open a second investigation when one is already open\n- [ ] `listReturnedProducts` filters by status and lotId\n- [ ] `getReturnedProduct` throws 404 for unknown ID\n\n**Verify:** `pnpm test r06-returned-products.storage` → all pass\n\n```json:metadata\n{\"files\": [\"server/storage/returned-products.ts\", \"server/__tests__/r06-returned-products.storage.test.ts\"], \"verifyCommand\": \"pnpm test r06-returned-products.storage\", \"acceptanceCriteria\": [\"createReturnIntake creates a QUARANTINE record with RET-YYYYMMDD-NNN ref\", \"createReturnIntake opens an investigation when lot count >= threshold\", \"Second intake does NOT open second investigation when one already open\", \"listReturnedProducts filters by status and lotId\", \"getReturnedProduct throws 404 for unknown ID\"]}\n```"
     },
     {
       "id": 2,
       "subject": "Task 2: API routes + integration tests",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [1],
       "description": "**Goal:** Wire all 8 returned-products routes into routes.ts and cover them with supertest integration tests.\n\n**Files:**\n- Modify: `server/routes.ts`\n- Test: `server/__tests__/r06-returned-products.routes.test.ts`\n\n**Acceptance Criteria:**\n- [ ] POST /api/returned-products creates intake record, returns 201 with returnRef\n- [ ] POST /api/returned-products/:id/disposition enforces F-04 password; 401 on wrong password\n- [ ] Disposition requires lot_id set; returns 422 if lot_id is null\n- [ ] GET /api/returned-products/summary returns quarantineCount and openInvestigationsCount\n- [ ] All routes reject unauthenticated requests with 401\n\n**Verify:** `pnpm test r06-returned-products.routes` → all pass\n\n```json:metadata\n{\"files\": [\"server/routes.ts\", \"server/__tests__/r06-returned-products.routes.test.ts\"], \"verifyCommand\": \"pnpm test r06-returned-products.routes\", \"acceptanceCriteria\": [\"POST /api/returned-products creates intake record with 201\", \"POST disposition enforces F-04 password\", \"Disposition requires lot_id\", \"Summary route returns counts\", \"All routes reject unauthenticated with 401\"]}\n```"
     },
     {
       "id": 3,
       "subject": "Task 3: Dashboard tiles + getUserTasks + complaint SLA fix",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [2],
       "description": "**Goal:** Add 2 return tiles to the dashboard, extend getUserTasks with return task queries, and fix getComplaintsSummary to split overdue vs in-SLA counts.\n\n**Files:**\n- Modify: `server/db-storage.ts`\n- Modify: `server/storage/complaints.ts`\n- Modify: `client/src/pages/dashboard.tsx`\n\n**Acceptance Criteria:**\n- [ ] getUserTasks returns RETURN_PENDING_DISPOSITION tasks for QA/ADMIN\n- [ ] getUserTasks returns RETURN_INVESTIGATION_OPEN tasks for QA/ADMIN\n- [ ] getComplaintsSummary returns triageOverdue and dispositionOverdue counts\n- [ ] Dashboard shows \"Returns awaiting disposition\" tile (amber if > 0)\n- [ ] Dashboard shows \"Open return investigations\" tile (red if > 0)\n\n**Verify:** `pnpm typecheck && pnpm test r06` → no errors; manual dashboard check\n\n```json:metadata\n{\"files\": [\"server/db-storage.ts\", \"server/storage/complaints.ts\", \"client/src/pages/dashboard.tsx\"], \"verifyCommand\": \"pnpm typecheck && pnpm test r06\", \"acceptanceCriteria\": [\"getUserTasks returns RETURN_PENDING_DISPOSITION tasks\", \"getUserTasks returns RETURN_INVESTIGATION_OPEN tasks\", \"getComplaintsSummary splits overdue vs in-SLA counts\", \"Dashboard shows return tiles\"]}\n```"
     },
@@ -36,5 +36,5 @@
       "description": "**Goal:** Build the three return pages (list, detail, investigations) and wire them into the Quality tab and App router.\n\n**Files:**\n- Create: `client/src/pages/quality/returns.tsx`\n- Create: `client/src/pages/quality/ReturnDetail.tsx`\n- Create: `client/src/pages/quality/ReturnInvestigations.tsx`\n- Modify: `client/src/pages/quality/index.tsx`\n- Modify: `client/src/App.tsx`\n\n**Acceptance Criteria:**\n- [ ] Returns subtab visible in Quality tab\n- [ ] List page shows table with ref, source badge, lot, qty, received date, status badge\n- [ ] \"Log return\" button opens intake modal; submits successfully\n- [ ] Detail page shows disposition form for QUARANTINE returns with F-04 ceremony\n- [ ] Detail page shows read-only disposition summary for DISPOSED returns\n- [ ] Investigations page shows expandable OPEN investigations with F-04 close form\n- [ ] pnpm typecheck passes\n\n**Verify:** `pnpm typecheck` → no errors; manual browser test of golden path\n\n```json:metadata\n{\"files\": [\"client/src/pages/quality/returns.tsx\", \"client/src/pages/quality/ReturnDetail.tsx\", \"client/src/pages/quality/ReturnInvestigations.tsx\", \"client/src/pages/quality/index.tsx\", \"client/src/App.tsx\"], \"verifyCommand\": \"pnpm typecheck\", \"acceptanceCriteria\": [\"Returns subtab visible in Quality tab\", \"List page shows correct columns and badges\", \"Log return modal submits successfully\", \"Detail page shows disposition form for QUARANTINE\", \"Detail page shows read-only for DISPOSED\", \"Investigations page shows expandable OPEN items with close form\"]}\n```"
     }
   ],
-  "lastUpdated": "2026-04-28T00:00:00.000Z"
+  "lastUpdated": "2026-04-28T12:00:00.000Z"
 }
