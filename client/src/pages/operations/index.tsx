@@ -13,7 +13,6 @@ const TABS: { value: ManufacturingTab; label: string }[] = [
   { value: "equipment", label: "Equipment" },
 ];
 
-
 export default function ManufacturingPage() {
   const [location, setLocation] = useLocation();
   const tabParam = location.split("/")[2] as string | undefined;

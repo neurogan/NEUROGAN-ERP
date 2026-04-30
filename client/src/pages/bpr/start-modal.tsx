@@ -123,6 +123,7 @@ export function BprStartModal({
     enabled: open && !!productId,
   });
 
+
   const { data: allEquipment, isLoading: allLoading } = useQuery<Equipment[]>({
     queryKey: ["/api/equipment"],
     queryFn: async () => {
@@ -267,6 +268,7 @@ export function BprStartModal({
               No approved MMR exists for this product. Steps must be entered manually.
             </div>
           )}
+
 
           {gateError && <GateBanners error={gateError} />}
 
