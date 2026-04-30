@@ -1562,8 +1562,17 @@ export type MmrStatus = z.infer<typeof mmrStatusEnum>;
 export const specVersionStatusEnum = z.enum(["DRAFT", "APPROVED", "SUPERSEDED"]);
 export type SpecVersionStatus = z.infer<typeof specVersionStatusEnum>;
 
-export const specAttributeCategoryEnum = z.enum(["IDENTITY", "ASSAY", "HEAVY_METAL", "MICROBIAL", "PHYSICAL", "OTHER"]);
+export const specAttributeCategoryEnum = z.enum(["IDENTITY", "ASSAY", "HEAVY_METAL", "MICROBIAL", "PHYSICAL", "BOTANICAL_CONTAMINANT", "RESIDUAL_SOLVENT", "MATERIAL_DECLARATION", "OTHER"]);
 export type SpecAttributeCategory = z.infer<typeof specAttributeCategoryEnum>;
+
+export const specVerificationSourceEnum = z.enum(["NEUROGAN_IN_HOUSE", "SUPPLIER_COA", "THIRD_PARTY_LAB", "SUPPLIER_DECLARATION"]);
+export type SpecVerificationSource = z.infer<typeof specVerificationSourceEnum>;
+
+export const specFrequencyEnum = z.enum(["EVERY_LOT", "ANNUAL", "PERIODIC"]);
+export type SpecFrequency = z.infer<typeof specFrequencyEnum>;
+
+export const specResultTypeEnum = z.enum(["NUMERIC", "PASS_FAIL", "TEXT"]);
+export type SpecResultType = z.infer<typeof specResultTypeEnum>;
 
 export const mmrs = pgTable("erp_mmrs", {
   id:                  uuid("id").primaryKey().defaultRandom(),
@@ -1614,8 +1623,18 @@ export const componentSpecs = pgTable("erp_component_specs", {
   id:                uuid("id").primaryKey().defaultRandom(),
   productId:         varchar("product_id").notNull().references(() => products.id),
   createdByUserId:   uuid("created_by_user_id").notNull().references(() => users.id),
-  createdAt:         timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  notes:             text("notes"),
+  createdAt:          timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  notes:              text("notes"),
+  documentNumber:     text("document_number"),
+  synonyms:           text("synonyms"),
+  casNumber:          text("cas_number"),
+  botanicalSource:    text("botanical_source"),
+  countryOfOrigin:    text("country_of_origin"),
+  primaryPackaging:   text("primary_packaging"),
+  secondaryPackaging: text("secondary_packaging"),
+  storageConditions:  text("storage_conditions"),
+  shelfLifeMonths:    integer("shelf_life_months"),
+  retestMonths:       integer("retest_months"),
 });
 export type ComponentSpec = typeof componentSpecs.$inferSelect;
 
@@ -1639,7 +1658,11 @@ export const componentSpecAttributes = pgTable("erp_component_spec_attributes", 
   specMax:       text("spec_max"),
   units:         text("units"),
   testMethod:    text("test_method"),
-  sortOrder:     integer("sort_order").notNull().default(0),
+  sortOrder:          integer("sort_order").notNull().default(0),
+  verificationSource: text("verification_source").$type<SpecVerificationSource>(),
+  frequency:          text("frequency").$type<SpecFrequency>(),
+  resultType:         text("result_type").$type<SpecResultType>(),
+  specificationText:  text("specification_text"),
 });
 export type ComponentSpecAttribute = typeof componentSpecAttributes.$inferSelect;
 

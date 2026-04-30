@@ -75,6 +75,8 @@ describeIfDb("F-10 — Validation Documents", () => {
   });
 
   afterAll(async () => {
+    // Clean up carrieTreat's signature so subsequent tests can delete seed users
+    await resetVsrDocument();
     if (prodUserId) {
       await db.delete(schema.userRoles).where(eq(schema.userRoles.userId, prodUserId));
       await db.delete(schema.users).where(eq(schema.users.id, prodUserId));

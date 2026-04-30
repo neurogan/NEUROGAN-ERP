@@ -81,6 +81,11 @@ describeIfDb("Component Specifications lifecycle", () => {
     if (productId)
       await db.delete(schema.products).where(eq(schema.products.id, productId)).catch(() => {});
     if (qaId) {
+      // Delete signatures before user to avoid FK constraint on erp_electronic_signatures.user_id
+      await db
+        .delete(schema.electronicSignatures)
+        .where(eq(schema.electronicSignatures.userId, qaId))
+        .catch(() => {});
       await db.delete(schema.userRoles).where(eq(schema.userRoles.userId, qaId)).catch(() => {});
       await db.delete(schema.users).where(eq(schema.users.id, qaId)).catch(() => {});
     }

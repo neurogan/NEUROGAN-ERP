@@ -10,6 +10,7 @@ import {
   listComponentSpecs,
   getComponentSpec,
   createComponentSpec,
+  updateComponentSpec,
   createSpecVersion,
   discardSpecVersion,
   upsertSpecAttribute,
@@ -28,6 +29,10 @@ const attributeBody = z.object({
   units: z.string().nullable().optional(),
   testMethod: z.string().nullable().optional(),
   sortOrder: z.number().int().default(0),
+  verificationSource: schema.specVerificationSourceEnum.nullable().optional(),
+  frequency: schema.specFrequencyEnum.nullable().optional(),
+  resultType: schema.specResultTypeEnum.nullable().optional(),
+  specificationText: z.string().nullable().optional(),
 });
 
 // GET /api/component-specs — list all specs (one row per non-FINISHED_GOOD product)
@@ -45,9 +50,20 @@ router.post("/", requireRole("QA", "ADMIN"), async (req, res, next) => {
   try {
     const body = z.object({
       productId: z.string(),
-      notes: z.string().optional(),
+      notes: z.string().nullable().optional(),
+      documentNumber: z.string().nullable().optional(),
+      synonyms: z.string().nullable().optional(),
+      casNumber: z.string().nullable().optional(),
+      botanicalSource: z.string().nullable().optional(),
+      countryOfOrigin: z.string().nullable().optional(),
+      primaryPackaging: z.string().nullable().optional(),
+      secondaryPackaging: z.string().nullable().optional(),
+      storageConditions: z.string().nullable().optional(),
+      shelfLifeMonths: z.number().int().nullable().optional(),
+      retestMonths: z.number().int().nullable().optional(),
     }).parse(req.body);
-    const spec = await createComponentSpec(body.productId, req.user!.id);
+    const { productId, ...headerData } = body;
+    const spec = await createComponentSpec(productId, req.user!.id, headerData);
     return res.status(201).json(spec);
   } catch (err) {
     return next(err);
@@ -71,6 +87,31 @@ router.get<{ specId: string }>("/:specId", requireRole("QA", "ADMIN", "LAB_TECH"
     const spec = await getComponentSpec(req.params.specId);
     if (!spec) return next(errors.notFound("ComponentSpec"));
     return res.json(spec);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// PATCH /api/component-specs/:specId — update spec header (document metadata + packaging/storage)
+router.patch<{ specId: string }>("/:specId", requireRole("QA", "ADMIN"), async (req, res, next) => {
+  try {
+    const spec = await getComponentSpec(req.params.specId);
+    if (!spec) return next(errors.notFound("ComponentSpec"));
+    const body = z.object({
+      notes: z.string().nullable().optional(),
+      documentNumber: z.string().nullable().optional(),
+      synonyms: z.string().nullable().optional(),
+      casNumber: z.string().nullable().optional(),
+      botanicalSource: z.string().nullable().optional(),
+      countryOfOrigin: z.string().nullable().optional(),
+      primaryPackaging: z.string().nullable().optional(),
+      secondaryPackaging: z.string().nullable().optional(),
+      storageConditions: z.string().nullable().optional(),
+      shelfLifeMonths: z.number().int().nullable().optional(),
+      retestMonths: z.number().int().nullable().optional(),
+    }).parse(req.body);
+    const updated = await updateComponentSpec(req.params.specId, body);
+    return res.json(updated);
   } catch (err) {
     return next(err);
   }

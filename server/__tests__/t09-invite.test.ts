@@ -7,13 +7,12 @@ import { db } from "../db";
 import { buildTestApp } from "./helpers/test-app";
 import { storage } from "../storage";
 import { hashPassword } from "../auth/password";
+import { sendInviteEmail } from "../email/resend";
 
 // Mock the Resend email module so tests never hit the real API.
 vi.mock("../email/resend", () => ({
   sendInviteEmail: vi.fn().mockResolvedValue(undefined),
 }));
-
-import { sendInviteEmail } from "../email/resend";
 
 const dbUrl = process.env.DATABASE_URL;
 const describeIfDb = dbUrl ? describe : describe.skip;
@@ -29,6 +28,10 @@ describeIfDb("T-09 — invite lifecycle", () => {
   beforeEach(async () => {
     vi.mocked(sendInviteEmail).mockClear();
 
+    // Null out nullable signatureId FKs before deleting signatures
+    await db.update(schema.validationDocuments).set({ signatureId: null });
+    await db.update(schema.componentSpecVersions).set({ signatureId: null });
+    await db.delete(schema.electronicSignatures);
     await db.delete(schema.auditTrail);
     await db.delete(schema.passwordHistory);
     await db.delete(schema.userRoles);
@@ -73,7 +76,6 @@ describeIfDb("T-09 — invite lifecycle", () => {
       expect(vi.mocked(sendInviteEmail)).toHaveBeenCalledOnce();
       expect(vi.mocked(sendInviteEmail).mock.calls[0][0]).toBe("alice@test.local");
     });
-  });
 
     it("502: returns EMAIL_DELIVERY_FAILED when Resend throws; no user created", async () => {
       vi.mocked(sendInviteEmail).mockRejectedValueOnce(new Error("Resend unavailable"));
@@ -118,7 +120,7 @@ describeIfDb("T-09 — invite lifecycle", () => {
 
       const res = await request(app)
         .post("/api/auth/accept-invite")
-        .send({ token: rawToken, email: "carol@test.local", password: "MyNewPass1!" });
+        .send({ token: rawToken, email: "carol@test.local", password: "MyNewPass12!" });
 
       expect(res.status).toBe(200);
       expect(res.body.user.status).toBe("ACTIVE");
@@ -138,7 +140,7 @@ describeIfDb("T-09 — invite lifecycle", () => {
       const rawToken = await createInvitedUser("carol2@test.local");
       await request(app)
         .post("/api/auth/accept-invite")
-        .send({ token: rawToken, email: "carol2@test.local", password: "MyNewPass1!" });
+        .send({ token: rawToken, email: "carol2@test.local", password: "MyNewPass12!" });
 
       const reuse = await request(app)
         .post("/api/auth/accept-invite")
@@ -152,7 +154,7 @@ describeIfDb("T-09 — invite lifecycle", () => {
 
       const res = await request(app)
         .post("/api/auth/accept-invite")
-        .send({ token: "a".repeat(64), email: "dave@test.local", password: "MyNewPass1!" });
+        .send({ token: "a".repeat(64), email: "dave@test.local", password: "MyNewPass12!" });
 
       expect(res.status).toBe(400);
       expect(res.body.error.code).toBe("INVITE_INVALID");
@@ -161,7 +163,7 @@ describeIfDb("T-09 — invite lifecycle", () => {
     it("400 INVITE_INVALID: unknown email", async () => {
       const res = await request(app)
         .post("/api/auth/accept-invite")
-        .send({ token: "sometoken", email: "nobody@test.local", password: "MyNewPass1!" });
+        .send({ token: "sometoken", email: "nobody@test.local", password: "MyNewPass12!" });
 
       expect(res.status).toBe(400);
       expect(res.body.error.code).toBe("INVITE_INVALID");
@@ -204,13 +206,13 @@ describeIfDb("T-09 — invite lifecycle", () => {
       // Old token fails
       const oldRes = await request(app)
         .post("/api/auth/accept-invite")
-        .send({ token: firstToken, email: "frank@test.local", password: "MyNewPass1!" });
+        .send({ token: firstToken, email: "frank@test.local", password: "MyNewPass12!" });
       expect(oldRes.status).toBe(400);
 
       // New token works
       const newRes = await request(app)
         .post("/api/auth/accept-invite")
-        .send({ token: secondToken, email: "frank@test.local", password: "MyNewPass1!" });
+        .send({ token: secondToken, email: "frank@test.local", password: "MyNewPass12!" });
       expect(newRes.status).toBe(200);
     });
 

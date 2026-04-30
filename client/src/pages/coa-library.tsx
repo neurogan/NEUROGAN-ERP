@@ -939,7 +939,7 @@ function UploadCoaDialog({
                               prev.map((t, i) => {
                                 if (i !== idx) return t;
                                 const specStr =
-                                  attr.specMin != null || attr.specMax != null
+                                  attr.specMin !== null || attr.specMax !== null
                                     ? `${attr.specMin ?? ""}–${attr.specMax ?? ""}`
                                     : t.specification;
                                 return {

@@ -1,4 +1,10 @@
-import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from "vitest";
+
+// POST /api/users now sends an invite email — mock it so integration tests
+// never attempt a real Resend API call.
+vi.mock("../email/resend", () => ({
+  sendInviteEmail: vi.fn().mockResolvedValue(undefined),
+}));
 import request from "supertest";
 import type { Express } from "express";
 import { Pool } from "pg";
