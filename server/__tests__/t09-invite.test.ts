@@ -72,7 +72,6 @@ describeIfDb("T-09 — invite lifecycle", () => {
       expect(vi.mocked(sendInviteEmail)).toHaveBeenCalledOnce();
       expect(vi.mocked(sendInviteEmail).mock.calls[0][0]).toBe("alice@test.local");
     });
-  });
 
     it("502: returns EMAIL_DELIVERY_FAILED when Resend throws; no user created", async () => {
       vi.mocked(sendInviteEmail).mockRejectedValueOnce(new Error("Resend unavailable"));
