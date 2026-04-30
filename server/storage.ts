@@ -104,6 +104,9 @@ export interface CreateUserInput {
   fullName: string;
   title?: string | null;
   passwordHash: string;
+  status?: UserStatus;
+  inviteTokenHash?: string | null;
+  inviteTokenExpiresAt?: Date | null;
   roles: readonly UserRole[];
   createdByUserId: string | null;
   grantedByUserId: string | null;
@@ -371,6 +374,8 @@ export interface IStorage {
   getUserById(id: string): Promise<UserResponse | undefined>;
   getUserByEmail(email: string): Promise<User | undefined>;
   createUser(data: CreateUserInput, tx?: Tx): Promise<UserResponse>;
+  acceptInvite(userId: string, passwordHash: string): Promise<void>;
+  renewInviteToken(userId: string, tokenHash: string, expiresAt: Date): Promise<void>;
   updateUserStatus(id: string, status: UserStatus, tx?: Tx): Promise<UserResponse | undefined>;
   setUserRoles(
     userId: string,

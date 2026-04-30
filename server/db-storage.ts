@@ -2624,6 +2624,9 @@ export class DatabaseStorage implements IStorage {
           title: data.title ?? null,
           passwordHash: data.passwordHash,
           passwordChangedAt: new Date(0),
+          status: data.status ?? "ACTIVE",
+          inviteTokenHash: data.inviteTokenHash ?? null,
+          inviteTokenExpiresAt: data.inviteTokenExpiresAt ?? null,
           createdByUserId: data.createdByUserId,
         })
         .returning();
@@ -2658,6 +2661,26 @@ export class DatabaseStorage implements IStorage {
     if (!updated) return undefined;
     const rolesByUser = await this.fetchRolesByUserIds([id]);
     return DatabaseStorage.toUserResponse(updated, rolesByUser.get(id) ?? []);
+  }
+
+  async acceptInvite(userId: string, passwordHash: string): Promise<void> {
+    await db
+      .update(schema.users)
+      .set({
+        passwordHash,
+        passwordChangedAt: new Date(),
+        status: "ACTIVE",
+        inviteTokenHash: null,
+        inviteTokenExpiresAt: null,
+      })
+      .where(eq(schema.users.id, userId));
+  }
+
+  async renewInviteToken(userId: string, tokenHash: string, expiresAt: Date): Promise<void> {
+    await db
+      .update(schema.users)
+      .set({ inviteTokenHash: tokenHash, inviteTokenExpiresAt: expiresAt })
+      .where(eq(schema.users.id, userId));
   }
 
   async setUserRoles(
