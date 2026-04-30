@@ -22,7 +22,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { Equipment } from "@shared/schema";
+import type { Equipment, MmrWithSteps } from "@shared/schema";
 
 // Sentinel for the placeholder option in the "Add equipment" picker. Radix
 // forbids empty-string values; same pattern as cleaning.tsx and
@@ -113,6 +113,17 @@ export function BprStartModal({
     enabled: open && !!productId,
   });
 
+  const { data: approvedMmr, isLoading: mmrLoading } = useQuery<MmrWithSteps | null>({
+    queryKey: ["/api/mmrs", "approved", productId],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/mmrs?productId=${productId}&status=APPROVED`);
+      const arr = await res.json() as MmrWithSteps[];
+      return arr[0] ?? null;
+    },
+    enabled: open && !!productId,
+  });
+
+
   const { data: allEquipment, isLoading: allLoading } = useQuery<Equipment[]>({
     queryKey: ["/api/equipment"],
     queryFn: async () => {
@@ -129,9 +140,13 @@ export function BprStartModal({
     if (!open) return;
     if (initialisedRef.current) return;
     if (!defaultEquipment) return;
-    setSelectedIds(new Set(defaultEquipment.map((e) => e.id)));
+    // R-07: merge MMR equipment IDs into the default selection
+    const mmrEquipmentIds = approvedMmr
+      ? approvedMmr.steps.flatMap((s) => s.equipmentIds)
+      : [];
+    setSelectedIds(new Set([...defaultEquipment.map((e) => e.id), ...mmrEquipmentIds]));
     initialisedRef.current = true;
-  }, [open, defaultEquipment]);
+  }, [open, defaultEquipment, approvedMmr]);
 
   const equipmentById = useMemo(() => {
     const m = new Map<string, Equipment>();
@@ -224,7 +239,7 @@ export function BprStartModal({
     onOpenChange(o);
   }
 
-  const loading = defaultsLoading || allLoading;
+  const loading = defaultsLoading || allLoading || mmrLoading;
   const submitDisabled = startMutation.isPending || selectedIds.size === 0;
 
   return (
@@ -243,6 +258,18 @@ export function BprStartModal({
         </DialogHeader>
 
         <div className="space-y-4">
+          {/* R-07: MMR banner */}
+          {approvedMmr ? (
+            <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
+              Batch will be produced from <strong>MMR v{approvedMmr.version}</strong> — {approvedMmr.productName}
+            </div>
+          ) : (
+            <div className="rounded-md border border-yellow-200 bg-yellow-50 px-3 py-2 text-xs text-yellow-800">
+              No approved MMR exists for this product. Steps must be entered manually.
+            </div>
+          )}
+
+
           {gateError && <GateBanners error={gateError} />}
 
           <section className="space-y-2">

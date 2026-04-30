@@ -148,6 +148,13 @@
       "when": 1745501200000,
       "tag": "0020_r06_returned_product",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1745501300000,
+      "tag": "0021_r07_mmr",
+      "breakpoints": true
     }
   ]
 }

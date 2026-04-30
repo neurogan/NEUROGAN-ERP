@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -51,7 +52,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Plus, Trash2, Search, BookOpen, FlaskConical, Package, Pencil } from "lucide-react";
-import type { Product, RecipeWithDetails } from "@shared/schema";
+import type { Product, RecipeWithDetails, MmrWithSteps } from "@shared/schema";
 import { formatQty } from "@/lib/formatQty";
 
 const UOMS = ["g", "mg", "L", "mL", "gal", "pcs", "lb", "oz"];
@@ -504,6 +505,7 @@ function RecipePanel({
 // ── Main page ──────────────────────────────────────────
 
 export default function FinishedGoods() {
+  const [, setLocation] = useLocation();
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -534,6 +536,17 @@ export default function FinishedGoods() {
     queryFn: () => apiRequest("GET", `/api/recipes?productId=${selectedProductId}`).then(r => r.json()),
     enabled: !!selectedProductId,
   });
+
+  // Fetch approved MMR for selected product
+  const { data: approvedMmrs } = useQuery<MmrWithSteps[]>({
+    queryKey: ["/api/mmrs", "approved", selectedProductId],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/mmrs?productId=${selectedProductId}&status=APPROVED`);
+      return res.json();
+    },
+    enabled: !!selectedProductId,
+  });
+  const approvedMmr = approvedMmrs?.[0] ?? null;
 
   // Delete product mutation
   const deleteProductMutation = useMutation({
@@ -687,6 +700,16 @@ export default function FinishedGoods() {
                 >
                   {selectedProduct?.status}
                 </Badge>
+                {approvedMmr && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setLocation("/operations/mmr")}
+                    data-testid="button-view-mmr"
+                  >
+                    View MMR
+                  </Button>
+                )}
                 <Button
                   variant="outline"
                   size="icon"

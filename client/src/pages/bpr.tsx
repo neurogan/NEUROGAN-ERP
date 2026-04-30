@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { useRoute, Link } from "wouter";
+import { useRoute, Link, useLocation } from "wouter";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { formatQty } from "@/lib/formatQty";
@@ -112,6 +112,7 @@ function formatTimestamp(val: string | Date | null | undefined): string {
 // ── Section 1: Header ──
 
 function BprHeader({ bpr, isReadOnly }: { bpr: BprWithDetails; isReadOnly: boolean }) {
+  const [, setLocation] = useLocation();
   return (
     <div className="space-y-1" data-testid="section-bpr-header">
       <div className="flex items-center gap-3 flex-wrap">
@@ -143,6 +144,16 @@ function BprHeader({ bpr, isReadOnly }: { bpr: BprWithDetails; isReadOnly: boole
             <CheckCircle className="h-3 w-3" />
             Completed: {formatTimestamp(bpr.completedAt)}
           </span>
+        )}
+        {bpr.mmrId && bpr.mmrVersion !== null && (
+          <button
+            type="button"
+            className="flex items-center gap-1 text-xs text-blue-600 hover:underline"
+            onClick={() => setLocation("/operations/mmr")}
+            data-testid="link-produced-from-mmr"
+          >
+            Produced from MMR v{bpr.mmrVersion}
+          </button>
         )}
       </div>
     </div>

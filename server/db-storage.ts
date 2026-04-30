@@ -59,6 +59,7 @@ import type {
 import { computeRoleDelta } from "./storage/users";
 import { assertNotLocked, assertValidTransition } from "./state/transitions";
 import { runAllGates, GateError } from "./state/bpr-equipment-gates";
+import { getMmrByProduct } from "./storage/mmr";
 
 // ─── QC Workflow type derivation ──────────────────────────────────────────────
 
@@ -777,8 +778,17 @@ export class DatabaseStorage implements IStorage {
       }
     }
 
+    // R-07: look up approved MMR for this product
+    const approvedMmr = await getMmrByProduct(existing.productId, "APPROVED");
+    const mmrSteps = approvedMmr?.steps ?? [];
+
+    // Union MMR-required equipment IDs into the gate check list
+    const allEquipmentIds = approvedMmr
+      ? [...new Set([...equipmentIds, ...mmrSteps.flatMap((s) => s.equipmentIds)])]
+      : equipmentIds;
+
     try {
-      await runAllGates(db, batchId, existing.productId, equipmentIds);
+      await runAllGates(db, batchId, existing.productId, allEquipmentIds);
     } catch (e: unknown) {
       if (GateError.is(e)) {
         await db.insert(schema.auditTrail).values({
@@ -811,7 +821,7 @@ export class DatabaseStorage implements IStorage {
         .from(schema.recipes)
         .where(eq(schema.recipes.productId, updated!.productId));
       const recipe = recipeRows[0];
-      await this.createBpr({
+      const bpr = await this.createBpr({
         productionBatchId: batchId,
         batchNumber: updated!.batchNumber,
         lotNumber: updated!.outputLotNumber ?? null,
@@ -820,7 +830,24 @@ export class DatabaseStorage implements IStorage {
         status: "IN_PROGRESS",
         theoreticalYield: updated!.plannedQuantity,
         startedAt: new Date(),
+        mmrId: approvedMmr?.id ?? null,
+        mmrVersion: approvedMmr?.version ?? null,
       }, tx);
+
+      // R-07: pre-populate BPR steps from approved MMR
+      if (mmrSteps.length > 0) {
+        await tx.insert(schema.bprSteps).values(
+          mmrSteps.map((s) => ({
+            bprId: bpr.id,
+            stepNumber: String(s.stepNumber),
+            stepDescription: s.description,
+            monitoringResults: s.criticalParams
+              ? JSON.stringify({ guidance: s.criticalParams })
+              : null,
+          })),
+        );
+      }
+
       return updated!;
     });
   }

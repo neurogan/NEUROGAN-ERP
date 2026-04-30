@@ -3,6 +3,7 @@ import { useLocation } from "wouter";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import Production from "@/pages/production";
 import EquipmentPage from "@/pages/equipment";
+import MmrPage from "@/pages/mmr";
 
 type ManufacturingTab = "production-batches" | "mmr" | "equipment";
 
@@ -11,14 +12,6 @@ const TABS: { value: ManufacturingTab; label: string }[] = [
   { value: "mmr", label: "Master Manufacturing Records" },
   { value: "equipment", label: "Equipment" },
 ];
-
-function MmrPlaceholder() {
-  return (
-    <div className="px-6 pt-8 text-sm text-muted-foreground">
-      Master Manufacturing Records — coming in R-07.
-    </div>
-  );
-}
 
 export default function ManufacturingPage() {
   const [location, setLocation] = useLocation();
@@ -51,7 +44,7 @@ export default function ManufacturingPage() {
         </Tabs>
       </div>
       {activeTab === "production-batches" && <Production />}
-      {activeTab === "mmr" && <MmrPlaceholder />}
+      {activeTab === "mmr" && <MmrPage />}
       {activeTab === "equipment" && <EquipmentPage />}
     </div>
   );
