@@ -413,6 +413,7 @@ export const bprDeviations = pgTable("erp_bpr_deviations", {
   reviewedBy: text("reviewed_by"),
   reviewedAt: timestamp("reviewed_at"),
   signatureOfReviewer: text("signature_of_reviewer"),
+  signatureId: uuid("signature_id").references(() => electronicSignatures.id),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

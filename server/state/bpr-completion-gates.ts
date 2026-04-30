@@ -17,12 +17,14 @@
 // when the row is absent.
 
 import { getReconciliationForBpr } from "../storage/label-reconciliations";
+import { getCleaningLogIdForBpr } from "../storage/bpr-records";
 
 // ─── Error class ─────────────────────────────────────────────────────────────
 
 export type CompletionGateCode =
   | "LABEL_RECONCILIATION_MISSING"
-  | "LABEL_RECONCILIATION_OUT_OF_TOLERANCE_NO_DEVIATION";
+  | "LABEL_RECONCILIATION_OUT_OF_TOLERANCE_NO_DEVIATION"
+  | "CLEANING_LOG_MISSING";
 
 export interface CompletionGatePayload {
   bprId: string;
@@ -80,12 +82,27 @@ function requireToleranceDeviationConsistency(
   }
 }
 
+// Gate 3: A cleaning log must be linked before a BPR can complete.
+function requireCleaningLog(bprId: string, cleaningLogId: string | null | undefined): void {
+  if (!cleaningLogId) {
+    throw new CompletionGateError(
+      "CLEANING_LOG_MISSING",
+      "A cleaning log must be linked before this BPR can be submitted for review.",
+      { bprId },
+    );
+  }
+}
+
 // ─── Orchestrator ─────────────────────────────────────────────────────────────
 
 // runCompletionGates runs all completion gates in order, throwing on the first
 // failure. Call this before allowing a BPR to transition to COMPLETED status.
 export async function runCompletionGates(bprId: string): Promise<void> {
-  const recon = await getReconciliationForBpr(bprId);
+  const [recon, cleaningLogId] = await Promise.all([
+    getReconciliationForBpr(bprId),
+    getCleaningLogIdForBpr(bprId),
+  ]);
   requireReconciliation(bprId, recon);
   requireToleranceDeviationConsistency(bprId, recon);
+  requireCleaningLog(bprId, cleaningLogId);
 }

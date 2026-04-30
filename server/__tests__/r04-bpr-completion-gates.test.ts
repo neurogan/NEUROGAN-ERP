@@ -11,13 +11,19 @@ vi.mock("../storage/label-reconciliations", () => ({
   getReconciliationForBpr: vi.fn(),
 }));
 
+vi.mock("../storage/bpr-records", () => ({
+  getCleaningLogIdForBpr: vi.fn(),
+}));
+
 import { getReconciliationForBpr } from "../storage/label-reconciliations";
+import { getCleaningLogIdForBpr } from "../storage/bpr-records";
 import {
   runCompletionGates,
   CompletionGateError,
 } from "../state/bpr-completion-gates";
 
 const mockedGet = vi.mocked(getReconciliationForBpr);
+const mockedGetCleaning = vi.mocked(getCleaningLogIdForBpr);
 
 // Minimal shape matching schema.LabelReconciliation for test purposes.
 function makeRecon(overrides: Partial<{
@@ -47,6 +53,8 @@ function makeRecon(overrides: Partial<{
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Gate 3 passes by default in unit tests — integration tests cover the blocking path
+  mockedGetCleaning.mockResolvedValue("cleaning-log-1");
 });
 
 describe("R-04 BPR completion gates", () => {
@@ -112,6 +120,25 @@ describe("R-04 BPR completion gates", () => {
       );
 
       await expect(runCompletionGates("bpr-dev")).resolves.toBeUndefined();
+    });
+  });
+
+  describe("CLEANING_LOG_MISSING", () => {
+    it("throws when cleaningLogId is null", async () => {
+      mockedGet.mockResolvedValue(makeRecon({ bprId: "bpr-no-clean" }));
+      mockedGetCleaning.mockResolvedValue(null);
+
+      await expect(runCompletionGates("bpr-no-clean")).rejects.toMatchObject({
+        status: 409,
+        code: "CLEANING_LOG_MISSING",
+      });
+    });
+
+    it("resolves when cleaningLogId is set", async () => {
+      mockedGet.mockResolvedValue(makeRecon({ bprId: "bpr-clean" }));
+      mockedGetCleaning.mockResolvedValue("cleaning-log-1");
+
+      await expect(runCompletionGates("bpr-clean")).resolves.toBeUndefined();
     });
   });
 
