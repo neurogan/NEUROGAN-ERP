@@ -141,6 +141,15 @@ export async function registerRoutes(
       const tokenHash = await hashPassword(rawToken);
       const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
+      // Send the invite email before persisting the user — if Resend fails we
+      // return 502 without creating a PENDING_INVITE row that can never be
+      // reached (no email was delivered to complete the flow).
+      try {
+        await sendInviteEmail(body.email, rawToken);
+      } catch {
+        return res.status(502).json({ message: "Failed to send invite email. Please try again." });
+      }
+
       const user = await withAudit(
         {
           userId: req.user!.id,
@@ -165,7 +174,6 @@ export async function registerRoutes(
         }, tx),
       );
 
-      await sendInviteEmail(body.email, rawToken);
       return res.status(201).json({ user });
     } catch (err) {
       const pgErr = err as { code?: string } | undefined;
