@@ -23,12 +23,15 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Trash2, ArrowLeft, Plus } from "lucide-react";
+import { Trash2, ArrowLeft, Plus, ChevronDown, ChevronRight } from "lucide-react";
 import { SignatureCeremony } from "@/components/SignatureCeremony";
 import type {
   ComponentSpecWithVersions,
   ComponentSpecVersionWithAttributes,
   SpecAttributeCategory,
+  SpecVerificationSource,
+  SpecFrequency,
+  SpecResultType,
 } from "@shared/schema";
 
 // ── Constants ────────────────────────────────────────────────
@@ -39,25 +42,53 @@ const ATTRIBUTE_CATEGORIES: SpecAttributeCategory[] = [
   "HEAVY_METAL",
   "MICROBIAL",
   "PHYSICAL",
+  "BOTANICAL_CONTAMINANT",
+  "RESIDUAL_SOLVENT",
+  "MATERIAL_DECLARATION",
   "OTHER",
 ];
 
-const CATEGORY_LABELS: Record<SpecAttributeCategory, string> = {
+const CATEGORY_LABELS: Record<string, string> = {
   IDENTITY: "Identity",
   ASSAY: "Assay",
-  HEAVY_METAL: "Heavy Metal",
+  HEAVY_METAL: "Heavy Metals",
   MICROBIAL: "Microbial",
   PHYSICAL: "Physical",
+  BOTANICAL_CONTAMINANT: "Botanical Contaminants",
+  RESIDUAL_SOLVENT: "Residual Solvents",
+  MATERIAL_DECLARATION: "Material Declarations",
   OTHER: "Other",
 };
 
-const CATEGORY_COLORS: Record<SpecAttributeCategory, string> = {
+const CATEGORY_COLORS: Record<string, string> = {
   IDENTITY: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400",
   ASSAY: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400",
   HEAVY_METAL: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400",
   MICROBIAL: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400",
   PHYSICAL: "bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-400",
+  BOTANICAL_CONTAMINANT: "bg-lime-100 text-lime-800 dark:bg-lime-900/30 dark:text-lime-400",
+  RESIDUAL_SOLVENT: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400",
+  MATERIAL_DECLARATION: "bg-teal-100 text-teal-800 dark:bg-teal-900/30 dark:text-teal-400",
   OTHER: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400",
+};
+
+const VERIFICATION_SOURCE_LABELS: Record<string, string> = {
+  NEUROGAN_IN_HOUSE: "In-House",
+  SUPPLIER_COA: "Supplier COA",
+  THIRD_PARTY_LAB: "3rd-Party Lab",
+  SUPPLIER_DECLARATION: "Supplier Decl.",
+};
+
+const FREQUENCY_LABELS: Record<string, string> = {
+  EVERY_LOT: "Every Lot",
+  ANNUAL: "Annual",
+  PERIODIC: "Periodic",
+};
+
+const RESULT_TYPE_LABELS: Record<string, string> = {
+  NUMERIC: "Numeric",
+  PASS_FAIL: "Pass/Fail",
+  TEXT: "Text",
 };
 
 // ── Helpers ──────────────────────────────────────────────────
@@ -73,10 +104,10 @@ function statusBadge(status: string) {
   );
 }
 
-function categoryBadge(category: SpecAttributeCategory) {
+function categoryBadge(category: string) {
   return (
-    <Badge className={`text-xs ${CATEGORY_COLORS[category]}`}>
-      {CATEGORY_LABELS[category]}
+    <Badge className={`text-xs ${CATEGORY_COLORS[category] ?? CATEGORY_COLORS.OTHER}`}>
+      {CATEGORY_LABELS[category] ?? category}
     </Badge>
   );
 }
@@ -90,6 +121,86 @@ interface NewAttributeRow {
   specMax: string;
   units: string;
   testMethod: string;
+  resultType: SpecResultType | "";
+  verificationSource: SpecVerificationSource | "";
+  frequency: SpecFrequency | "";
+  specificationText: string;
+}
+
+// ── Header fields type ───────────────────────────────────────
+
+interface HeaderFields {
+  notes: string;
+  documentNumber: string;
+  synonyms: string;
+  casNumber: string;
+  botanicalSource: string;
+  countryOfOrigin: string;
+  primaryPackaging: string;
+  secondaryPackaging: string;
+  storageConditions: string;
+  shelfLifeMonths: string;
+  retestMonths: string;
+}
+
+function specToHeaderFields(spec: ComponentSpecWithVersions): HeaderFields {
+  const s = spec as ComponentSpecWithVersions & Record<string, unknown>;
+  return {
+    notes: (s.notes as string | null) ?? "",
+    documentNumber: (s.documentNumber as string | null) ?? "",
+    synonyms: (s.synonyms as string | null) ?? "",
+    casNumber: (s.casNumber as string | null) ?? "",
+    botanicalSource: (s.botanicalSource as string | null) ?? "",
+    countryOfOrigin: (s.countryOfOrigin as string | null) ?? "",
+    primaryPackaging: (s.primaryPackaging as string | null) ?? "",
+    secondaryPackaging: (s.secondaryPackaging as string | null) ?? "",
+    storageConditions: (s.storageConditions as string | null) ?? "",
+    shelfLifeMonths: (s.shelfLifeMonths as number | null) != null ? String(s.shelfLifeMonths) : "",
+    retestMonths: (s.retestMonths as number | null) != null ? String(s.retestMonths) : "",
+  };
+}
+
+function headerFieldsToPayload(h: HeaderFields) {
+  return {
+    notes: h.notes || null,
+    documentNumber: h.documentNumber || null,
+    synonyms: h.synonyms || null,
+    casNumber: h.casNumber || null,
+    botanicalSource: h.botanicalSource || null,
+    countryOfOrigin: h.countryOfOrigin || null,
+    primaryPackaging: h.primaryPackaging || null,
+    secondaryPackaging: h.secondaryPackaging || null,
+    storageConditions: h.storageConditions || null,
+    shelfLifeMonths: h.shelfLifeMonths ? parseInt(h.shelfLifeMonths, 10) : null,
+    retestMonths: h.retestMonths ? parseInt(h.retestMonths, 10) : null,
+  };
+}
+
+// ── Collapsible section wrapper ───────────────────────────────
+
+function CollapsibleSection({
+  title,
+  defaultOpen = false,
+  children,
+}: {
+  title: string;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className="rounded-md border">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center justify-between px-4 py-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground hover:text-foreground transition-colors"
+      >
+        {title}
+        {open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+      </button>
+      {open && <div className="px-4 pb-4 pt-1">{children}</div>}
+    </div>
+  );
 }
 
 // ── Component ────────────────────────────────────────────────
@@ -106,6 +217,10 @@ export default function ComponentSpecDetail() {
   const [showApproveModal, setShowApproveModal] = useState(false);
   const [newAttributeRow, setNewAttributeRow] = useState<NewAttributeRow | null>(null);
   const [editingAttributeId] = useState<string | null>(null);
+
+  // Header section edit state
+  const [docDetailsFields, setDocDetailsFields] = useState<HeaderFields | null>(null);
+  const [packagingFields, setPackagingFields] = useState<HeaderFields | null>(null);
 
   // ── Data fetching ──────────────────────────────────────────
 
@@ -207,6 +322,10 @@ export default function ComponentSpecDetail() {
           specMax: row.specMax || null,
           units: row.units || null,
           testMethod: row.testMethod || null,
+          resultType: row.resultType || null,
+          verificationSource: row.verificationSource || null,
+          frequency: row.frequency || null,
+          specificationText: row.specificationText || null,
         },
       );
       if (!res.ok) {
@@ -246,6 +365,26 @@ export default function ComponentSpecDetail() {
     },
   });
 
+  const patchSpecMutation = useMutation({
+    mutationFn: async (payload: ReturnType<typeof headerFieldsToPayload>) => {
+      const res = await apiRequest("PATCH", `/api/component-specs/${specId}`, payload);
+      if (!res.ok) {
+        const body = (await res.json()) as { message?: string };
+        throw new Error(body.message ?? "Failed to update spec");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey });
+      setDocDetailsFields(null);
+      setPackagingFields(null);
+      toast({ title: "Specification updated" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to update specification", description: err.message, variant: "destructive" });
+    },
+  });
+
   // ── Handlers ───────────────────────────────────────────────
 
   function handleDiscard() {
@@ -260,6 +399,34 @@ export default function ComponentSpecDetail() {
   function handleAddAttributeSave() {
     if (!newAttributeRow || !newAttributeRow.name) return;
     addAttributeMutation.mutate(newAttributeRow);
+  }
+
+  function handleSaveDocDetails() {
+    if (!docDetailsFields || !spec) return;
+    // Merge with current packaging values from spec
+    const current = specToHeaderFields(spec);
+    patchSpecMutation.mutate(headerFieldsToPayload({
+      ...current,
+      notes: docDetailsFields.notes,
+      documentNumber: docDetailsFields.documentNumber,
+      synonyms: docDetailsFields.synonyms,
+      casNumber: docDetailsFields.casNumber,
+      botanicalSource: docDetailsFields.botanicalSource,
+      countryOfOrigin: docDetailsFields.countryOfOrigin,
+    }));
+  }
+
+  function handleSavePackaging() {
+    if (!packagingFields || !spec) return;
+    const current = specToHeaderFields(spec);
+    patchSpecMutation.mutate(headerFieldsToPayload({
+      ...current,
+      primaryPackaging: packagingFields.primaryPackaging,
+      secondaryPackaging: packagingFields.secondaryPackaging,
+      storageConditions: packagingFields.storageConditions,
+      shelfLifeMonths: packagingFields.shelfLifeMonths,
+      retestMonths: packagingFields.retestMonths,
+    }));
   }
 
   // ── Loading / not found ────────────────────────────────────
@@ -282,7 +449,16 @@ export default function ComponentSpecDetail() {
     );
   }
 
+  const s = spec as ComponentSpecWithVersions & Record<string, unknown>;
   const sortedVersions = [...spec.versions].sort((a, b) => b.versionNumber - a.versionNumber);
+
+  // Derive display values for header sections
+  const displayDoc = docDetailsFields ?? specToHeaderFields(spec);
+  const displayPkg = packagingFields ?? specToHeaderFields(spec);
+
+  // new attribute: hide min/max when resultType is PASS_FAIL or TEXT
+  const hideMinMax =
+    newAttributeRow?.resultType === "PASS_FAIL" || newAttributeRow?.resultType === "TEXT";
 
   return (
     <div className="p-6 space-y-6 max-w-5xl" data-testid="component-spec-detail">
@@ -323,6 +499,12 @@ export default function ComponentSpecDetail() {
           SKU: <span className="font-mono">{spec.productSku}</span>
           {" · "}
           Category: {spec.productCategory}
+          {s.documentNumber ? (
+            <>
+              {" · "}
+              Doc #: <span className="font-mono">{s.documentNumber as string}</span>
+            </>
+          ) : null}
         </p>
       </div>
 
@@ -363,6 +545,202 @@ export default function ComponentSpecDetail() {
         </div>
       )}
 
+      {/* Document Details section */}
+      {canManage && (
+        <CollapsibleSection title="Document Details">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">Document Number</label>
+              <Input
+                className="h-7 text-xs"
+                placeholder="e.g. CSPEC-RES01"
+                value={displayDoc.documentNumber}
+                onChange={(e) =>
+                  setDocDetailsFields({ ...displayDoc, documentNumber: e.target.value })
+                }
+                data-testid="input-document-number"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">CAS Number</label>
+              <Input
+                className="h-7 text-xs"
+                placeholder="e.g. 501-36-0"
+                value={displayDoc.casNumber}
+                onChange={(e) =>
+                  setDocDetailsFields({ ...displayDoc, casNumber: e.target.value })
+                }
+                data-testid="input-cas-number"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">Country of Origin</label>
+              <Input
+                className="h-7 text-xs"
+                placeholder="e.g. China"
+                value={displayDoc.countryOfOrigin}
+                onChange={(e) =>
+                  setDocDetailsFields({ ...displayDoc, countryOfOrigin: e.target.value })
+                }
+                data-testid="input-country-of-origin"
+              />
+            </div>
+            <div className="col-span-2 space-y-1 sm:col-span-3">
+              <label className="text-xs text-muted-foreground">Synonyms</label>
+              <Input
+                className="h-7 text-xs"
+                placeholder='e.g. 3,5,4′-Trihydroxy-trans-stilbene'
+                value={displayDoc.synonyms}
+                onChange={(e) =>
+                  setDocDetailsFields({ ...displayDoc, synonyms: e.target.value })
+                }
+                data-testid="input-synonyms"
+              />
+            </div>
+            <div className="col-span-2 space-y-1 sm:col-span-3">
+              <label className="text-xs text-muted-foreground">Botanical Source</label>
+              <Input
+                className="h-7 text-xs"
+                placeholder="e.g. Polygonum cuspidatum root"
+                value={displayDoc.botanicalSource}
+                onChange={(e) =>
+                  setDocDetailsFields({ ...displayDoc, botanicalSource: e.target.value })
+                }
+                data-testid="input-botanical-source"
+              />
+            </div>
+            <div className="col-span-2 space-y-1 sm:col-span-3">
+              <label className="text-xs text-muted-foreground">Notes</label>
+              <Input
+                className="h-7 text-xs"
+                placeholder="General notes"
+                value={displayDoc.notes}
+                onChange={(e) =>
+                  setDocDetailsFields({ ...displayDoc, notes: e.target.value })
+                }
+                data-testid="input-notes"
+              />
+            </div>
+          </div>
+          {docDetailsFields && (
+            <div className="mt-3 flex gap-2">
+              <Button
+                size="sm"
+                className="h-7 text-xs"
+                onClick={handleSaveDocDetails}
+                disabled={patchSpecMutation.isPending}
+                data-testid="button-save-doc-details"
+              >
+                {patchSpecMutation.isPending ? "Saving…" : "Save"}
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 text-xs"
+                onClick={() => setDocDetailsFields(null)}
+                disabled={patchSpecMutation.isPending}
+              >
+                Cancel
+              </Button>
+            </div>
+          )}
+        </CollapsibleSection>
+      )}
+
+      {/* Packaging & Storage section */}
+      {canManage && (
+        <CollapsibleSection title="Packaging & Storage">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">Primary Packaging</label>
+              <Input
+                className="h-7 text-xs"
+                placeholder="e.g. HDPE drum"
+                value={displayPkg.primaryPackaging}
+                onChange={(e) =>
+                  setPackagingFields({ ...displayPkg, primaryPackaging: e.target.value })
+                }
+                data-testid="input-primary-packaging"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">Secondary Packaging</label>
+              <Input
+                className="h-7 text-xs"
+                placeholder="e.g. Outer carton"
+                value={displayPkg.secondaryPackaging}
+                onChange={(e) =>
+                  setPackagingFields({ ...displayPkg, secondaryPackaging: e.target.value })
+                }
+                data-testid="input-secondary-packaging"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">Storage Conditions</label>
+              <Input
+                className="h-7 text-xs"
+                placeholder="e.g. Store below 25°C"
+                value={displayPkg.storageConditions}
+                onChange={(e) =>
+                  setPackagingFields({ ...displayPkg, storageConditions: e.target.value })
+                }
+                data-testid="input-storage-conditions"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">Shelf Life (months)</label>
+              <Input
+                className="h-7 text-xs"
+                type="number"
+                min={0}
+                placeholder="e.g. 24"
+                value={displayPkg.shelfLifeMonths}
+                onChange={(e) =>
+                  setPackagingFields({ ...displayPkg, shelfLifeMonths: e.target.value })
+                }
+                data-testid="input-shelf-life-months"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">Retest Period (months)</label>
+              <Input
+                className="h-7 text-xs"
+                type="number"
+                min={0}
+                placeholder="e.g. 12"
+                value={displayPkg.retestMonths}
+                onChange={(e) =>
+                  setPackagingFields({ ...displayPkg, retestMonths: e.target.value })
+                }
+                data-testid="input-retest-months"
+              />
+            </div>
+          </div>
+          {packagingFields && (
+            <div className="mt-3 flex gap-2">
+              <Button
+                size="sm"
+                className="h-7 text-xs"
+                onClick={handleSavePackaging}
+                disabled={patchSpecMutation.isPending}
+                data-testid="button-save-packaging"
+              >
+                {patchSpecMutation.isPending ? "Saving…" : "Save"}
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 text-xs"
+                onClick={() => setPackagingFields(null)}
+                disabled={patchSpecMutation.isPending}
+              >
+                Cancel
+              </Button>
+            </div>
+          )}
+        </CollapsibleSection>
+      )}
+
       {/* Attributes table */}
       {selectedVersion && (
         <div className="space-y-3">
@@ -382,6 +760,10 @@ export default function ComponentSpecDetail() {
                     specMax: "",
                     units: "",
                     testMethod: "",
+                    resultType: "",
+                    verificationSource: "",
+                    frequency: "",
+                    specificationText: "",
                   })
                 }
                 data-testid="button-add-attribute"
@@ -392,16 +774,20 @@ export default function ComponentSpecDetail() {
             )}
           </div>
 
-          <div className="rounded-md border">
+          <div className="rounded-md border overflow-x-auto">
             <Table data-testid="table-attributes">
               <TableHeader>
                 <TableRow>
                   <TableHead>Category</TableHead>
                   <TableHead>Name</TableHead>
+                  <TableHead>Result Type</TableHead>
                   <TableHead>Min</TableHead>
                   <TableHead>Max</TableHead>
+                  <TableHead>Spec / Criterion</TableHead>
                   <TableHead>Units</TableHead>
-                  <TableHead>Test Method</TableHead>
+                  <TableHead>Method</TableHead>
+                  <TableHead>Verification</TableHead>
+                  <TableHead>Frequency</TableHead>
                   {canManage && isDraft && <TableHead className="w-10" />}
                 </TableRow>
               </TableHeader>
@@ -409,7 +795,7 @@ export default function ComponentSpecDetail() {
                 {selectedVersion.attributes.length === 0 && !newAttributeRow && (
                   <TableRow>
                     <TableCell
-                      colSpan={canManage && isDraft ? 7 : 6}
+                      colSpan={canManage && isDraft ? 11 : 10}
                       className="text-center text-muted-foreground text-sm py-6"
                       data-testid="text-attributes-empty"
                     >
@@ -417,37 +803,60 @@ export default function ComponentSpecDetail() {
                     </TableCell>
                   </TableRow>
                 )}
-                {selectedVersion.attributes.map((attr) => (
-                  <TableRow key={attr.id} data-testid={`row-attribute-${attr.id}`}>
-                    <TableCell>{categoryBadge(attr.category as SpecAttributeCategory)}</TableCell>
-                    <TableCell className="text-sm">{attr.name}</TableCell>
-                    <TableCell className="text-sm font-mono">
-                      {attr.specMin ?? "—"}
-                    </TableCell>
-                    <TableCell className="text-sm font-mono">
-                      {attr.specMax ?? "—"}
-                    </TableCell>
-                    <TableCell className="text-sm">
-                      {attr.units ?? "—"}
-                    </TableCell>
-                    <TableCell className="text-sm">
-                      {attr.testMethod ?? "—"}
-                    </TableCell>
-                    {canManage && isDraft && (
-                      <TableCell>
-                        <button
-                          className="text-muted-foreground hover:text-destructive transition-colors disabled:opacity-50"
-                          onClick={() => deleteAttributeMutation.mutate(attr.id)}
-                          disabled={deleteAttributeMutation.isPending && editingAttributeId === attr.id}
-                          data-testid={`button-delete-attribute-${attr.id}`}
-                          title="Delete attribute"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
+                {selectedVersion.attributes.map((attr) => {
+                  const a = attr as typeof attr & Record<string, unknown>;
+                  const resultType = a.resultType as string | null;
+                  const showSpecText = resultType === "PASS_FAIL" || resultType === "TEXT";
+                  return (
+                    <TableRow key={attr.id} data-testid={`row-attribute-${attr.id}`}>
+                      <TableCell>{categoryBadge(attr.category)}</TableCell>
+                      <TableCell className="text-sm">{attr.name}</TableCell>
+                      <TableCell className="text-sm">
+                        {resultType ? (RESULT_TYPE_LABELS[resultType] ?? resultType) : "—"}
                       </TableCell>
-                    )}
-                  </TableRow>
-                ))}
+                      <TableCell className="text-sm font-mono">
+                        {showSpecText ? "—" : (attr.specMin ?? "—")}
+                      </TableCell>
+                      <TableCell className="text-sm font-mono">
+                        {showSpecText ? "—" : (attr.specMax ?? "—")}
+                      </TableCell>
+                      <TableCell className="text-sm">
+                        {showSpecText
+                          ? ((a.specificationText as string | null) ?? "—")
+                          : "—"}
+                      </TableCell>
+                      <TableCell className="text-sm">
+                        {attr.units ?? "—"}
+                      </TableCell>
+                      <TableCell className="text-sm">
+                        {attr.testMethod ?? "—"}
+                      </TableCell>
+                      <TableCell className="text-sm">
+                        {a.verificationSource
+                          ? (VERIFICATION_SOURCE_LABELS[a.verificationSource as string] ?? a.verificationSource as string)
+                          : "—"}
+                      </TableCell>
+                      <TableCell className="text-sm">
+                        {a.frequency
+                          ? (FREQUENCY_LABELS[a.frequency as string] ?? a.frequency as string)
+                          : "—"}
+                      </TableCell>
+                      {canManage && isDraft && (
+                        <TableCell>
+                          <button
+                            className="text-muted-foreground hover:text-destructive transition-colors disabled:opacity-50"
+                            onClick={() => deleteAttributeMutation.mutate(attr.id)}
+                            disabled={deleteAttributeMutation.isPending && editingAttributeId === attr.id}
+                            data-testid={`button-delete-attribute-${attr.id}`}
+                            title="Delete attribute"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </TableCell>
+                      )}
+                    </TableRow>
+                  );
+                })}
 
                 {/* New attribute inline row */}
                 {newAttributeRow && (
@@ -459,7 +868,7 @@ export default function ComponentSpecDetail() {
                           setNewAttributeRow({ ...newAttributeRow, category: val as SpecAttributeCategory })
                         }
                       >
-                        <SelectTrigger className="h-7 text-xs w-32" data-testid="select-new-category">
+                        <SelectTrigger className="h-7 text-xs w-36" data-testid="select-new-category">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -481,22 +890,66 @@ export default function ComponentSpecDetail() {
                       />
                     </TableCell>
                     <TableCell>
-                      <Input
-                        className="h-7 text-xs w-20"
-                        placeholder="Min"
-                        value={newAttributeRow.specMin}
-                        onChange={(e) => setNewAttributeRow({ ...newAttributeRow, specMin: e.target.value })}
-                        data-testid="input-new-min"
-                      />
+                      <Select
+                        value={newAttributeRow.resultType || "__none__"}
+                        onValueChange={(val) =>
+                          setNewAttributeRow({
+                            ...newAttributeRow,
+                            resultType: val === "__none__" ? "" : (val as SpecResultType),
+                          })
+                        }
+                      >
+                        <SelectTrigger className="h-7 text-xs w-28" data-testid="select-new-result-type">
+                          <SelectValue placeholder="Type" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__none__" className="text-xs text-muted-foreground">None</SelectItem>
+                          <SelectItem value="NUMERIC" className="text-xs">Numeric</SelectItem>
+                          <SelectItem value="PASS_FAIL" className="text-xs">Pass/Fail</SelectItem>
+                          <SelectItem value="TEXT" className="text-xs">Text</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </TableCell>
                     <TableCell>
-                      <Input
-                        className="h-7 text-xs w-20"
-                        placeholder="Max"
-                        value={newAttributeRow.specMax}
-                        onChange={(e) => setNewAttributeRow({ ...newAttributeRow, specMax: e.target.value })}
-                        data-testid="input-new-max"
-                      />
+                      {!hideMinMax ? (
+                        <Input
+                          className="h-7 text-xs w-20"
+                          placeholder="Min"
+                          value={newAttributeRow.specMin}
+                          onChange={(e) => setNewAttributeRow({ ...newAttributeRow, specMin: e.target.value })}
+                          data-testid="input-new-min"
+                        />
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {!hideMinMax ? (
+                        <Input
+                          className="h-7 text-xs w-20"
+                          placeholder="Max"
+                          value={newAttributeRow.specMax}
+                          onChange={(e) => setNewAttributeRow({ ...newAttributeRow, specMax: e.target.value })}
+                          data-testid="input-new-max"
+                        />
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {hideMinMax ? (
+                        <Input
+                          className="h-7 text-xs w-32"
+                          placeholder="Criterion / spec text"
+                          value={newAttributeRow.specificationText}
+                          onChange={(e) =>
+                            setNewAttributeRow({ ...newAttributeRow, specificationText: e.target.value })
+                          }
+                          data-testid="input-new-specification-text"
+                        />
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
                     </TableCell>
                     <TableCell>
                       <Input
@@ -515,6 +968,49 @@ export default function ComponentSpecDetail() {
                         onChange={(e) => setNewAttributeRow({ ...newAttributeRow, testMethod: e.target.value })}
                         data-testid="input-new-test-method"
                       />
+                    </TableCell>
+                    <TableCell>
+                      <Select
+                        value={newAttributeRow.verificationSource || "__none__"}
+                        onValueChange={(val) =>
+                          setNewAttributeRow({
+                            ...newAttributeRow,
+                            verificationSource: val === "__none__" ? "" : (val as SpecVerificationSource),
+                          })
+                        }
+                      >
+                        <SelectTrigger className="h-7 text-xs w-32" data-testid="select-new-verification-source">
+                          <SelectValue placeholder="Source" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__none__" className="text-xs text-muted-foreground">None</SelectItem>
+                          <SelectItem value="NEUROGAN_IN_HOUSE" className="text-xs">In-House</SelectItem>
+                          <SelectItem value="SUPPLIER_COA" className="text-xs">Supplier COA</SelectItem>
+                          <SelectItem value="THIRD_PARTY_LAB" className="text-xs">3rd-Party Lab</SelectItem>
+                          <SelectItem value="SUPPLIER_DECLARATION" className="text-xs">Supplier Decl.</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </TableCell>
+                    <TableCell>
+                      <Select
+                        value={newAttributeRow.frequency || "__none__"}
+                        onValueChange={(val) =>
+                          setNewAttributeRow({
+                            ...newAttributeRow,
+                            frequency: val === "__none__" ? "" : (val as SpecFrequency),
+                          })
+                        }
+                      >
+                        <SelectTrigger className="h-7 text-xs w-28" data-testid="select-new-frequency">
+                          <SelectValue placeholder="Frequency" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__none__" className="text-xs text-muted-foreground">None</SelectItem>
+                          <SelectItem value="EVERY_LOT" className="text-xs">Every Lot</SelectItem>
+                          <SelectItem value="ANNUAL" className="text-xs">Annual</SelectItem>
+                          <SelectItem value="PERIODIC" className="text-xs">Periodic</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1">

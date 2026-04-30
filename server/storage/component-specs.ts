@@ -165,6 +165,16 @@ export async function listComponentSpecs(): Promise<schema.ComponentSpecWithVers
         createdByUserId: "",
         createdAt: new Date(),
         notes: null,
+        documentNumber: null,
+        synonyms: null,
+        casNumber: null,
+        botanicalSource: null,
+        countryOfOrigin: null,
+        primaryPackaging: null,
+        secondaryPackaging: null,
+        storageConditions: null,
+        shelfLifeMonths: null,
+        retestMonths: null,
         productName: product.name,
         productSku: product.sku,
         productCategory: product.category,
@@ -214,11 +224,38 @@ export async function getComponentSpec(
 export async function createComponentSpec(
   productId: string,
   userId: string,
+  headerData?: {
+    notes?: string | null;
+    documentNumber?: string | null;
+    synonyms?: string | null;
+    casNumber?: string | null;
+    botanicalSource?: string | null;
+    countryOfOrigin?: string | null;
+    primaryPackaging?: string | null;
+    secondaryPackaging?: string | null;
+    storageConditions?: string | null;
+    shelfLifeMonths?: number | null;
+    retestMonths?: number | null;
+  },
 ): Promise<schema.ComponentSpecWithVersions> {
   const { newSpecId, newVersionId } = await db.transaction(async (tx) => {
     const [spec] = await tx
       .insert(schema.componentSpecs)
-      .values({ productId, createdByUserId: userId })
+      .values({
+        productId,
+        createdByUserId: userId,
+        notes: headerData?.notes ?? null,
+        documentNumber: headerData?.documentNumber ?? null,
+        synonyms: headerData?.synonyms ?? null,
+        casNumber: headerData?.casNumber ?? null,
+        botanicalSource: headerData?.botanicalSource ?? null,
+        countryOfOrigin: headerData?.countryOfOrigin ?? null,
+        primaryPackaging: headerData?.primaryPackaging ?? null,
+        secondaryPackaging: headerData?.secondaryPackaging ?? null,
+        storageConditions: headerData?.storageConditions ?? null,
+        shelfLifeMonths: headerData?.shelfLifeMonths ?? null,
+        retestMonths: headerData?.retestMonths ?? null,
+      })
       .returning();
 
     const [version] = await tx
@@ -313,6 +350,10 @@ export async function createSpecVersion(
           units: a.units,
           testMethod: a.testMethod,
           sortOrder: a.sortOrder,
+          verificationSource: a.verificationSource,
+          frequency: a.frequency,
+          resultType: a.resultType,
+          specificationText: a.specificationText,
         })),
       );
     }
@@ -392,6 +433,10 @@ export async function upsertSpecAttribute(
     units?: string | null;
     testMethod?: string | null;
     sortOrder?: number;
+    verificationSource?: schema.SpecVerificationSource | null;
+    frequency?: schema.SpecFrequency | null;
+    resultType?: schema.SpecResultType | null;
+    specificationText?: string | null;
   },
 ): Promise<schema.ComponentSpecAttribute> {
   // Guard: version must be DRAFT
@@ -435,6 +480,10 @@ export async function upsertSpecAttribute(
         units: data.units ?? null,
         testMethod: data.testMethod ?? null,
         sortOrder: data.sortOrder ?? existing.sortOrder,
+        verificationSource: data.verificationSource ?? null,
+        frequency: data.frequency ?? null,
+        resultType: data.resultType ?? null,
+        specificationText: data.specificationText ?? null,
       })
       .where(eq(schema.componentSpecAttributes.id, data.id))
       .returning();
@@ -453,6 +502,10 @@ export async function upsertSpecAttribute(
         units: data.units ?? null,
         testMethod: data.testMethod ?? null,
         sortOrder: data.sortOrder ?? 0,
+        verificationSource: data.verificationSource ?? null,
+        frequency: data.frequency ?? null,
+        resultType: data.resultType ?? null,
+        specificationText: data.specificationText ?? null,
       })
       .returning();
 
@@ -589,4 +642,39 @@ export async function getActiveSpecForProduct(productId: string): Promise<{
     .orderBy(schema.componentSpecAttributes.sortOrder);
 
   return { version, attributes };
+}
+
+// ─── 10. updateComponentSpec ───────────────────────────────────────────────────
+
+export async function updateComponentSpec(
+  specId: string,
+  data: {
+    notes?: string | null;
+    documentNumber?: string | null;
+    synonyms?: string | null;
+    casNumber?: string | null;
+    botanicalSource?: string | null;
+    countryOfOrigin?: string | null;
+    primaryPackaging?: string | null;
+    secondaryPackaging?: string | null;
+    storageConditions?: string | null;
+    shelfLifeMonths?: number | null;
+    retestMonths?: number | null;
+  },
+): Promise<schema.ComponentSpecWithVersions> {
+  await db
+    .update(schema.componentSpecs)
+    .set(data)
+    .where(eq(schema.componentSpecs.id, specId));
+
+  return buildSpecWithVersions(
+    await db
+      .select()
+      .from(schema.componentSpecs)
+      .where(eq(schema.componentSpecs.id, specId))
+      .then(([row]) => {
+        if (!row) throw Object.assign(new Error("ComponentSpec not found"), { status: 404 });
+        return row;
+      }),
+  );
 }
