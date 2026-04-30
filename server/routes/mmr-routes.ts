@@ -5,7 +5,7 @@ import { errors } from "../errors";
 import { performSignature } from "../signatures/signatures";
 import { db } from "../db";
 import * as schema from "@shared/schema";
-import { eq } from "drizzle-orm";
+import { eq, desc } from "drizzle-orm";
 import {
   listMmrs,
   getMmr,
@@ -100,7 +100,9 @@ router.post<{ id: string }>("/:id/approve", requireRole("QA", "ADMIN"), async (r
       return res.status(400).json({ message: "Approver cannot be the same person who created the MMR (21 CFR Part 111 §111.260)" });
     }
 
-    // Perform electronic signature ceremony — updates MMR status inside the same transaction
+    // Perform electronic signature ceremony — records who is approving inside the transaction.
+    // status=APPROVED and signatureId are set together AFTER commit to satisfy the DB constraint
+    // CHECK (status <> 'APPROVED' OR signature_id IS NOT NULL).
     await performSignature(
       {
         userId: req.user!.id,
@@ -116,17 +118,18 @@ router.post<{ id: string }>("/:id/approve", requireRole("QA", "ADMIN"), async (r
       async (tx) => {
         await tx
           .update(schema.mmrs)
-          .set({ status: "APPROVED", approvedByUserId: req.user!.id, approvedAt: new Date(), updatedAt: new Date() })
+          .set({ approvedByUserId: req.user!.id, approvedAt: new Date(), updatedAt: new Date() })
           .where(eq(schema.mmrs.id, req.params.id));
       },
     );
 
-    // After transaction commits, find signature row by entityId and link it
+    // After transaction commits, find signature row by entityId and link it.
+    // approveMmr sets status=APPROVED + signatureId atomically, satisfying the constraint.
     const [sigRow] = await db
       .select({ id: schema.electronicSignatures.id })
       .from(schema.electronicSignatures)
       .where(eq(schema.electronicSignatures.entityId, req.params.id))
-      .orderBy(schema.electronicSignatures.signedAt)
+      .orderBy(desc(schema.electronicSignatures.signedAt))
       .limit(1);
 
     if (sigRow) {

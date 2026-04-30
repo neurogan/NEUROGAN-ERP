@@ -145,7 +145,7 @@ function BprHeader({ bpr, isReadOnly }: { bpr: BprWithDetails; isReadOnly: boole
             Completed: {formatTimestamp(bpr.completedAt)}
           </span>
         )}
-        {bpr.mmrId && bpr.mmrVersion != null && (
+        {bpr.mmrId && bpr.mmrVersion !== null && (
           <button
             type="button"
             className="flex items-center gap-1 text-xs text-blue-600 hover:underline"
