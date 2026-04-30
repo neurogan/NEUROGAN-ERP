@@ -31,9 +31,10 @@ import * as schema from "@shared/schema";
 import { z, ZodError } from "zod";
 import { requireAuth, requireRole, requireRoleOrSelf, rejectIdentityInBody } from "./auth/middleware";
 import { performSignature } from "./signatures/signatures";
-import { hashPassword, generateTemporaryPassword } from "./auth/password";
+import { hashPassword, generateInviteToken } from "./auth/password";
+import { sendInviteEmail } from "./email/resend";
 import { errors } from "./errors";
-import { withAudit } from "./audit/audit";
+import { writeAuditRow, withAudit } from "./audit/audit";
 import { auditRouter } from "./audit/audit-routes";
 import { signatureRouter } from "./signatures/signature-routes";
 import { validationRouter } from "./validation/validation-routes";
@@ -136,8 +137,10 @@ export async function registerRoutes(
   app.post("/api/users", requireAuth, requireRole("ADMIN"), async (req, res, next) => {
     try {
       const body = createUserBody.parse(req.body);
-      const tempPassword = generateTemporaryPassword();
-      const passwordHash = await hashPassword(tempPassword);
+      const rawToken = generateInviteToken();
+      const tokenHash = await hashPassword(rawToken);
+      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
       const user = await withAudit(
         {
           userId: req.user!.id,
@@ -152,13 +155,18 @@ export async function registerRoutes(
           email: body.email,
           fullName: body.fullName,
           title: body.title ?? null,
-          passwordHash,
+          passwordHash: "$invite_pending$",
+          status: "PENDING_INVITE",
+          inviteTokenHash: tokenHash,
+          inviteTokenExpiresAt: expiresAt,
           roles: body.roles,
           createdByUserId: req.user!.id,
           grantedByUserId: req.user!.id,
         }, tx),
       );
-      return res.status(201).json({ user, temporaryPassword: tempPassword });
+
+      await sendInviteEmail(body.email, rawToken);
+      return res.status(201).json({ user });
     } catch (err) {
       const pgErr = err as { code?: string } | undefined;
       if (pgErr?.code === "23505") {
@@ -176,6 +184,40 @@ export async function registerRoutes(
       const users = await storage.listUsers();
       const viewerRoles = req.user!.roles;
       return res.json(users.map((u) => projectUserForViewer(u, viewerRoles)));
+    } catch (err) {
+      return next(err);
+    }
+  });
+
+  // POST /api/users/:id/resend-invite — ADMIN only. Generates a fresh invite token
+  // and resends the invite email. Only valid when user.status === 'PENDING_INVITE'.
+  app.post("/api/users/:id/resend-invite", requireAuth, requireRole("ADMIN"), async (req, res, next) => {
+    try {
+      const user = await storage.getUserById(req.params.id as string);
+      if (!user) return next(errors.notFound("User"));
+      if (user.status !== "PENDING_INVITE") {
+        return res.status(400).json({
+          error: { code: "VALIDATION_FAILED", message: "User has already accepted their invite." },
+        });
+      }
+
+      const rawToken = generateInviteToken();
+      const tokenHash = await hashPassword(rawToken);
+      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
+      await storage.renewInviteToken(user.id, tokenHash, expiresAt);
+
+      await writeAuditRow({
+        userId: req.user!.id,
+        action: "INVITE_RESENT",
+        entityType: "user",
+        entityId: user.id,
+        route: `${req.method} ${req.path}`,
+        requestId: req.requestId,
+      });
+
+      await sendInviteEmail(user.email, rawToken);
+      return res.status(204).send();
     } catch (err) {
       return next(err);
     }

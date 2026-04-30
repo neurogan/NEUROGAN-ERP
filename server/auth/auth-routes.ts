@@ -16,6 +16,18 @@ router.post("/login", async (req, res, next) => {
   const body = req.body as { email?: string; password?: string };
   const emailRaw = typeof body.email === "string" ? body.email.toLowerCase().trim() : "";
 
+  // Reject pending-invite users before passport runs (avoids incrementing
+  // failedLoginCount for accounts that haven't set a password yet).
+  const preCheckUser = await storage.getUserByEmail(emailRaw).catch(() => null);
+  if (preCheckUser?.status === "PENDING_INVITE") {
+    return res.status(401).json({
+      error: {
+        code: "INVITE_PENDING",
+        message: "Your account has a pending invite. Check your email to set your password.",
+      },
+    });
+  }
+
   try {
     // Run passport authenticate as a promise so we can use async/await cleanly.
     const user = await new Promise<Express.User | false>((resolve, reject) => {
@@ -197,6 +209,73 @@ router.post("/rotate-password", requireAuth, async (req, res, next) => {
     if (!updated) return next(errors.notFound("User"));
 
     return res.status(204).send();
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// POST /api/auth/accept-invite — public. Validates invite token and activates account.
+// Body: { token: string; email: string; password: string }
+// On success: returns activated UserResponse. Client then calls POST /api/auth/login
+// with the same credentials to establish a session.
+const acceptInviteBody = z.object({
+  token: z.string().min(1),
+  email: z.string().email().trim().toLowerCase(),
+  password: z.string().min(1),
+});
+
+router.post("/accept-invite", async (req, res, next) => {
+  try {
+    const body = acceptInviteBody.parse(req.body);
+
+    const user = await storage.getUserByEmail(body.email);
+    const INVALID = { error: { code: "INVITE_INVALID", message: "This invite link has expired or is invalid." } };
+
+    if (
+      !user ||
+      user.status !== "PENDING_INVITE" ||
+      !user.inviteTokenHash ||
+      !user.inviteTokenExpiresAt
+    ) {
+      return res.status(400).json(INVALID);
+    }
+
+    if (user.inviteTokenExpiresAt < new Date()) {
+      return res.status(400).json(INVALID);
+    }
+
+    const tokenMatches = await verifyPassword(user.inviteTokenHash, body.token);
+    if (!tokenMatches) {
+      return res.status(400).json(INVALID);
+    }
+
+    const complexityResult = validatePasswordComplexity(body.password);
+    if (!complexityResult.valid) {
+      return res.status(422).json({
+        error: {
+          code: "VALIDATION_FAILED",
+          message: "Password does not meet complexity requirements.",
+          details: { violations: complexityResult.violations },
+        },
+      });
+    }
+
+    const newHash = await hashPassword(body.password);
+    await storage.acceptInvite(user.id, newHash);
+
+    await writeAuditRow({
+      userId: user.id,
+      action: "INVITE_ACCEPTED",
+      entityType: "user",
+      entityId: user.id,
+      route: `${req.method} ${req.path}`,
+      requestId: req.requestId,
+    });
+
+    const userResponse = await storage.getUserById(user.id);
+    if (!userResponse) return next(new Error("User not found after invite acceptance"));
+
+    return res.status(200).json({ user: userResponse });
   } catch (err) {
     return next(err);
   }
