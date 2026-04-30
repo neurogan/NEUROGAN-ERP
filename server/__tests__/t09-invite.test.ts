@@ -7,13 +7,12 @@ import { db } from "../db";
 import { buildTestApp } from "./helpers/test-app";
 import { storage } from "../storage";
 import { hashPassword } from "../auth/password";
+import { sendInviteEmail } from "../email/resend";
 
 // Mock the Resend email module so tests never hit the real API.
 vi.mock("../email/resend", () => ({
   sendInviteEmail: vi.fn().mockResolvedValue(undefined),
 }));
-
-import { sendInviteEmail } from "../email/resend";
 
 const dbUrl = process.env.DATABASE_URL;
 const describeIfDb = dbUrl ? describe : describe.skip;

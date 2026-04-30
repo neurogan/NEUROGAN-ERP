@@ -155,8 +155,8 @@ function specToHeaderFields(spec: ComponentSpecWithVersions): HeaderFields {
     primaryPackaging: (s.primaryPackaging as string | null) ?? "",
     secondaryPackaging: (s.secondaryPackaging as string | null) ?? "",
     storageConditions: (s.storageConditions as string | null) ?? "",
-    shelfLifeMonths: (s.shelfLifeMonths as number | null) != null ? String(s.shelfLifeMonths) : "",
-    retestMonths: (s.retestMonths as number | null) != null ? String(s.retestMonths) : "",
+    shelfLifeMonths: (s.shelfLifeMonths as number | null) !== null ? String(s.shelfLifeMonths) : "",
+    retestMonths: (s.retestMonths as number | null) !== null ? String(s.retestMonths) : "",
   };
 }
 
