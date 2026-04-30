@@ -51,3 +51,9 @@ export async function verifyPassword(hash: string, plain: string): Promise<boole
 export function generateTemporaryPassword(): string {
   return randomBytes(16).toString("base64url");
 }
+
+// Generate a cryptographically random invite token. 32 bytes → 64 hex chars.
+// Never stored plain — callers hash it with hashPassword before persisting.
+export function generateInviteToken(): string {
+  return randomBytes(32).toString("hex");
+}
