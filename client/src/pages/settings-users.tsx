@@ -172,6 +172,7 @@ export default function SettingsUsers() {
       return res;
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/users"] });
       toast({ title: "Invite resent", description: "A new invite email has been sent." });
     },
     onError: (err: Error) => {

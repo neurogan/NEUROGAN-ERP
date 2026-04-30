@@ -92,7 +92,7 @@ export default function SetPassword() {
             </div>
           </div>
 
-          <Card>
+          <Card data-testid="set-password-invalid-token">
             <CardHeader className="pb-3">
               <CardTitle className="text-base">Invite link invalid</CardTitle>
             </CardHeader>
@@ -166,6 +166,7 @@ export default function SetPassword() {
                   onChange={(e) => setNewPassword(e.target.value)}
                   required
                   disabled={isPending}
+                  data-testid="input-new-password"
                 />
               </div>
               <div className="space-y-1.5">
@@ -178,9 +179,10 @@ export default function SetPassword() {
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   required
                   disabled={isPending}
+                  data-testid="input-confirm-password"
                 />
               </div>
-              <Button type="submit" className="w-full" disabled={isPending}>
+              <Button type="submit" className="w-full" disabled={isPending} data-testid="button-set-password">
                 {isPending ? "Setting password…" : "Set password"}
               </Button>
             </form>
