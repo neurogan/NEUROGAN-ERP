@@ -155,6 +155,13 @@
       "when": 1745501300000,
       "tag": "0021_r07_mmr",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1777420800000,
+      "tag": "0022_t09_email_invite",
+      "breakpoints": true
     }
   ]
 }

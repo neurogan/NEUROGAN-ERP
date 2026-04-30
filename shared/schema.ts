@@ -34,7 +34,7 @@ export const poStatusEnum = pgEnum("po_status", ["DRAFT", "SUBMITTED", "PARTIALL
 export const userRoleEnum = z.enum(["ADMIN", "QA", "PRODUCTION", "WAREHOUSE", "LAB_TECH", "VIEWER"]);
 export type UserRole = z.infer<typeof userRoleEnum>;
 
-export const userStatusEnum = z.enum(["ACTIVE", "DISABLED"]);
+export const userStatusEnum = z.enum(["ACTIVE", "DISABLED", "PENDING_INVITE"]);
 export type UserStatus = z.infer<typeof userStatusEnum>;
 
 // Products
@@ -823,6 +823,8 @@ export const users = pgTable("erp_users", {
   status: text("status").$type<UserStatus>().notNull().default("ACTIVE"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   createdByUserId: uuid("created_by_user_id"),
+  inviteTokenHash: text("invite_token_hash"),
+  inviteTokenExpiresAt: timestamp("invite_token_expires_at", { withTimezone: true }),
 });
 
 export const userRoles = pgTable(
@@ -949,6 +951,8 @@ export const auditActionEnum = z.enum([
   "RETURN_DISPOSITION_SIGNED",
   "RETURN_INVESTIGATION_OPENED",
   "RETURN_INVESTIGATION_CLOSED",
+  "INVITE_ACCEPTED",
+  "INVITE_RESENT",
 ]);
 export type AuditAction = z.infer<typeof auditActionEnum>;
 
