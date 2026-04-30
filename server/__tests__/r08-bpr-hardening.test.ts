@@ -84,6 +84,9 @@ describeIfDb("R-08 — BPR hardening", () => {
       await db.delete(schema.bprDeviations).where(eq(schema.bprDeviations.bprId, id)).catch(() => {});
     }
     for (const id of toDelete.bprs) {
+      await db.delete(schema.labelReconciliations).where(eq(schema.labelReconciliations.bprId, id)).catch(() => {});
+    }
+    for (const id of toDelete.bprs) {
       await db.delete(schema.batchProductionRecords).where(eq(schema.batchProductionRecords.id, id)).catch(() => {});
     }
     for (const id of toDelete.batches) {
