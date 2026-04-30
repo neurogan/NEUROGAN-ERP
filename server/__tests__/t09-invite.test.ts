@@ -28,6 +28,10 @@ describeIfDb("T-09 — invite lifecycle", () => {
   beforeEach(async () => {
     vi.mocked(sendInviteEmail).mockClear();
 
+    // Null out nullable signatureId FKs before deleting signatures
+    await db.update(schema.validationDocuments).set({ signatureId: null });
+    await db.update(schema.componentSpecVersions).set({ signatureId: null });
+    await db.delete(schema.electronicSignatures);
     await db.delete(schema.auditTrail);
     await db.delete(schema.passwordHistory);
     await db.delete(schema.userRoles);

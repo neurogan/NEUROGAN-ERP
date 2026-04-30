@@ -6,22 +6,6 @@ import { writeAuditRow } from "../audit/audit";
 // ─── Component Specifications Storage ─────────────────────────────────────────
 
 /**
- * Helper: build ComponentSpecVersionWithAttributes for a single version
- */
-async function buildVersionWithAttributes(
-  version: schema.ComponentSpecVersion,
-  attributes: schema.ComponentSpecAttribute[],
-  createdByName: string,
-): Promise<schema.ComponentSpecVersionWithAttributes> {
-  return {
-    ...version,
-    attributes: attributes.filter((a) => a.specVersionId === version.id),
-    createdByName,
-    approvedByName: null, // resolved via signature record when needed
-  };
-}
-
-/**
  * Helper: build ComponentSpecWithVersions from a ComponentSpec row
  */
 async function buildSpecWithVersions(
