@@ -461,7 +461,7 @@ export default function ComponentSpecDetail() {
     newAttributeRow?.resultType === "PASS_FAIL" || newAttributeRow?.resultType === "TEXT";
 
   return (
-    <div className="p-6 space-y-6 max-w-5xl" data-testid="component-spec-detail">
+    <div className="p-6 space-y-6" data-testid="component-spec-detail">
       {/* Back nav */}
       <button
         className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
@@ -774,7 +774,7 @@ export default function ComponentSpecDetail() {
             )}
           </div>
 
-          <div className="rounded-md border overflow-x-auto">
+          <div className="rounded-md border w-full">
             <Table data-testid="table-attributes">
               <TableHeader>
                 <TableRow>
@@ -868,7 +868,7 @@ export default function ComponentSpecDetail() {
                           setNewAttributeRow({ ...newAttributeRow, category: val as SpecAttributeCategory })
                         }
                       >
-                        <SelectTrigger className="h-7 text-xs w-36" data-testid="select-new-category">
+                        <SelectTrigger className="h-7 text-xs w-full" data-testid="select-new-category">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -899,7 +899,7 @@ export default function ComponentSpecDetail() {
                           })
                         }
                       >
-                        <SelectTrigger className="h-7 text-xs w-28" data-testid="select-new-result-type">
+                        <SelectTrigger className="h-7 text-xs w-full" data-testid="select-new-result-type">
                           <SelectValue placeholder="Type" />
                         </SelectTrigger>
                         <SelectContent>
@@ -913,7 +913,7 @@ export default function ComponentSpecDetail() {
                     <TableCell>
                       {!hideMinMax ? (
                         <Input
-                          className="h-7 text-xs w-20"
+                          className="h-7 text-xs w-full"
                           placeholder="Min"
                           value={newAttributeRow.specMin}
                           onChange={(e) => setNewAttributeRow({ ...newAttributeRow, specMin: e.target.value })}
@@ -926,7 +926,7 @@ export default function ComponentSpecDetail() {
                     <TableCell>
                       {!hideMinMax ? (
                         <Input
-                          className="h-7 text-xs w-20"
+                          className="h-7 text-xs w-full"
                           placeholder="Max"
                           value={newAttributeRow.specMax}
                           onChange={(e) => setNewAttributeRow({ ...newAttributeRow, specMax: e.target.value })}
@@ -939,7 +939,7 @@ export default function ComponentSpecDetail() {
                     <TableCell>
                       {hideMinMax ? (
                         <Input
-                          className="h-7 text-xs w-32"
+                          className="h-7 text-xs w-full"
                           placeholder="Criterion / spec text"
                           value={newAttributeRow.specificationText}
                           onChange={(e) =>
@@ -953,7 +953,7 @@ export default function ComponentSpecDetail() {
                     </TableCell>
                     <TableCell>
                       <Input
-                        className="h-7 text-xs w-20"
+                        className="h-7 text-xs w-full"
                         placeholder="Units"
                         value={newAttributeRow.units}
                         onChange={(e) => setNewAttributeRow({ ...newAttributeRow, units: e.target.value })}
@@ -962,7 +962,7 @@ export default function ComponentSpecDetail() {
                     </TableCell>
                     <TableCell>
                       <Input
-                        className="h-7 text-xs w-28"
+                        className="h-7 text-xs w-full"
                         placeholder="Test method"
                         value={newAttributeRow.testMethod}
                         onChange={(e) => setNewAttributeRow({ ...newAttributeRow, testMethod: e.target.value })}
@@ -979,7 +979,7 @@ export default function ComponentSpecDetail() {
                           })
                         }
                       >
-                        <SelectTrigger className="h-7 text-xs w-32" data-testid="select-new-verification-source">
+                        <SelectTrigger className="h-7 text-xs w-full" data-testid="select-new-verification-source">
                           <SelectValue placeholder="Source" />
                         </SelectTrigger>
                         <SelectContent>
@@ -1001,7 +1001,7 @@ export default function ComponentSpecDetail() {
                           })
                         }
                       >
-                        <SelectTrigger className="h-7 text-xs w-28" data-testid="select-new-frequency">
+                        <SelectTrigger className="h-7 text-xs w-full" data-testid="select-new-frequency">
                           <SelectValue placeholder="Frequency" />
                         </SelectTrigger>
                         <SelectContent>
