@@ -21,6 +21,7 @@ const VALID_PASSWORD = "Neurogan1!Secure";
 describeIfDb("R-08 — BPR hardening", () => {
   let app: Express;
   let qaId: string;
+  let operatorId: string;
   let productId: string;
 
   // IDs to clean up
@@ -53,6 +54,20 @@ describeIfDb("R-08 — BPR hardening", () => {
 
     // Force passwordChangedAt to avoid rotation gate
     await db.update(schema.users).set({ passwordChangedAt: new Date() }).where(eq(schema.users.id, qaId));
+
+    // Seed operator user (cleanedBy in cleaning logs — distinct from QA verifier)
+    const [op] = await db
+      .insert(schema.users)
+      .values({
+        email: `r08-op-${Date.now()}@test.com`,
+        fullName: "R08 Operator",
+        passwordHash: await hashPassword(VALID_PASSWORD),
+        createdByUserId: null as unknown as string,
+        status: "ACTIVE",
+      })
+      .returning();
+    operatorId = op!.id;
+    toDelete.users.push(operatorId);
 
     // Seed product
     const [p] = await db
@@ -105,23 +120,24 @@ describeIfDb("R-08 — BPR hardening", () => {
       .returning();
     toDelete.batches.push(batch!.id);
 
-    // Seed a cleaning log if requested (needs an equipment row)
+    // Seed a cleaning log if requested — use the API so the signature ceremony runs correctly
     let cleaningLogId: string | undefined;
     if (opts.withCleaningLog) {
       const [equip] = await db
         .insert(schema.equipment)
         .values({ assetTag: `R08-EQ-${sfx}`, name: "R08 Mixer" })
         .returning();
-      const [cl] = await db
-        .insert(schema.cleaningLogs)
-        .values({
-          equipmentId: equip!.id,
-          cleanedBy: qaId,
-          cleanedAt: new Date(),
+      const clRes = await request(app)
+        .post(`/api/equipment/${equip!.id}/cleaning-logs`)
+        .set("x-test-user-id", qaId)
+        .send({
+          cleanedByUserId: operatorId,
+          verifiedByUserId: qaId,
           method: "WFI rinse",
-        })
-        .returning();
-      cleaningLogId = cl!.id;
+          signaturePassword: VALID_PASSWORD,
+        });
+      if (clRes.status !== 201) throw new Error(`Failed to seed cleaning log: ${JSON.stringify(clRes.body)}`);
+      cleaningLogId = (clRes.body as { id: string }).id;
       toDelete.cleaningLogs.push(cleaningLogId);
     }
 

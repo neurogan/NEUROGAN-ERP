@@ -1520,6 +1520,10 @@ export async function registerRoutes(
     try {
       const before = await storage.getBpr(req.params.id);
       if (!before) return res.status(404).json({ message: "BPR not found" });
+
+      // R-08: enforce completion gates before allowing submission for review
+      await runCompletionGates(req.params.id);
+
       const bpr = await withAudit(
         { userId: req.user!.id, action: "UPDATE", entityType: "batch_production_record",
           entityId: req.params.id, before,
@@ -1528,7 +1532,12 @@ export async function registerRoutes(
         (tx) => storage.submitBprForReview(req.params.id, tx),
       );
       res.json(bpr);
-    } catch (err) { next(err); }
+    } catch (err) {
+      if (CompletionGateError.is(err)) {
+        return res.status(409).json({ code: err.code, message: err.message });
+      }
+      next(err);
+    }
   });
 
   app.post<{ id: string }>(
