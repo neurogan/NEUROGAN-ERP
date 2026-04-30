@@ -2579,9 +2579,16 @@ export class DatabaseStorage implements IStorage {
   }
 
   private static toUserResponse(user: User, roles: readonly UserRole[]): UserResponse {
-    // Explicit destructure so passwordHash cannot be returned by accident.
-    const { passwordHash: _passwordHash, ...rest } = user;
+    // Explicit destructure strips server-only columns so they cannot leak.
+    const {
+      passwordHash: _passwordHash,
+      inviteTokenHash: _inviteTokenHash,
+      inviteTokenExpiresAt: _inviteTokenExpiresAt,
+      ...rest
+    } = user;
     void _passwordHash;
+    void _inviteTokenHash;
+    void _inviteTokenExpiresAt;
     return { ...rest, roles: [...roles] };
   }
 
@@ -2613,9 +2620,8 @@ export class DatabaseStorage implements IStorage {
     // When outerTx is provided (by withAudit) we reuse it directly so the
     // audit row and the data write share a single transaction.
     const run = async (tx: Tx) => {
-      // Set passwordChangedAt to epoch so the 90-day rotation gate fires
-      // immediately — all new accounts start with a temp password (F-01
-      // generateTemporaryPassword) and must rotate on first login (F-02).
+      // passwordChangedAt set to epoch so the 90-day rotation gate fires
+      // immediately once the user activates their account via invite (T-09).
       const [user] = await tx
         .insert(schema.users)
         .values({

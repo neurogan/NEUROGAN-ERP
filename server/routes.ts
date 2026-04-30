@@ -123,10 +123,9 @@ export async function registerRoutes(
     return rest;
   }
 
-  // POST /api/users — ADMIN only. Creates a user + role rows atomically and
-  // returns the UserResponse along with a one-time temporaryPassword the
-  // admin shows to the new user. F-02 forces rotation of this temp password
-  // on first login.
+  // POST /api/users — ADMIN only. Creates a PENDING_INVITE user + role rows
+  // and sends an invite email with a one-time token. The user sets their own
+  // password via /set-password (T-09).
   const createUserBody = z.object({
     email: z.string().email().trim().toLowerCase(),
     fullName: z.string().min(1).trim(),
@@ -147,7 +146,7 @@ export async function registerRoutes(
       try {
         await sendInviteEmail(body.email, rawToken);
       } catch {
-        return res.status(502).json({ message: "Failed to send invite email. Please try again." });
+        return res.status(502).json({ error: { code: "EMAIL_DELIVERY_FAILED", message: "Failed to send invite email. Please try again." } });
       }
 
       const user = await withAudit(
@@ -213,6 +212,14 @@ export async function registerRoutes(
       const tokenHash = await hashPassword(rawToken);
       const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
+      // Send email before rotating the stored token — if Resend fails the old
+      // token remains valid so the user's existing link still works.
+      try {
+        await sendInviteEmail(user.email, rawToken);
+      } catch {
+        return res.status(502).json({ error: { code: "EMAIL_DELIVERY_FAILED", message: "Failed to send invite email. Please try again." } });
+      }
+
       await storage.renewInviteToken(user.id, tokenHash, expiresAt);
 
       await writeAuditRow({
@@ -224,7 +231,6 @@ export async function registerRoutes(
         requestId: req.requestId,
       });
 
-      await sendInviteEmail(user.email, rawToken);
       return res.status(204).send();
     } catch (err) {
       return next(err);

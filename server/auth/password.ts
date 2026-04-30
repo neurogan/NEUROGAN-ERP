@@ -44,10 +44,9 @@ export async function verifyPassword(hash: string, plain: string): Promise<boole
   }
 }
 
-// Generate a URL-safe random temporary password for admin-created users.
-// 16 bytes of randomness base64url-encoded → ~22 chars, well over the
-// 12-char minimum in D-02's password policy. Callers (F-01 POST /api/users)
-// show this once to the admin and force rotation on first login (F-02).
+// Generate a URL-safe random temporary password. 16 bytes base64url → ~22
+// chars, over the 12-char D-02 minimum. No longer called by POST /api/users
+// (replaced by invite flow T-09) but retained for direct bootstrap scripts.
 export function generateTemporaryPassword(): string {
   return randomBytes(16).toString("base64url");
 }

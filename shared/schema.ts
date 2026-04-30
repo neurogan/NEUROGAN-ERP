@@ -875,8 +875,10 @@ export type InsertUser = z.infer<typeof insertUserSchema>;
 export type UserRoleRow = typeof userRoles.$inferSelect;
 export type InsertUserRole = z.infer<typeof insertUserRoleSchema>;
 
-// Shape returned by GET /api/users — flat list of roles, no passwordHash.
-export type UserResponse = Omit<User, "passwordHash"> & {
+// Shape returned by GET /api/users — flat list of roles; server-only columns
+// (passwordHash, inviteTokenHash, inviteTokenExpiresAt) are stripped at the
+// DB boundary so they can never be returned by accident.
+export type UserResponse = Omit<User, "passwordHash" | "inviteTokenHash" | "inviteTokenExpiresAt"> & {
   roles: UserRole[];
 };
 

@@ -75,6 +75,26 @@ describeIfDb("T-09 — invite lifecycle", () => {
     });
   });
 
+    it("502: returns EMAIL_DELIVERY_FAILED when Resend throws; no user created", async () => {
+      vi.mocked(sendInviteEmail).mockRejectedValueOnce(new Error("Resend unavailable"));
+
+      const res = await request(app)
+        .post("/api/users")
+        .set("X-Test-User-Id", adminId)
+        .send({ email: "ghost@test.local", fullName: "Ghost", roles: ["VIEWER"] });
+
+      expect(res.status).toBe(502);
+      expect(res.body.error.code).toBe("EMAIL_DELIVERY_FAILED");
+
+      // Confirm no user row was written
+      const users = await db
+        .select()
+        .from(schema.users)
+        .where(eq(schema.users.email, "ghost@test.local"));
+      expect(users).toHaveLength(0);
+    });
+  });
+
   // ─── POST /api/auth/login (PENDING_INVITE block) ───────────────────────
 
   describe("POST /api/auth/login — PENDING_INVITE block", () => {
