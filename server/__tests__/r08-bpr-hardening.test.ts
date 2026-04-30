@@ -6,7 +6,7 @@ vi.mock("../email/resend", () => ({
 
 import request from "supertest";
 import type { Express } from "express";
-import { eq, and } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 
 import { buildTestApp } from "./helpers/test-app";
 import { db } from "../db";
@@ -22,9 +22,6 @@ describeIfDb("R-08 — BPR hardening", () => {
   let app: Express;
   let qaId: string;
   let productId: string;
-  let batchId: string;
-  let bprId: string;
-  let cleaningLogId: string;
 
   // IDs to clean up
   const toDelete = {
@@ -68,7 +65,9 @@ describeIfDb("R-08 — BPR hardening", () => {
 
   afterAll(async () => {
     // Clean up in reverse FK order
-    await db.delete(schema.bprDeviations).where(eq(schema.bprDeviations.bprId, bprId ?? "")).catch(() => {});
+    for (const id of toDelete.bprs) {
+      await db.delete(schema.bprDeviations).where(eq(schema.bprDeviations.bprId, id)).catch(() => {});
+    }
     for (const id of toDelete.bprs) {
       await db.delete(schema.batchProductionRecords).where(eq(schema.batchProductionRecords.id, id)).catch(() => {});
     }

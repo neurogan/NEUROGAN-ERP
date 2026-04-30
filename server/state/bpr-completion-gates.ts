@@ -16,10 +16,8 @@
 // Gate 1 catch the no-row case cleanly even though Gate 2 would also no-op
 // when the row is absent.
 
-import { db } from "../db";
-import * as schema from "@shared/schema";
-import { eq } from "drizzle-orm";
 import { getReconciliationForBpr } from "../storage/label-reconciliations";
+import { getCleaningLogIdForBpr } from "../storage/bpr-records";
 
 // ─── Error class ─────────────────────────────────────────────────────────────
 
@@ -85,13 +83,8 @@ function requireToleranceDeviationConsistency(
 }
 
 // Gate 3: A cleaning log must be linked before a BPR can complete.
-async function requireCleaningLog(bprId: string): Promise<void> {
-  const [row] = await db
-    .select({ cleaningLogId: schema.batchProductionRecords.cleaningLogId })
-    .from(schema.batchProductionRecords)
-    .where(eq(schema.batchProductionRecords.id, bprId))
-    .limit(1);
-  if (!row?.cleaningLogId) {
+function requireCleaningLog(bprId: string, cleaningLogId: string | null | undefined): void {
+  if (!cleaningLogId) {
     throw new CompletionGateError(
       "CLEANING_LOG_MISSING",
       "A cleaning log must be linked before this BPR can be submitted for review.",
@@ -105,8 +98,11 @@ async function requireCleaningLog(bprId: string): Promise<void> {
 // runCompletionGates runs all completion gates in order, throwing on the first
 // failure. Call this before allowing a BPR to transition to COMPLETED status.
 export async function runCompletionGates(bprId: string): Promise<void> {
-  const recon = await getReconciliationForBpr(bprId);
+  const [recon, cleaningLogId] = await Promise.all([
+    getReconciliationForBpr(bprId),
+    getCleaningLogIdForBpr(bprId),
+  ]);
   requireReconciliation(bprId, recon);
   requireToleranceDeviationConsistency(bprId, recon);
-  await requireCleaningLog(bprId);
+  requireCleaningLog(bprId, cleaningLogId);
 }

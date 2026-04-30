@@ -1658,19 +1658,25 @@ export async function registerRoutes(
             route: `${req.method} ${req.path}`,
             requestId: req.requestId,
           },
-          async (tx) => {
-            const sig = await tx
-              .select({ id: schema.electronicSignatures.id })
-              .from(schema.electronicSignatures)
-              .where(eq(schema.electronicSignatures.entityId, req.params.deviationId))
-              .orderBy(desc(schema.electronicSignatures.signedAt))
-              .limit(1);
-            await tx
-              .update(schema.bprDeviations)
-              .set({ signatureId: sig[0]!.id })
-              .where(eq(schema.bprDeviations.id, req.params.deviationId));
-          },
+          async (_tx) => { return; },
         );
+
+        // Signature is now committed — link it to the deviation
+        const [newSig] = await db
+          .select({ id: schema.electronicSignatures.id })
+          .from(schema.electronicSignatures)
+          .where(
+            and(
+              eq(schema.electronicSignatures.entityId, req.params.deviationId),
+              eq(schema.electronicSignatures.meaning, "DEVIATION_DISPOSITION"),
+            ),
+          )
+          .orderBy(desc(schema.electronicSignatures.signedAt))
+          .limit(1);
+        await db
+          .update(schema.bprDeviations)
+          .set({ signatureId: newSig!.id })
+          .where(eq(schema.bprDeviations.id, req.params.deviationId));
 
         const [updated] = await db
           .select()
