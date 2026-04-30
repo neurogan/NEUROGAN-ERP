@@ -39,6 +39,7 @@ import { auditRouter } from "./audit/audit-routes";
 import { signatureRouter } from "./signatures/signature-routes";
 import { validationRouter } from "./validation/validation-routes";
 import { mmrRouter } from "./routes/mmr-routes";
+import { componentSpecRouter } from "./routes/component-spec-routes";
 import { db } from "./db";
 import { eq, and, desc, ne } from "drizzle-orm";
 import * as equipmentStorage from "./storage/equipment";
@@ -75,6 +76,9 @@ export async function registerRoutes(
 
   // ─── Master Manufacturing Records (R-07) ───────────────
   app.use("/api/mmrs", requireAuth, mmrRouter);
+
+  // ─── Component Specifications ───────────────────────────
+  app.use("/api/component-specs", requireAuth, componentSpecRouter);
 
   // ─── Health / IQ traceability ──────────────────────────
   //

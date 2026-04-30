@@ -162,6 +162,13 @@
       "when": 1777420800000,
       "tag": "0022_t09_email_invite",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1746057600000,
+      "tag": "0023_component_specifications",
+      "breakpoints": true
     }
   ]
 }

@@ -1894,6 +1894,7 @@ export class DatabaseStorage implements IStorage {
       ...coa,
       productName: product?.name ?? "Unknown",
       productSku: product?.sku ?? "",
+      productId: lot?.productId ?? "",
       lotNumber: lot?.lotNumber ?? "",
       supplierName: lot?.supplierName ?? null,
     };

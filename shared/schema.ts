@@ -643,6 +643,7 @@ export type InsertSupplierQualification = z.infer<typeof insertSupplierQualifica
 export type CoaDocumentWithDetails = CoaDocument & {
   productName: string;
   productSku: string;
+  productId: string;
   lotNumber: string;
   supplierName: string | null;
 };
@@ -955,6 +956,9 @@ export const auditActionEnum = z.enum([
   "RETURN_INVESTIGATION_CLOSED",
   "INVITE_ACCEPTED",
   "INVITE_RESENT",
+  "SPEC_VERSION_CREATED",
+  "SPEC_APPROVED",
+  "SPEC_VERSION_SUPERSEDED",
 ]);
 export type AuditAction = z.infer<typeof auditActionEnum>;
 
@@ -1089,6 +1093,8 @@ export const labTestResults = pgTable("erp_lab_test_results", {
   testedAt: timestamp("tested_at", { withTimezone: true }).notNull().defaultNow(),
   notes: text("notes"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  specVersionId:   uuid("spec_version_id").references(() => componentSpecVersions.id),
+  specAttributeId: uuid("spec_attribute_id").references(() => componentSpecAttributes.id),
 });
 
 export const insertLabTestResultSchema = createInsertSchema(labTestResults).omit({
@@ -1552,6 +1558,13 @@ export type InsertReturnInvestigation = z.infer<typeof insertReturnInvestigation
 export const mmrStatusEnum = z.enum(["DRAFT", "APPROVED", "SUPERSEDED"]);
 export type MmrStatus = z.infer<typeof mmrStatusEnum>;
 
+// Component Specification enums
+export const specVersionStatusEnum = z.enum(["DRAFT", "APPROVED", "SUPERSEDED"]);
+export type SpecVersionStatus = z.infer<typeof specVersionStatusEnum>;
+
+export const specAttributeCategoryEnum = z.enum(["IDENTITY", "ASSAY", "HEAVY_METAL", "MICROBIAL", "PHYSICAL", "OTHER"]);
+export type SpecAttributeCategory = z.infer<typeof specAttributeCategoryEnum>;
+
 export const mmrs = pgTable("erp_mmrs", {
   id:                  uuid("id").primaryKey().defaultRandom(),
   productId:           varchar("product_id").notNull().references(() => products.id),
@@ -1594,4 +1607,53 @@ export type MmrWithSteps = Mmr & {
   recipeName: string;
   createdByName: string;
   approvedByName: string | null;
+};
+
+// Component Specification tables (Obs 1 — 21 CFR Part 111 §111.70(b))
+export const componentSpecs = pgTable("erp_component_specs", {
+  id:                uuid("id").primaryKey().defaultRandom(),
+  productId:         varchar("product_id").notNull().references(() => products.id),
+  createdByUserId:   uuid("created_by_user_id").notNull().references(() => users.id),
+  createdAt:         timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  notes:             text("notes"),
+});
+export type ComponentSpec = typeof componentSpecs.$inferSelect;
+
+export const componentSpecVersions = pgTable("erp_component_spec_versions", {
+  id:              uuid("id").primaryKey().defaultRandom(),
+  specId:          uuid("spec_id").notNull().references(() => componentSpecs.id),
+  versionNumber:   integer("version_number").notNull(),
+  status:          text("status").$type<SpecVersionStatus>().notNull().default("DRAFT"),
+  signatureId:     uuid("signature_id").references(() => electronicSignatures.id),
+  createdByUserId: uuid("created_by_user_id").notNull().references(() => users.id),
+  createdAt:       timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export type ComponentSpecVersion = typeof componentSpecVersions.$inferSelect;
+
+export const componentSpecAttributes = pgTable("erp_component_spec_attributes", {
+  id:            uuid("id").primaryKey().defaultRandom(),
+  specVersionId: uuid("spec_version_id").notNull().references(() => componentSpecVersions.id),
+  name:          text("name").notNull(),
+  category:      text("category").$type<SpecAttributeCategory>().notNull(),
+  specMin:       text("spec_min"),
+  specMax:       text("spec_max"),
+  units:         text("units"),
+  testMethod:    text("test_method"),
+  sortOrder:     integer("sort_order").notNull().default(0),
+});
+export type ComponentSpecAttribute = typeof componentSpecAttributes.$inferSelect;
+
+export type ComponentSpecVersionWithAttributes = ComponentSpecVersion & {
+  attributes: ComponentSpecAttribute[];
+  createdByName: string;
+  approvedByName: string | null;
+};
+
+export type ComponentSpecWithVersions = ComponentSpec & {
+  productName: string;
+  productSku: string;
+  productCategory: string;
+  createdByName: string;
+  versions: ComponentSpecVersionWithAttributes[];
+  activeVersion: ComponentSpecVersion | null;
 };

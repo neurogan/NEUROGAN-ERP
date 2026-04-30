@@ -56,7 +56,29 @@ type TestRow = {
   specification: string;
   result: string;
   passFail: string;
+  specVersionId?: string | null;
+  specAttributeId?: string | null;
 };
+
+type SpecAttribute = {
+  id: string;
+  name: string;
+  category: string;
+  specMin: string | null;
+  specMax: string | null;
+  units: string | null;
+  testMethod: string | null;
+  sortOrder: number;
+};
+
+type ActiveSpec = {
+  version: {
+    id: string;
+    versionNumber: number;
+    status: string;
+  };
+  attributes: SpecAttribute[];
+} | null;
 
 type LotOption = Lot & {
   productName: string;
@@ -195,6 +217,46 @@ function CoaListItem({
   );
 }
 
+// ── Active Spec Panel (read-only) ──
+
+function ActiveSpecPanel({ spec }: { spec: NonNullable<ActiveSpec> }) {
+  return (
+    <div className="rounded-lg border border-border bg-muted/20 p-4 space-y-3">
+      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+        Active Specification (v{spec.version.versionNumber})
+      </h4>
+      {spec.attributes.length === 0 ? (
+        <p className="text-xs text-muted-foreground">No attributes defined.</p>
+      ) : (
+        <div className="rounded border border-border overflow-hidden">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="bg-muted/50">
+                <th className="px-2 py-1.5 text-left font-medium text-muted-foreground">Category</th>
+                <th className="px-2 py-1.5 text-left font-medium text-muted-foreground">Attribute</th>
+                <th className="px-2 py-1.5 text-left font-medium text-muted-foreground">Min</th>
+                <th className="px-2 py-1.5 text-left font-medium text-muted-foreground">Max</th>
+                <th className="px-2 py-1.5 text-left font-medium text-muted-foreground">Units</th>
+              </tr>
+            </thead>
+            <tbody>
+              {spec.attributes.map((attr) => (
+                <tr key={attr.id} className="border-t border-border/50">
+                  <td className="px-2 py-1.5 text-muted-foreground font-mono text-[10px]">{attr.category}</td>
+                  <td className="px-2 py-1.5 font-medium">{attr.name}</td>
+                  <td className="px-2 py-1.5 text-muted-foreground">{attr.specMin ?? "—"}</td>
+                  <td className="px-2 py-1.5 text-muted-foreground">{attr.specMax ?? "—"}</td>
+                  <td className="px-2 py-1.5 text-muted-foreground">{attr.units ?? "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Detail panel ──
 
 function CoaDetail({
@@ -206,6 +268,13 @@ function CoaDetail({
 }) {
   const { toast } = useToast();
   const tests = useMemo(() => parseTests(coa.testsPerformed), [coa.testsPerformed]);
+
+  // Fetch active spec if the COA has a product linked
+  const { data: activeSpec = null } = useQuery<ActiveSpec>({
+    queryKey: ["/api/component-specs/by-product", coa.productId],
+    queryFn: () => apiRequest("GET", `/api/component-specs/by-product/${coa.productId}`).then((r) => r.json()),
+    enabled: !!coa.productId,
+  });
 
   // QC Review form
   const [reviewNotes, setReviewNotes] = useState("");
@@ -331,6 +400,20 @@ function CoaDetail({
       </div>
 
       <Separator />
+
+      {/* Active Specification Panel */}
+      {activeSpec && (
+        <>
+          <div>
+            <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
+              <FlaskConical className="h-4 w-4 text-muted-foreground" />
+              Component Specification
+            </h3>
+            <ActiveSpecPanel spec={activeSpec} />
+          </div>
+          <Separator />
+        </>
+      )}
 
       {/* Test Results Table */}
       <div>
@@ -555,6 +638,17 @@ function UploadCoaDialog({
 
   // Form state
   const [lotId, setLotId] = useState("");
+
+  // Derive productId from selected lot
+  const selectedLot = lotOptions.find((l) => l.id === lotId);
+  const productId = selectedLot?.productId ?? null;
+
+  // Fetch active spec for selected product
+  const { data: activeSpec = null } = useQuery<ActiveSpec>({
+    queryKey: ["/api/component-specs/by-product", productId],
+    queryFn: () => apiRequest("GET", `/api/component-specs/by-product/${productId}`).then((r) => r.json()),
+    enabled: !!productId && open,
+  });
   const [sourceType, setSourceType] = useState("SUPPLIER");
   const [documentNumber, setDocumentNumber] = useState("");
   const [labName, setLabName] = useState("");
@@ -618,7 +712,7 @@ function UploadCoaDialog({
     setTests((prev) => [...prev, { testName: "", method: "", specification: "", result: "", passFail: "PASS" }]);
   }, []);
 
-  const updateTestRow = useCallback((idx: number, field: keyof TestRow, value: string) => {
+  const updateTestRow = useCallback((idx: number, field: keyof TestRow, value: string | null | undefined) => {
     setTests((prev) => prev.map((t, i) => (i === idx ? { ...t, [field]: value } : t)));
   }, []);
 
@@ -800,6 +894,14 @@ function UploadCoaDialog({
 
           <Separator />
 
+          {/* Active Specification Panel (shown when a lot with an active spec is selected) */}
+          {activeSpec && (
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Active Specification</Label>
+              <ActiveSpecPanel spec={activeSpec} />
+            </div>
+          )}
+
           {/* Test Results */}
           <div>
             <div className="flex items-center justify-between mb-3">
@@ -814,9 +916,57 @@ function UploadCoaDialog({
                 {tests.map((test, idx) => (
                   <div
                     key={idx}
-                    className="grid grid-cols-[1fr_1fr_1fr_1fr_100px_28px] gap-2 items-end"
+                    className={activeSpec
+                      ? "grid grid-cols-[1fr_1fr_1fr_1fr_1fr_100px_28px] gap-2 items-end"
+                      : "grid grid-cols-[1fr_1fr_1fr_1fr_100px_28px] gap-2 items-end"}
                     data-testid={`test-row-${idx}`}
                   >
+                    {/* Spec Attribute dropdown — only when an active spec exists */}
+                    {activeSpec && (
+                      <div className="space-y-1">
+                        {idx === 0 && <Label className="text-xs text-muted-foreground">Spec Attribute</Label>}
+                        <Select
+                          value={test.specAttributeId ?? "__none__"}
+                          onValueChange={(v) => {
+                            if (v === "__none__") {
+                              updateTestRow(idx, "specAttributeId", null);
+                              updateTestRow(idx, "specVersionId", null);
+                              return;
+                            }
+                            const attr = activeSpec.attributes.find((a) => a.id === v);
+                            if (!attr) return;
+                            setTests((prev) =>
+                              prev.map((t, i) => {
+                                if (i !== idx) return t;
+                                const specStr =
+                                  attr.specMin != null || attr.specMax != null
+                                    ? `${attr.specMin ?? ""}–${attr.specMax ?? ""}`
+                                    : t.specification;
+                                return {
+                                  ...t,
+                                  specAttributeId: attr.id,
+                                  specVersionId: activeSpec.version.id,
+                                  testName: attr.name,
+                                  specification: specStr,
+                                };
+                              })
+                            );
+                          }}
+                        >
+                          <SelectTrigger className="text-sm h-8" data-testid={`select-spec-attr-${idx}`}>
+                            <SelectValue placeholder="Select…" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="__none__">— free text —</SelectItem>
+                            {activeSpec.attributes.map((attr) => (
+                              <SelectItem key={attr.id} value={attr.id}>
+                                {attr.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
                     <div className="space-y-1">
                       {idx === 0 && <Label className="text-xs text-muted-foreground">Test Name</Label>}
                       <Input
