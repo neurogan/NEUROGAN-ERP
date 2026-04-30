@@ -41,7 +41,7 @@ import { validationRouter } from "./validation/validation-routes";
 import { mmrRouter } from "./routes/mmr-routes";
 import { componentSpecRouter } from "./routes/component-spec-routes";
 import { db } from "./db";
-import { eq, and, desc, ne } from "drizzle-orm";
+import { eq, and, desc, ne, isNull } from "drizzle-orm";
 import * as equipmentStorage from "./storage/equipment";
 import * as cleaningStorage from "./storage/cleaning-line-clearance";
 import * as artworkStorage from "./storage/label-artwork";
@@ -1541,6 +1541,23 @@ export async function registerRoutes(
         };
         if (!disposition) return res.status(400).json({ message: "disposition is required" });
         if (!password) return res.status(400).json({ message: "password required for electronic signature" });
+
+        // R-08: block approval if any process deviations are unsigned
+        const unsignedDeviations = await db
+          .select({ id: schema.bprDeviations.id })
+          .from(schema.bprDeviations)
+          .where(and(
+            eq(schema.bprDeviations.bprId, req.params.id),
+            isNull(schema.bprDeviations.signatureId),
+          ));
+        if (unsignedDeviations.length > 0) {
+          return res.status(409).json({
+            code: "DEVIATIONS_UNSIGNED",
+            message: `${unsignedDeviations.length} deviation(s) require sign-off before QC approval.`,
+            deviationIds: unsignedDeviations.map((d) => d.id),
+          });
+        }
+
         const bpr = await performSignature(
           {
             userId: req.user!.id,
@@ -1608,6 +1625,64 @@ export async function registerRoutes(
       res.status(400).json({ message: msg });
     }
   });
+
+  // R-08: Part 11 sign-off on a single process deviation (§111.210(h)(3)(iv))
+  app.post<{ id: string; deviationId: string }>(
+    "/api/batch-production-records/:id/deviations/:deviationId/review",
+    requireAuth, requireRole("QA", "ADMIN"),
+    async (req, res, next) => {
+      try {
+        const { password, commentary } = req.body as { password?: string; commentary?: string };
+        if (!password) return res.status(400).json({ message: "password required for electronic signature" });
+
+        const [deviation] = await db
+          .select()
+          .from(schema.bprDeviations)
+          .where(and(
+            eq(schema.bprDeviations.id, req.params.deviationId),
+            eq(schema.bprDeviations.bprId, req.params.id),
+          ))
+          .limit(1);
+        if (!deviation) return res.status(404).json({ message: "Deviation not found" });
+        if (deviation.signatureId) return res.status(409).json({ code: "ALREADY_SIGNED", message: "Deviation already signed" });
+
+        await performSignature(
+          {
+            userId: req.user!.id,
+            password,
+            meaning: "DEVIATION_DISPOSITION",
+            entityType: "bpr_deviation",
+            entityId: req.params.deviationId,
+            commentary: commentary ?? null,
+            recordSnapshot: { bprId: req.params.id, deviationDescription: deviation.deviationDescription },
+            route: `${req.method} ${req.path}`,
+            requestId: req.requestId,
+          },
+          async (tx) => {
+            const sig = await tx
+              .select({ id: schema.electronicSignatures.id })
+              .from(schema.electronicSignatures)
+              .where(eq(schema.electronicSignatures.entityId, req.params.deviationId))
+              .orderBy(desc(schema.electronicSignatures.signedAt))
+              .limit(1);
+            await tx
+              .update(schema.bprDeviations)
+              .set({ signatureId: sig[0]!.id })
+              .where(eq(schema.bprDeviations.id, req.params.deviationId));
+          },
+        );
+
+        const [updated] = await db
+          .select()
+          .from(schema.bprDeviations)
+          .where(eq(schema.bprDeviations.id, req.params.deviationId))
+          .limit(1);
+        res.json(updated);
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
 
   // ── Labs registry ──────────────────────────────────────────────────────────
 

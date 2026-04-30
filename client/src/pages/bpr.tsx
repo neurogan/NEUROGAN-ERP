@@ -44,6 +44,7 @@ import {
   Sparkles,
   Clock,
   User,
+  PenLine,
 } from "lucide-react";
 import type { BprWithDetails, BprStep, BprDeviation, Sop } from "@shared/schema";
 import { SignatureCeremony } from "@/components/SignatureCeremony";
@@ -869,19 +870,84 @@ function ProductionSteps({
 
 // ── Section 5: Deviations ──
 
-function DeviationItem({ deviation }: { deviation: BprDeviation }) {
+function DeviationItem({
+  deviation,
+  bprId,
+  canSignOff,
+}: {
+  deviation: BprDeviation;
+  bprId: string;
+  canSignOff: boolean;
+}) {
+  const { toast } = useToast();
+  const [sigOpen, setSigOpen] = useState(false);
+
+  const signMutation = useMutation({
+    mutationFn: async ({ password, commentary }: { password: string; commentary: string }) => {
+      await apiRequest(
+        "POST",
+        `/api/batch-production-records/${bprId}/deviations/${deviation.id}/review`,
+        { password, commentary: commentary || undefined },
+      );
+    },
+    onSuccess: () => {
+      setSigOpen(false);
+      queryClient.invalidateQueries({ queryKey: ["/api/batch-production-records", bprId] });
+      toast({ title: "Deviation signed off" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Sign-off failed", description: err.message, variant: "destructive" });
+    },
+  });
+
   return (
     <div className="border border-border rounded-lg p-4 space-y-3" data-testid={`card-deviation-${deviation.id}`}>
-      <div className="flex items-start gap-2">
-        <FileWarning className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
-        <div className="min-w-0">
-          <p className="text-sm font-medium" data-testid={`text-deviation-desc-${deviation.id}`}>
-            {deviation.deviationDescription}
-          </p>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            Reported by {deviation.reportedBy ?? "—"} on {formatTimestamp(deviation.reportedAt)}
-          </p>
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex items-start gap-2 min-w-0">
+          <FileWarning className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
+          <div className="min-w-0">
+            <p className="text-sm font-medium" data-testid={`text-deviation-desc-${deviation.id}`}>
+              {deviation.deviationDescription}
+            </p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Reported by {deviation.reportedBy ?? "—"} on {formatTimestamp(deviation.reportedAt)}
+            </p>
+          </div>
         </div>
+        {deviation.signatureId ? (
+          <div className="flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400 shrink-0" data-testid={`text-deviation-signed-${deviation.id}`}>
+            <CheckCircle className="h-3.5 w-3.5" />
+            Signed
+          </div>
+        ) : canSignOff ? (
+          <>
+            <Button
+              size="sm"
+              variant="outline"
+              className="shrink-0 h-7 text-xs"
+              onClick={() => setSigOpen(true)}
+              data-testid={`button-sign-deviation-${deviation.id}`}
+            >
+              <PenLine className="h-3 w-3 mr-1" />
+              Sign off
+            </Button>
+            <SignatureCeremony
+              open={sigOpen}
+              onOpenChange={setSigOpen}
+              entityDescription={`Deviation: ${deviation.deviationDescription.slice(0, 60)}`}
+              meaning="DEVIATION_DISPOSITION"
+              isPending={signMutation.isPending}
+              onSign={async (password, commentary) => {
+                await signMutation.mutateAsync({ password, commentary });
+              }}
+            />
+          </>
+        ) : (
+          <div className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-500 shrink-0" data-testid={`text-deviation-unsigned-${deviation.id}`}>
+            <AlertTriangle className="h-3.5 w-3.5" />
+            Unsigned
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
@@ -922,13 +988,6 @@ function DeviationItem({ deviation }: { deviation: BprDeviation }) {
           </div>
         )}
       </div>
-
-      {(deviation.reviewedBy || deviation.reviewedAt) && (
-        <div className="text-xs text-muted-foreground border-t border-border pt-2 mt-2">
-          Reviewed by {deviation.reviewedBy ?? "—"} on {formatTimestamp(deviation.reviewedAt)}
-          {deviation.signatureOfReviewer && ` — Signature: ${deviation.signatureOfReviewer}`}
-        </div>
-      )}
     </div>
   );
 }
@@ -1011,7 +1070,14 @@ function Deviations({
         {bpr.deviations.length === 0 ? (
           <p className="text-sm text-muted-foreground text-center py-6">No deviations recorded</p>
         ) : (
-          bpr.deviations.map((d) => <DeviationItem key={d.id} deviation={d} />)
+          bpr.deviations.map((d) => (
+            <DeviationItem
+              key={d.id}
+              deviation={d}
+              bprId={bpr.id}
+              canSignOff={!isReadOnly}
+            />
+          ))
         )}
       </CardContent>
 
@@ -1139,6 +1205,7 @@ function QcReview({
 
   const isReviewable = bpr.status === "PENDING_QC_REVIEW";
   const isReviewed = bpr.status === "APPROVED" || bpr.status === "REJECTED";
+  const unsignedDeviationCount = bpr.deviations.filter((d) => !d.signatureId).length;
 
   const submitMutation = useMutation({
     mutationFn: async ({ password, commentary }: { password: string; commentary: string }) => {
@@ -1244,9 +1311,15 @@ function QcReview({
                 data-testid="input-qc-notes"
               />
             </div>
+            {unsignedDeviationCount > 0 && (
+              <div className="flex items-center gap-1.5 text-sm text-amber-600 dark:text-amber-500 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/50 rounded-md px-3 py-2" data-testid="alert-unsigned-deviations">
+                <AlertTriangle className="h-4 w-4 shrink-0" />
+                {unsignedDeviationCount} deviation{unsignedDeviationCount > 1 ? "s" : ""} require sign-off before QC approval
+              </div>
+            )}
             <Button
               onClick={() => setSigOpen(true)}
-              disabled={!disposition}
+              disabled={!disposition || unsignedDeviationCount > 0}
               data-testid="button-submit-qc-review"
             >
               <ClipboardCheck className="h-3.5 w-3.5 mr-1.5" />
