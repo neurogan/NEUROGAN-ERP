@@ -160,12 +160,13 @@ describeIfDb("R-08 — BPR hardening", () => {
   async function seedReconciliation(bprId: string) {
     await db.insert(schema.labelReconciliations).values({
       bprId,
-      issuedCount: 100,
-      usedCount: 98,
-      destroyedCount: 2,
+      qtyIssued: 100,
+      qtyApplied: 98,
+      qtyDestroyed: 2,
+      qtyReturned: 0,
       variance: 0,
       toleranceExceeded: false,
-    }).catch(() => {}); // ignore if already exists
+    });
   }
 
   // ── CLEANING_LOG_MISSING gate ─────────────────────────────────────────────
