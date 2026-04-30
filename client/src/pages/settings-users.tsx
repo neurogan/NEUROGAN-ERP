@@ -10,7 +10,6 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Label } from "@/components/ui/label";
 import {
   Table,
   TableBody,
@@ -45,7 +44,7 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import { Plus, Copy, ShieldAlert, UserX, UserCheck, KeyRound } from "lucide-react";
+import { Plus, Mail, ShieldAlert, UserX, UserCheck, KeyRound } from "lucide-react";
 
 // F-01 settings/users admin page. Reads from GET /api/users and exercises
 // POST /api/users, PATCH /api/users/:id/status, PATCH /api/users/:id/roles.
@@ -72,7 +71,7 @@ interface UserRow {
   email: string;
   fullName: string;
   title: string | null;
-  status: "ACTIVE" | "DISABLED";
+  status: "ACTIVE" | "DISABLED" | "PENDING_INVITE";
   roles: Role[];
   // Admin-only fields — present when the viewer is ADMIN, absent otherwise.
   passwordChangedAt?: string | null;
@@ -105,7 +104,14 @@ function RoleBadges({ roles }: { roles: Role[] }) {
   );
 }
 
-function StatusBadge({ status }: { status: "ACTIVE" | "DISABLED" }) {
+function StatusBadge({ status }: { status: "ACTIVE" | "DISABLED" | "PENDING_INVITE" }) {
+  if (status === "PENDING_INVITE") {
+    return (
+      <Badge variant="outline" className="text-xs border-amber-500 text-amber-600">
+        PENDING
+      </Badge>
+    );
+  }
   return (
     <Badge
       variant={status === "ACTIVE" ? "default" : "outline"}
@@ -121,9 +127,6 @@ function StatusBadge({ status }: { status: "ACTIVE" | "DISABLED" }) {
 export default function SettingsUsers() {
   const { toast } = useToast();
   const [createOpen, setCreateOpen] = useState(false);
-  const [tempPassword, setTempPassword] = useState<{ user: UserRow; password: string } | null>(
-    null,
-  );
   const [editingUser, setEditingUser] = useState<UserRow | null>(null);
   const [confirmDisable, setConfirmDisable] = useState<UserRow | null>(null);
   const [showDisabled, setShowDisabled] = useState(false);
@@ -149,16 +152,30 @@ export default function SettingsUsers() {
   const createMutation = useMutation({
     mutationFn: async (data: CreateUserForm) => {
       const res = await apiRequest("POST", "/api/users", data);
-      return res.json() as Promise<{ user: UserRow; temporaryPassword: string }>;
+      return res.json() as Promise<{ user: UserRow }>;
     },
-    onSuccess: (data) => {
+    onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["/api/users"] });
-      setTempPassword({ user: data.user, password: data.temporaryPassword });
       setCreateOpen(false);
       createForm.reset();
+      toast({ title: "Invite sent", description: `Invite sent to ${variables.email}` });
     },
     onError: (err: Error) => {
       toast({ title: "Could not create user", description: err.message, variant: "destructive" });
+    },
+  });
+
+  // ─── Resend invite ───
+  const resendInviteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await apiRequest("POST", `/api/users/${id}/resend-invite`);
+      return res;
+    },
+    onSuccess: () => {
+      toast({ title: "Invite resent", description: "A new invite email has been sent." });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Could not resend invite", description: err.message, variant: "destructive" });
     },
   });
 
@@ -199,12 +216,6 @@ export default function SettingsUsers() {
       toast({ title: "Could not update roles", description: err.message, variant: "destructive" });
     },
   });
-
-  const copyTempPassword = async () => {
-    if (!tempPassword) return;
-    await navigator.clipboard.writeText(tempPassword.password);
-    toast({ title: "Copied", description: "Temporary password copied to clipboard." });
-  };
 
   // ─── Render ───
 
@@ -286,8 +297,8 @@ export default function SettingsUsers() {
                   ))}
                 </TableRow>
               ))
-            ) : (users ?? []).filter((u) => showDisabled || u.status === "ACTIVE").length > 0 ? (
-              (users ?? []).filter((u) => showDisabled || u.status === "ACTIVE").map((u) => (
+            ) : (users ?? []).filter((u) => showDisabled || u.status !== "DISABLED").length > 0 ? (
+              (users ?? []).filter((u) => showDisabled || u.status !== "DISABLED").map((u) => (
                 <TableRow key={u.id} data-testid={`row-user-${u.id}`}>
                   <TableCell className="font-medium">{u.fullName}</TableCell>
                   <TableCell className="text-sm">{u.email}</TableCell>
@@ -308,7 +319,16 @@ export default function SettingsUsers() {
                       >
                         <KeyRound className="h-3.5 w-3.5 mr-1" /> Roles
                       </Button>
-                      {u.status === "ACTIVE" ? (
+                      {u.status === "PENDING_INVITE" ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => resendInviteMutation.mutate(u.id)}
+                          data-testid={`button-resend-invite-${u.id}`}
+                        >
+                          <Mail className="h-3.5 w-3.5 mr-1" /> Resend invite
+                        </Button>
+                      ) : u.status === "ACTIVE" ? (
                         <Button
                           size="sm"
                           variant="outline"
@@ -350,8 +370,7 @@ export default function SettingsUsers() {
           <DialogHeader>
             <DialogTitle>Create user</DialogTitle>
             <DialogDescription className="text-xs">
-              A one-time temporary password is generated and shown once. The user must rotate it on
-              first login (F-02).
+              An invite email will be sent to the new user with a link to set their password.
             </DialogDescription>
           </DialogHeader>
 
@@ -450,48 +469,6 @@ export default function SettingsUsers() {
               </DialogFooter>
             </form>
           </Form>
-        </DialogContent>
-      </Dialog>
-
-      {/* One-time temp-password display */}
-      <Dialog
-        open={tempPassword !== null}
-        onOpenChange={(o) => {
-          if (!o) setTempPassword(null);
-        }}
-      >
-        <DialogContent className="sm:max-w-[480px]">
-          <DialogHeader>
-            <DialogTitle>User created</DialogTitle>
-            <DialogDescription className="text-xs">
-              Copy the temporary password now — it will not be shown again. The user will be
-              required to rotate it on first login.
-            </DialogDescription>
-          </DialogHeader>
-
-          {tempPassword && (
-            <div className="space-y-3">
-              <div>
-                <Label className="text-xs">Email</Label>
-                <div className="text-sm font-medium">{tempPassword.user.email}</div>
-              </div>
-              <div>
-                <Label className="text-xs">Temporary password</Label>
-                <div className="flex items-center gap-2 mt-1">
-                  <code className="flex-1 rounded-md border border-border bg-muted px-3 py-2 text-sm font-mono break-all">
-                    {tempPassword.password}
-                  </code>
-                  <Button size="sm" variant="outline" onClick={copyTempPassword}>
-                    <Copy className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          <DialogFooter>
-            <Button onClick={() => setTempPassword(null)}>Done</Button>
-          </DialogFooter>
         </DialogContent>
       </Dialog>
 

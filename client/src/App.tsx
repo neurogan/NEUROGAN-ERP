@@ -20,6 +20,7 @@ import SupplyChain from "@/pages/supply-chain";
 import BatchPrint from "@/pages/batch-print";
 import SkuManager from "@/pages/sku-manager";
 import Login from "@/pages/login";
+import SetPassword from "@/pages/set-password";
 import ValidationDetail from "@/pages/quality/ValidationDetail";
 import QualityPage from "@/pages/quality";
 import ComplaintDetail from "@/pages/quality/ComplaintDetail";
@@ -270,6 +271,7 @@ function App() {
             <Switch>
               <Route path="/production/print/:id" component={BatchPrint} />
               <Route path="/login" component={Login} />
+              <Route path="/set-password" component={SetPassword} />
               <Route>
                 <AuthGate>
                   <AppLayout />
