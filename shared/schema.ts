@@ -358,6 +358,9 @@ export const batchProductionRecords = pgTable("erp_batch_production_records", {
   completedAt: timestamp("completed_at"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
+  // R-07: MMR traceability — which approved MMR this batch was produced from
+  mmrId: uuid("mmr_id").references(() => mmrs.id),
+  mmrVersion: integer("mmr_version"),
 });
 
 // BPR Steps (per-step documentation with dual verification)
@@ -1537,3 +1540,52 @@ export const returnInvestigations = pgTable("erp_return_investigations", {
 export type ReturnInvestigation = typeof returnInvestigations.$inferSelect;
 export const insertReturnInvestigationSchema = createInsertSchema(returnInvestigations).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertReturnInvestigation = z.infer<typeof insertReturnInvestigationSchema>;
+
+// ─── R-07 Master Manufacturing Records ───────────────────────────────────────
+
+export const mmrStatusEnum = z.enum(["DRAFT", "APPROVED", "SUPERSEDED"]);
+export type MmrStatus = z.infer<typeof mmrStatusEnum>;
+
+export const mmrs = pgTable("erp_mmrs", {
+  id:                  uuid("id").primaryKey().defaultRandom(),
+  productId:           varchar("product_id").notNull().references(() => products.id),
+  recipeId:            varchar("recipe_id").notNull().references(() => recipes.id),
+  version:             integer("version").notNull().default(1),
+  status:              text("status").$type<MmrStatus>().notNull().default("DRAFT"),
+  yieldMinThreshold:   decimal("yield_min_threshold"),
+  yieldMaxThreshold:   decimal("yield_max_threshold"),
+  notes:               text("notes"),
+  createdByUserId:     uuid("created_by_user_id").notNull().references(() => users.id),
+  approvedByUserId:    uuid("approved_by_user_id").references(() => users.id),
+  signatureId:         uuid("signature_id").references(() => electronicSignatures.id),
+  approvedAt:          timestamp("approved_at", { withTimezone: true }),
+  createdAt:           timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt:           timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type Mmr = typeof mmrs.$inferSelect;
+export const insertMmrSchema = createInsertSchema(mmrs).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertMmr = z.infer<typeof insertMmrSchema>;
+
+export const mmrSteps = pgTable("erp_mmr_steps", {
+  id:             uuid("id").primaryKey().defaultRandom(),
+  mmrId:          uuid("mmr_id").notNull().references(() => mmrs.id),
+  stepNumber:     integer("step_number").notNull(),
+  description:    text("description").notNull(),
+  equipmentIds:   uuid("equipment_ids").array().notNull().default(sql`'{}'::uuid[]`),
+  criticalParams: text("critical_params"),
+  sopReference:   text("sop_reference"),
+  createdAt:      timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type MmrStep = typeof mmrSteps.$inferSelect;
+export const insertMmrStepSchema = createInsertSchema(mmrSteps).omit({ id: true, createdAt: true });
+export type InsertMmrStep = z.infer<typeof insertMmrStepSchema>;
+
+export type MmrWithSteps = Mmr & {
+  steps: MmrStep[];
+  productName: string;
+  recipeName: string;
+  createdByName: string;
+  approvedByName: string | null;
+};
