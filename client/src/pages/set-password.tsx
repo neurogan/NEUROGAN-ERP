@@ -5,10 +5,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { useLogin } from "@/lib/auth";
 import neuroganLogo from "@/assets/neurogan-logo.jpg";
 
 export default function SetPassword() {
   const [, navigate] = useLocation();
+  const login = useLogin();
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [isPending, setIsPending] = useState(false);
@@ -49,14 +51,15 @@ export default function SetPassword() {
       });
 
       if (res.ok) {
-        // Auto-login with the new credentials so the user lands directly in the app
-        const loginRes = await fetch("/api/auth/login", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({ email, password: newPassword }),
-        });
-        navigate(loginRes.ok ? "/" : "/login");
+        // Auto-login via the mutation so the React Query cache is updated
+        // synchronously before navigation — AuthGate needs to see the user
+        // in cache immediately or it will redirect back to /login.
+        try {
+          const result = await login.mutateAsync({ email: email!, password: newPassword });
+          navigate(result.user.mustRotatePassword ? "/profile/rotate-password" : "/");
+        } catch {
+          navigate("/login");
+        }
         return;
       }
 
