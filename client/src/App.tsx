@@ -21,6 +21,8 @@ import BatchPrint from "@/pages/batch-print";
 import SkuManager from "@/pages/sku-manager";
 import Login from "@/pages/login";
 import SetPassword from "@/pages/set-password";
+import ForgotPassword from "@/pages/forgot-password";
+import ResetPassword from "@/pages/reset-password";
 import ValidationDetail from "@/pages/quality/ValidationDetail";
 import QualityPage from "@/pages/quality";
 import ComplaintDetail from "@/pages/quality/ComplaintDetail";
@@ -275,6 +277,8 @@ function App() {
               <Route path="/production/print/:id" component={BatchPrint} />
               <Route path="/login" component={Login} />
               <Route path="/set-password" component={SetPassword} />
+              <Route path="/forgot-password" component={ForgotPassword} />
+              <Route path="/reset-password" component={ResetPassword} />
               <Route>
                 <AuthGate>
                   <AppLayout />

@@ -827,6 +827,8 @@ export const users = pgTable("erp_users", {
   createdByUserId: uuid("created_by_user_id"),
   inviteTokenHash: text("invite_token_hash"),
   inviteTokenExpiresAt: timestamp("invite_token_expires_at", { withTimezone: true }),
+  resetTokenHash: text("reset_token_hash"),
+  resetTokenExpiresAt: timestamp("reset_token_expires_at", { withTimezone: true }),
 });
 
 export const userRoles = pgTable(
@@ -878,9 +880,9 @@ export type UserRoleRow = typeof userRoles.$inferSelect;
 export type InsertUserRole = z.infer<typeof insertUserRoleSchema>;
 
 // Shape returned by GET /api/users — flat list of roles; server-only columns
-// (passwordHash, inviteTokenHash, inviteTokenExpiresAt) are stripped at the
+// (passwordHash, inviteTokenHash, inviteTokenExpiresAt, resetTokenHash, resetTokenExpiresAt) are stripped at the
 // DB boundary so they can never be returned by accident.
-export type UserResponse = Omit<User, "passwordHash" | "inviteTokenHash" | "inviteTokenExpiresAt"> & {
+export type UserResponse = Omit<User, "passwordHash" | "inviteTokenHash" | "inviteTokenExpiresAt" | "resetTokenHash" | "resetTokenExpiresAt"> & {
   roles: UserRole[];
 };
 
@@ -957,6 +959,8 @@ export const auditActionEnum = z.enum([
   "RETURN_INVESTIGATION_CLOSED",
   "INVITE_ACCEPTED",
   "INVITE_RESENT",
+  "PASSWORD_RESET_REQUESTED",
+  "PASSWORD_RESET",
   "SPEC_VERSION_CREATED",
   "SPEC_APPROVED",
   "SPEC_VERSION_SUPERSEDED",

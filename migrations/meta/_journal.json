@@ -183,6 +183,13 @@
       "when": 1746230400000,
       "tag": "0025_r08_bpr_hardening",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1777593600000,
+      "tag": "0026_t10_password_reset",
+      "breakpoints": true
     }
   ]
 }
