@@ -2,6 +2,7 @@ import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRoute, Link, useLocation } from "wouter";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { formatQty } from "@/lib/formatQty";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,6 +14,14 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import {
   Select,
   SelectContent,
@@ -1193,6 +1202,519 @@ function Deviations({
 
 // ── Section 6: QC Review ──
 
+// ── FG QC Test Types ──
+
+interface FgQcTestResult {
+  id: string;
+  specAttributeId: string;
+  analyteName: string;
+  reportedValue: string;
+  reportedUnit: string;
+  passFail: "PASS" | "FAIL" | "NOT_EVALUATED";
+  oosInvestigationId: string | null;
+}
+
+interface FgQcTest {
+  id: string;
+  bprId: string;
+  labId: string;
+  labName: string;
+  enteredByName: string;
+  sampleReference: string | null;
+  testedAt: string;
+  notes: string | null;
+  results: FgQcTestResult[];
+}
+
+interface FgSpecAttribute {
+  id: string;
+  analyte: string;
+  unit: string;
+  minValue: string | null;
+  maxValue: string | null;
+  targetValue: string | null;
+}
+
+interface FgSpecActiveVersion {
+  id: string;
+  version: number;
+  status: string;
+  attributes: FgSpecAttribute[];
+}
+
+interface FgSpecRow {
+  id: string;
+  productId: string;
+  activeVersion: FgSpecActiveVersion | null;
+}
+
+interface Lab {
+  id: string;
+  name: string;
+  type: "IN_HOUSE" | "THIRD_PARTY";
+  status: string;
+}
+
+// ── Add Test Result Dialog ──
+
+interface AddTestDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  bprId: string;
+  productId: string;
+}
+
+function AddTestDialog({
+  open,
+  onOpenChange,
+  bprId,
+  productId,
+}: AddTestDialogProps) {
+  const { toast } = useToast();
+  const [labId, setLabId] = useState("");
+  const [sampleReference, setSampleReference] = useState("");
+  const [testedAt, setTestedAt] = useState(
+    new Date().toISOString().slice(0, 10),
+  );
+  const [notes, setNotes] = useState("");
+  const [resultValues, setResultValues] = useState<Record<string, string>>({});
+
+  const reset = () => {
+    setLabId("");
+    setSampleReference("");
+    setTestedAt(new Date().toISOString().slice(0, 10));
+    setNotes("");
+    setResultValues({});
+  };
+
+  const { data: labs } = useQuery<Lab[]>({
+    queryKey: ["/api/labs"],
+    queryFn: async () => (await apiRequest("GET", "/api/labs")).json(),
+    enabled: open,
+  });
+
+  const { data: specs } = useQuery<FgSpecRow[]>({
+    queryKey: ["/api/finished-goods-specs"],
+    queryFn: async () =>
+      (await apiRequest("GET", "/api/finished-goods-specs")).json(),
+    enabled: open,
+  });
+
+  const activeSpec = specs?.find((s) => s.productId === productId);
+  const specAttributes =
+    activeSpec?.activeVersion?.attributes ?? [];
+
+  const submitMutation = useMutation({
+    mutationFn: async () => {
+      const results = specAttributes
+        .filter((attr) => resultValues[attr.id]?.trim())
+        .map((attr) => ({
+          specAttributeId: attr.id,
+          reportedValue: resultValues[attr.id]!,
+          reportedUnit: attr.unit,
+        }));
+
+      if (results.length === 0) {
+        throw new Error("Enter at least one result value");
+      }
+
+      const res = await apiRequest(
+        "POST",
+        `/api/batch-production-records/${bprId}/finished-goods-tests`,
+        {
+          labId,
+          sampleReference: sampleReference || null,
+          testedAt,
+          notes: notes || null,
+          results,
+        },
+      );
+      if (!res.ok) {
+        const err = (await res.json()) as { message?: string };
+        throw new Error(err.message ?? "Failed to submit test");
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: [
+          `/api/batch-production-records/${bprId}/finished-goods-tests`,
+        ],
+      });
+      toast({ title: "Lab results submitted" });
+      reset();
+      onOpenChange(false);
+    },
+    onError: (err: Error) =>
+      toast({
+        title: "Failed to submit results",
+        description: err.message,
+        variant: "destructive",
+      }),
+  });
+
+  const canSubmit =
+    labId &&
+    testedAt &&
+    specAttributes.some((attr) => resultValues[attr.id]?.trim());
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(v) => {
+        if (!v) reset();
+        onOpenChange(v);
+      }}
+    >
+      <DialogContent className="sm:max-w-[580px] max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Add Lab Test Result</DialogTitle>
+          <DialogDescription>
+            Enter lab results for this batch. Pass/fail is computed
+            automatically from the approved FG spec.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4 py-2">
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="test-lab">
+                Lab <span className="text-destructive">*</span>
+              </Label>
+              <Select value={labId} onValueChange={setLabId}>
+                <SelectTrigger id="test-lab" data-testid="select-test-lab">
+                  <SelectValue placeholder="Select lab" />
+                </SelectTrigger>
+                <SelectContent>
+                  {(labs ?? []).map((lab) => (
+                    <SelectItem key={lab.id} value={lab.id}>
+                      {lab.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="test-date">
+                Tested At <span className="text-destructive">*</span>
+              </Label>
+              <Input
+                id="test-date"
+                type="date"
+                value={testedAt}
+                onChange={(e) => setTestedAt(e.target.value)}
+                data-testid="input-test-date"
+              />
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="test-sample-ref">Sample Reference</Label>
+            <Input
+              id="test-sample-ref"
+              value={sampleReference}
+              onChange={(e) => setSampleReference(e.target.value)}
+              placeholder="Optional COA / sample ID"
+              data-testid="input-test-sample-ref"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="test-notes">Notes</Label>
+            <Textarea
+              id="test-notes"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={2}
+              placeholder="Optional notes"
+              data-testid="input-test-notes"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label className="text-sm font-medium">Results</Label>
+            {specAttributes.length === 0 ? (
+              <p className="text-xs text-muted-foreground">
+                No approved FG spec found for this product. Contact QA to create
+                and approve a spec before entering lab results.
+              </p>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="text-xs">Analyte</TableHead>
+                    <TableHead className="text-xs">Spec Range</TableHead>
+                    <TableHead className="text-xs">Reported Value</TableHead>
+                    <TableHead className="text-xs">Unit</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {specAttributes.map((attr) => {
+                    const rangeParts: string[] = [];
+                    if (attr.minValue) rangeParts.push(`≥${attr.minValue}`);
+                    if (attr.maxValue) rangeParts.push(`≤${attr.maxValue}`);
+                    if (
+                      rangeParts.length === 0 &&
+                      attr.targetValue
+                    )
+                      rangeParts.push(`target ${attr.targetValue}`);
+                    return (
+                      <TableRow key={attr.id}>
+                        <TableCell className="text-xs font-medium">
+                          {attr.analyte}
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground font-mono">
+                          {rangeParts.join(" ") || "—"}
+                        </TableCell>
+                        <TableCell>
+                          <Input
+                            type="number"
+                            value={resultValues[attr.id] ?? ""}
+                            onChange={(e) =>
+                              setResultValues((prev) => ({
+                                ...prev,
+                                [attr.id]: e.target.value,
+                              }))
+                            }
+                            className="h-7 w-24 text-xs"
+                            data-testid={`input-result-${attr.id}`}
+                          />
+                        </TableCell>
+                        <TableCell className="text-xs">{attr.unit}</TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            )}
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button
+            onClick={() => submitMutation.mutate()}
+            disabled={!canSubmit || submitMutation.isPending}
+            data-testid="button-submit-test"
+          >
+            {submitMutation.isPending ? "Submitting…" : "Submit Results"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ── Lab Results Section ──
+
+function LabResultsSection({ bpr }: { bpr: BprWithDetails }) {
+  const { user } = useAuth();
+  const [addOpen, setAddOpen] = useState(false);
+
+  const canAdd =
+    user?.roles?.some(
+      (r) => r === "LAB_TECH" || r === "QA" || r === "ADMIN",
+    ) ?? false;
+
+  const { data: tests, isLoading } = useQuery<FgQcTest[]>({
+    queryKey: [`/api/batch-production-records/${bpr.id}/finished-goods-tests`],
+    queryFn: async () =>
+      (
+        await apiRequest(
+          "GET",
+          `/api/batch-production-records/${bpr.id}/finished-goods-tests`,
+        )
+      ).json(),
+  });
+
+  return (
+    <Card data-testid="section-lab-results">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-sm font-semibold flex items-center gap-2">
+          <Beaker className="h-4 w-4 text-muted-foreground" />
+          Lab Results
+          {canAdd && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="ml-auto h-7 text-xs"
+              onClick={() => setAddOpen(true)}
+              data-testid="button-add-test-result"
+            >
+              <Plus className="h-3.5 w-3.5 mr-1" />
+              Add Test Result
+            </Button>
+          )}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {isLoading ? (
+          <div className="space-y-2">
+            <Skeleton className="h-6 w-full" />
+            <Skeleton className="h-6 w-full" />
+          </div>
+        ) : !tests || tests.length === 0 ? (
+          <p
+            className="text-sm text-muted-foreground"
+            data-testid="text-no-lab-results"
+          >
+            No lab results submitted yet.
+          </p>
+        ) : (
+          <div className="space-y-4">
+            {tests.map((test) => (
+              <div
+                key={test.id}
+                className="border rounded-md p-4 space-y-3"
+                data-testid={`card-test-${test.id}`}
+              >
+                <div className="flex items-center gap-4 flex-wrap text-sm">
+                  <span className="font-medium">{test.labName}</span>
+                  {test.sampleReference && (
+                    <span className="text-muted-foreground text-xs font-mono">
+                      {test.sampleReference}
+                    </span>
+                  )}
+                  <span className="text-muted-foreground text-xs">
+                    {new Date(test.testedAt).toLocaleDateString()}
+                  </span>
+                  <span className="text-muted-foreground text-xs">
+                    by {test.enteredByName}
+                  </span>
+                </div>
+                {test.results.length > 0 && (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="text-xs">Analyte</TableHead>
+                        <TableHead className="text-xs">Reported Value</TableHead>
+                        <TableHead className="text-xs">Unit</TableHead>
+                        <TableHead className="text-xs">Pass/Fail</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {test.results.map((result) => (
+                        <TableRow key={result.id}>
+                          <TableCell className="text-xs font-medium">
+                            {result.analyteName}
+                          </TableCell>
+                          <TableCell className="text-xs font-mono">
+                            {result.reportedValue}
+                          </TableCell>
+                          <TableCell className="text-xs">
+                            {result.reportedUnit}
+                          </TableCell>
+                          <TableCell>
+                            {result.passFail === "PASS" ? (
+                              <Badge className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400 text-xs border-0">
+                                PASS
+                              </Badge>
+                            ) : result.passFail === "FAIL" ? (
+                              <span className="flex items-center gap-1">
+                                <Badge className="bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400 text-xs border-0">
+                                  FAIL
+                                </Badge>
+                                {result.oosInvestigationId && (
+                                  <span className="text-xs text-muted-foreground">
+                                    OOS filed
+                                  </span>
+                                )}
+                              </span>
+                            ) : (
+                              <Badge variant="secondary" className="text-xs">
+                                N/E
+                              </Badge>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+                {test.notes && (
+                  <p className="text-xs text-muted-foreground">{test.notes}</p>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+
+      <AddTestDialog
+        open={addOpen}
+        onOpenChange={setAddOpen}
+        bprId={bpr.id}
+        productId={bpr.productId}
+      />
+    </Card>
+  );
+}
+
+// ── FG Tests Gate Panel ──
+
+function FgTestsGatePanel({ bprId }: { bprId: string }) {
+  const { data: tests, isLoading } = useQuery<FgQcTest[]>({
+    queryKey: [`/api/batch-production-records/${bprId}/finished-goods-tests`],
+    queryFn: async () =>
+      (
+        await apiRequest(
+          "GET",
+          `/api/batch-production-records/${bprId}/finished-goods-tests`,
+        )
+      ).json(),
+  });
+
+  if (isLoading) {
+    return <Skeleton className="h-8 w-full" />;
+  }
+
+  const noTests = !tests || tests.length === 0;
+  const failingAnalytes =
+    tests
+      ?.flatMap((t) => t.results)
+      .filter((r) => r.passFail === "FAIL")
+      .map((r) => r.analyteName) ?? [];
+  const allPass = !noTests && failingAnalytes.length === 0;
+
+  return (
+    <div
+      className={`flex items-start gap-2 rounded-md px-3 py-2 text-sm border ${
+        allPass
+          ? "bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-900/50 text-green-700 dark:text-green-400"
+          : "bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-900/50 text-red-700 dark:text-red-400"
+      }`}
+      data-testid="fg-tests-gate-panel"
+    >
+      {allPass ? (
+        <CheckCircle className="h-4 w-4 shrink-0 mt-0.5" />
+      ) : (
+        <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+      )}
+      <div className="space-y-0.5">
+        {noTests && (
+          <p data-testid="gate-no-tests">
+            No lab results submitted — lab results are required before QC
+            release.
+          </p>
+        )}
+        {!noTests && failingAnalytes.length > 0 && (
+          <>
+            <p data-testid="gate-failing">
+              {failingAnalytes.length} analyte
+              {failingAnalytes.length !== 1 ? "s" : ""} failing spec:
+            </p>
+            <ul className="list-disc list-inside text-xs space-y-0.5">
+              {failingAnalytes.map((name, i) => (
+                <li key={i}>{name}</li>
+              ))}
+            </ul>
+          </>
+        )}
+        {allPass && (
+          <p data-testid="gate-all-pass">All lab results pass specification.</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function QcReview({
   bpr,
 }: {
@@ -1206,6 +1728,25 @@ function QcReview({
   const isReviewable = bpr.status === "PENDING_QC_REVIEW";
   const isReviewed = bpr.status === "APPROVED" || bpr.status === "REJECTED";
   const unsignedDeviationCount = bpr.deviations.filter((d) => !d.signatureId).length;
+
+  // FG gate: fetch tests to derive gate status
+  const { data: fgTests } = useQuery<FgQcTest[]>({
+    queryKey: [`/api/batch-production-records/${bpr.id}/finished-goods-tests`],
+    queryFn: async () =>
+      (
+        await apiRequest(
+          "GET",
+          `/api/batch-production-records/${bpr.id}/finished-goods-tests`,
+        )
+      ).json(),
+    enabled: isReviewable,
+  });
+
+  const fgGateFailing =
+    isReviewable &&
+    (!fgTests ||
+      fgTests.length === 0 ||
+      fgTests.flatMap((t) => t.results).some((r) => r.passFail === "FAIL"));
 
   const submitMutation = useMutation({
     mutationFn: async ({ password, commentary }: { password: string; commentary: string }) => {
@@ -1311,6 +1852,7 @@ function QcReview({
                 data-testid="input-qc-notes"
               />
             </div>
+            <FgTestsGatePanel bprId={bpr.id} />
             {unsignedDeviationCount > 0 && (
               <div className="flex items-center gap-1.5 text-sm text-amber-600 dark:text-amber-500 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/50 rounded-md px-3 py-2" data-testid="alert-unsigned-deviations">
                 <AlertTriangle className="h-4 w-4 shrink-0" />
@@ -1319,7 +1861,7 @@ function QcReview({
             )}
             <Button
               onClick={() => setSigOpen(true)}
-              disabled={!disposition || unsignedDeviationCount > 0}
+              disabled={!disposition || unsignedDeviationCount > 0 || fgGateFailing}
               data-testid="button-submit-qc-review"
             >
               <ClipboardCheck className="h-3.5 w-3.5 mr-1.5" />
@@ -1455,7 +1997,10 @@ export default function BprDetail() {
       {/* Section 5: Deviations */}
       <Deviations bpr={bpr} isReadOnly={isReadOnly} />
 
-      {/* Section 6: QC Review */}
+      {/* Section 6: Lab Results */}
+      <LabResultsSection bpr={bpr} />
+
+      {/* Section 7: QC Review */}
       <QcReview bpr={bpr} />
     </div>
   );

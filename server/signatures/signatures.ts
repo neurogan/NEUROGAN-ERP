@@ -60,6 +60,7 @@ export const MEANING_VERB: Record<SignatureMeaning, string> = {
   SOP_RETIRED: "retired SOP for",
   RETURNED_PRODUCT_DISPOSITION: "issued return disposition for",
   RETURN_INVESTIGATION_CLOSE: "closed return investigation for",
+  FG_SPEC_APPROVAL: "approved finished-goods specification for",
 };
 
 // Performs the signature ceremony then calls fn(tx) for the state change —

@@ -3,6 +3,7 @@ import {
   text,
   varchar,
   decimal,
+  numeric,
   timestamp,
   date,
   pgEnum,
@@ -964,6 +965,11 @@ export const auditActionEnum = z.enum([
   "SPEC_VERSION_CREATED",
   "SPEC_APPROVED",
   "SPEC_VERSION_SUPERSEDED",
+  // R-09 Finished-goods QC release gate (Obs 5)
+  "FG_SPEC_CREATED",
+  "FG_SPEC_APPROVED",
+  "FG_TEST_ENTERED",
+  "FG_TEST_RESULT_FAILED",
 ]);
 export type AuditAction = z.infer<typeof auditActionEnum>;
 
@@ -1027,6 +1033,7 @@ export const signatureMeaningEnum = z.enum([
   "SOP_RETIRED",
   "RETURNED_PRODUCT_DISPOSITION",
   "RETURN_INVESTIGATION_CLOSE",
+  "FG_SPEC_APPROVAL",
 ]);
 export type SignatureMeaning = z.infer<typeof signatureMeaningEnum>;
 
@@ -1148,8 +1155,8 @@ export type OosRecallClass = z.infer<typeof oosRecallClassEnum>;
 export const oosInvestigations = pgTable("erp_oos_investigations", {
   id:                              uuid("id").primaryKey().defaultRandom(),
   oosNumber:                       text("oos_number").notNull().unique(),
-  coaDocumentId:                   varchar("coa_document_id").notNull().references(() => coaDocuments.id),
-  lotId:                           varchar("lot_id").notNull().references(() => lots.id),
+  coaDocumentId:                   varchar("coa_document_id").references(() => coaDocuments.id),
+  lotId:                           varchar("lot_id").references(() => lots.id),
   status:                          text("status").$type<OosStatus>().notNull().default("OPEN"),
   disposition:                     text("disposition").$type<OosDisposition | null>(),
   dispositionReason:               text("disposition_reason"),
@@ -1195,9 +1202,9 @@ export type OosInvestigationDetail = OosInvestigation & {
 export type OosInvestigationSummary = {
   id: string;
   oosNumber: string;
-  lotId: string;
+  lotId: string | null;
   lotNumber: string | null;
-  coaDocumentId: string;
+  coaDocumentId: string | null;
   status: OosStatus;
   disposition: OosDisposition | null;
   autoCreatedAt: Date;
@@ -1684,4 +1691,100 @@ export type ComponentSpecWithVersions = ComponentSpec & {
   createdByName: string;
   versions: ComponentSpecVersionWithAttributes[];
   activeVersion: ComponentSpecVersion | null;
+};
+
+// ─── R-09 Finished-Goods QC Release Gate (Obs 5 — 21 CFR Part 111 §111.123(a)(4)) ──────────────
+
+export const fgSpecAttributeCategoryEnum = z.enum(["NUTRIENT_CONTENT", "CONTAMINANT", "MICROBIOLOGICAL"]);
+export type FgSpecAttributeCategory = z.infer<typeof fgSpecAttributeCategoryEnum>;
+
+export const fgTestResultStatusEnum = z.enum(["PASS", "FAIL", "NOT_EVALUATED"]);
+export type FgTestResultStatus = z.infer<typeof fgTestResultStatusEnum>;
+
+// Header: one per FINISHED_GOOD product
+export const finishedGoodsSpecs = pgTable("erp_finished_goods_specs", {
+  id:                uuid("id").primaryKey().defaultRandom(),
+  productId:         varchar("product_id").notNull().references(() => products.id),
+  name:              text("name").notNull(),
+  description:       text("description"),
+  status:            text("status").notNull().default("ACTIVE"),  // ACTIVE, RETIRED
+  createdAt:         timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  createdByUserId:   uuid("created_by_user_id").notNull().references(() => users.id),
+});
+export type FinishedGoodsSpec = typeof finishedGoodsSpecs.$inferSelect;
+
+// Versioned, approval-gated
+export const finishedGoodsSpecVersions = pgTable("erp_finished_goods_spec_versions", {
+  id:                  uuid("id").primaryKey().defaultRandom(),
+  specId:              uuid("spec_id").notNull().references(() => finishedGoodsSpecs.id),
+  version:             integer("version").notNull(),
+  status:              text("status").notNull().default("PENDING_APPROVAL"),  // PENDING_APPROVAL, APPROVED, SUPERSEDED
+  approvedByUserId:    uuid("approved_by_user_id").references(() => users.id),
+  approvedAt:          timestamp("approved_at", { withTimezone: true }),
+  signatureId:         uuid("signature_id").references(() => electronicSignatures.id),
+  notes:               text("notes"),
+  createdAt:           timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  createdByUserId:     uuid("created_by_user_id").notNull().references(() => users.id),
+});
+export type FinishedGoodsSpecVersion = typeof finishedGoodsSpecVersions.$inferSelect;
+
+// Attributes (analytes) on a spec version
+export const finishedGoodsSpecAttributes = pgTable("erp_finished_goods_spec_attributes", {
+  id:             uuid("id").primaryKey().defaultRandom(),
+  specVersionId:  uuid("spec_version_id").notNull().references(() => finishedGoodsSpecVersions.id),
+  analyte:        text("analyte").notNull(),
+  category:       text("category").$type<FgSpecAttributeCategory>().notNull(),
+  targetValue:    numeric("target_value"),
+  minValue:       numeric("min_value"),
+  maxValue:       numeric("max_value"),
+  unit:           text("unit").notNull(),
+  required:       boolean("required").notNull().default(true),
+  notes:          text("notes"),
+});
+export type FinishedGoodsSpecAttribute = typeof finishedGoodsSpecAttributes.$inferSelect;
+
+// Per-batch test submission (one per lab visit / COA)
+export const finishedGoodsQcTests = pgTable("erp_finished_goods_qc_tests", {
+  id:                uuid("id").primaryKey().defaultRandom(),
+  bprId:             varchar("bpr_id").notNull().references(() => batchProductionRecords.id),
+  labId:             uuid("lab_id").notNull().references(() => labs.id),
+  sampleReference:   text("sample_reference"),
+  testedAt:          date("tested_at").notNull(),
+  enteredByUserId:   uuid("entered_by_user_id").notNull().references(() => users.id),
+  coaDocumentId:     varchar("coa_document_id").references(() => coaDocuments.id),
+  notes:             text("notes"),
+  createdAt:         timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export type FinishedGoodsQcTest = typeof finishedGoodsQcTests.$inferSelect;
+
+// Per-attribute results within a test
+export const finishedGoodsQcTestResults = pgTable("erp_finished_goods_qc_test_results", {
+  id:                  uuid("id").primaryKey().defaultRandom(),
+  testId:              uuid("test_id").notNull().references(() => finishedGoodsQcTests.id, { onDelete: "cascade" }),
+  specAttributeId:     uuid("spec_attribute_id").notNull().references(() => finishedGoodsSpecAttributes.id),
+  reportedValue:       numeric("reported_value").notNull(),
+  reportedUnit:        text("reported_unit").notNull(),
+  passFail:            text("pass_fail").$type<FgTestResultStatus>().notNull(),
+  oosInvestigationId:  uuid("oos_investigation_id").references(() => oosInvestigations.id),
+  createdAt:           timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export type FinishedGoodsQcTestResult = typeof finishedGoodsQcTestResults.$inferSelect;
+
+// Rich response types
+export type FgSpecVersionWithAttributes = FinishedGoodsSpecVersion & {
+  attributes: FinishedGoodsSpecAttribute[];
+  createdByName: string;
+  approvedByName: string | null;
+};
+
+export type FgSpecWithVersions = FinishedGoodsSpec & {
+  productName: string;
+  versions: FgSpecVersionWithAttributes[];
+  activeVersion: FinishedGoodsSpecVersion | null;
+};
+
+export type FgQcTestWithResults = FinishedGoodsQcTest & {
+  labName: string;
+  enteredByName: string;
+  results: (FinishedGoodsQcTestResult & { analyteName: string })[];
 };

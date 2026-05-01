@@ -8,8 +8,9 @@ import ComplaintsPage from "./complaints";
 import ReturnsPage from "./returns";
 import OosInvestigations from "@/pages/OosInvestigations";
 import ComponentSpecifications from "./ComponentSpecifications";
+import FinishedGoodsSpecifications from "./FinishedGoodsSpecifications";
 
-type QualityTab = "labeling" | "sops" | "complaints" | "returns" | "oos" | "component-specifications";
+type QualityTab = "labeling" | "sops" | "complaints" | "returns" | "oos" | "component-specifications" | "fg-specifications";
 
 const ACTIVE_TABS: { value: QualityTab; label: string }[] = [
   { value: "labeling", label: "Labeling" },
@@ -18,6 +19,7 @@ const ACTIVE_TABS: { value: QualityTab; label: string }[] = [
   { value: "returns", label: "Returns" },
   { value: "oos", label: "OOS" },
   { value: "component-specifications", label: "Component Specifications" },
+  { value: "fg-specifications", label: "FG Specifications" },
 ];
 
 const DISABLED_TABS: { value: string; label: string; tooltip: string }[] = [
@@ -30,7 +32,7 @@ export default function QualityPage() {
   // because wouter's :param stops at "/". Extract the tab segment directly from location instead.
   const tabParam = location.split("/")[2] as string | undefined;
 
-  const validTabs: QualityTab[] = ["labeling", "sops", "complaints", "returns", "oos", "component-specifications"];
+  const validTabs: QualityTab[] = ["labeling", "sops", "complaints", "returns", "oos", "component-specifications", "fg-specifications"];
 
   useEffect(() => {
     if (!tabParam || !validTabs.includes(tabParam as QualityTab)) {
@@ -44,6 +46,7 @@ export default function QualityPage() {
     : tabParam === "returns" ? "returns"
     : tabParam === "oos" ? "oos"
     : tabParam === "component-specifications" ? "component-specifications"
+    : tabParam === "fg-specifications" ? "fg-specifications"
     : "labeling";
 
   return (
@@ -80,6 +83,7 @@ export default function QualityPage() {
       {activeTab === "returns" && <ReturnsPage />}
       {activeTab === "oos" && <OosInvestigations />}
       {activeTab === "component-specifications" && <ComponentSpecifications />}
+      {activeTab === "fg-specifications" && <FinishedGoodsSpecifications />}
     </div>
   );
 }

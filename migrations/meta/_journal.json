@@ -190,6 +190,13 @@
       "when": 1777593600000,
       "tag": "0026_t10_password_reset",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1746403200000,
+      "tag": "0027_r09_fg_qc_release_gate",
+      "breakpoints": true
     }
   ]
 }
