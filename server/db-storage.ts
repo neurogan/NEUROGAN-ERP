@@ -2316,7 +2316,7 @@ export class DatabaseStorage implements IStorage {
       .where(eq(schema.oosInvestigations.id, investigationId))
       .returning();
 
-    if (payload.disposition === "REJECTED") {
+    if (payload.disposition === "REJECTED" && existing.lotId) {
       await tx
         .update(schema.lots)
         .set({ quarantineStatus: "REJECTED" })
