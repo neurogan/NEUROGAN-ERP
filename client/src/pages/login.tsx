@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useLocation } from "wouter";
+import { useLocation, Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -85,6 +85,11 @@ export default function Login() {
               <Button type="submit" className="w-full" disabled={login.isPending}>
                 {login.isPending ? "Signing in…" : "Sign in"}
               </Button>
+              <div className="text-center">
+                <Link href="/forgot-password" className="text-xs text-muted-foreground hover:underline">
+                  Forgot password?
+                </Link>
+              </div>
             </form>
           </CardContent>
         </Card>
