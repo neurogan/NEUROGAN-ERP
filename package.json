@@ -10,7 +10,7 @@
   "scripts": {
     "dev": "NODE_ENV=development tsx server/index.ts",
     "build": "tsx script/build.ts",
-    "start": "NODE_ENV=production node dist/index.cjs",
+    "start": "pnpm migrate:up && NODE_ENV=production node dist/index.cjs",
     "typecheck": "tsc --noEmit",
     "check": "pnpm typecheck",
     "lint": "eslint --max-warnings 0",
