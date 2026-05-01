@@ -9,7 +9,9 @@ import { errorMiddleware } from "./error-middleware";
 import { passport } from "./auth/passport";
 import { requireAuth } from "./auth/middleware";
 import { authRouter } from "./auth/auth-routes";
-import { getPool, checkAuditTrailImmutability } from "./db";
+import { getPool, getDb, checkAuditTrailImmutability } from "./db";
+import { migrate } from "drizzle-orm/node-postgres/migrator";
+import path from "path";
 import {
   buildAllowedOrigins,
   corsMiddleware,
@@ -153,11 +155,22 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  // Migrations do not run on boot. Per FDA/AGENTS.md §5.2 and D-09 of
-  // FDA/neurogan-erp-build-spec.md, self-mutating schemas are incompatible
-  // with a validated regulated system. Schema changes are applied through
-  // the explicit CI/deploy step `pnpm migrate:up` (drizzle-kit migrate)
-  // which runs only against migrations hand-reviewed into the repo.
+  // Migrations do not run on boot by default. Per FDA/AGENTS.md §5.2 and D-09
+  // of FDA/neurogan-erp-build-spec.md, self-mutating schemas are incompatible
+  // with a validated regulated system. Schema changes are applied through the
+  // explicit CI/deploy step `pnpm migrate:up` (drizzle-kit migrate) which runs
+  // only against migrations hand-reviewed into the repo.
+  //
+  // Exception: AUTO_MIGRATE=true opts non-production environments (staging) in
+  // to running pending migrations on boot via drizzle-orm's programmatic
+  // migrator — no CLI binary required.
+  if (process.env.AUTO_MIGRATE === "true") {
+    console.log("[boot] AUTO_MIGRATE=true — applying pending migrations…");
+    await migrate(getDb(), {
+      migrationsFolder: path.join(process.cwd(), "migrations"),
+    });
+    console.log("[boot] migrations up to date");
+  }
 
   // F-03: Verify the erp_app role cannot UPDATE audit_trail (D-07).
   await checkAuditTrailImmutability();
