@@ -51,7 +51,11 @@ app.use(helmetMiddleware(ALLOWED_ORIGINS));
 // applying it globally caused the browser's crossorigin attribute on <script>/<link>
 // to trigger CORS preflight/rejection for same-domain asset fetches.
 app.use("/api", corsMiddleware(ALLOWED_ORIGINS));
-app.use("/api/auth", authRateLimiter());
+app.use("/api/auth/login", authRateLimiter());            // 5/min — brute-force guard
+app.use("/api/auth/forgot-password", authRateLimiter(60_000, 10)); // 10/min — less strict
+app.use("/api/auth/reset-password", authRateLimiter(60_000, 10));  // 10/min — less strict
+app.use("/api/auth/accept-invite", authRateLimiter());
+app.use("/api/auth/rotate-password", authRateLimiter());
 app.use("/api", apiRateLimiter());
 
 declare module "http" {
