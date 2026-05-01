@@ -1155,8 +1155,8 @@ export type OosRecallClass = z.infer<typeof oosRecallClassEnum>;
 export const oosInvestigations = pgTable("erp_oos_investigations", {
   id:                              uuid("id").primaryKey().defaultRandom(),
   oosNumber:                       text("oos_number").notNull().unique(),
-  coaDocumentId:                   varchar("coa_document_id").notNull().references(() => coaDocuments.id),
-  lotId:                           varchar("lot_id").notNull().references(() => lots.id),
+  coaDocumentId:                   varchar("coa_document_id").references(() => coaDocuments.id),
+  lotId:                           varchar("lot_id").references(() => lots.id),
   status:                          text("status").$type<OosStatus>().notNull().default("OPEN"),
   disposition:                     text("disposition").$type<OosDisposition | null>(),
   dispositionReason:               text("disposition_reason"),
@@ -1202,9 +1202,9 @@ export type OosInvestigationDetail = OosInvestigation & {
 export type OosInvestigationSummary = {
   id: string;
   oosNumber: string;
-  lotId: string;
+  lotId: string | null;
   lotNumber: string | null;
-  coaDocumentId: string;
+  coaDocumentId: string | null;
   status: OosStatus;
   disposition: OosDisposition | null;
   autoCreatedAt: Date;

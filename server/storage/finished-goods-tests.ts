@@ -183,61 +183,28 @@ export async function enterFgQcTest(
     for (const result of evaluatedResults) {
       let oosInvestigationId: string | null = null;
 
-      // Auto-create OOS if FAIL and we have a COA document to link to
-      if (result.needsOos && data.coaDocumentId) {
-        // Look for an existing open OOS for this COA
-        const [existingOos] = await tx
-          .select()
-          .from(schema.oosInvestigations)
-          .where(
-            and(
-              eq(schema.oosInvestigations.coaDocumentId, data.coaDocumentId),
-              eq(schema.oosInvestigations.status, "OPEN"),
-            ),
-          )
-          .limit(1);
+      // Auto-create OOS on FAIL (coaDocumentId and lotId are now nullable on the OOS table)
+      if (result.needsOos) {
+        const oosNumber = await nextOosNumber(tx);
+        const [created] = await tx
+          .insert(schema.oosInvestigations)
+          .values({
+            oosNumber,
+            coaDocumentId: data.coaDocumentId ?? null,
+            lotId: null,  // FG batches don't have a component lot FK
+          })
+          .returning();
+        oosInvestigationId = created!.id;
 
-        if (existingOos) {
-          oosInvestigationId = existingOos.id;
-        } else {
-          // Need a lotId — look up the BPR's lot by lotNumber on the lots table
-          // BPRs store lotNumber as text; we need the lots.id for the FK
-          // If no lot found, skip OOS creation
-          const [lot] = await tx
-            .select()
-            .from(schema.lots)
-            .where(
-              and(
-                eq(schema.lots.productId, bpr.productId),
-                eq(schema.lots.lotNumber, bpr.lotNumber ?? ""),
-              ),
-            )
-            .limit(1);
-
-          if (lot) {
-            const oosNumber = await nextOosNumber(tx);
-            const [created] = await tx
-              .insert(schema.oosInvestigations)
-              .values({
-                oosNumber,
-                coaDocumentId: data.coaDocumentId,
-                lotId: lot.id,
-              })
-              .returning();
-            oosInvestigationId = created!.id;
-
-            // Audit inside transaction
-            await tx.insert(schema.auditTrail).values({
-              userId,
-              action: "OOS_OPENED",
-              entityType: "oos_investigation",
-              entityId: created!.id,
-              after: { oosNumber, coaDocumentId: data.coaDocumentId, lotId: lot.id },
-              requestId: null,
-              route: null,
-            });
-          }
-        }
+        await tx.insert(schema.auditTrail).values({
+          userId,
+          action: "OOS_OPENED",
+          entityType: "oos_investigation",
+          entityId: created!.id,
+          after: { oosNumber, bprId },
+          requestId: null,
+          route: null,
+        });
       }
 
       failedOosIds.set(result.specAttributeId, oosInvestigationId);

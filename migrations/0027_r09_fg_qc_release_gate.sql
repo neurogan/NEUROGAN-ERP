@@ -66,3 +66,10 @@ CREATE TABLE erp_finished_goods_qc_test_results (
   oos_investigation_id  UUID REFERENCES erp_oos_investigations(id),
   created_at            TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- 6. Relax OOS constraints so FG test failures can auto-create investigations
+--    without requiring a supplier COA doc or component lot (FG batches have
+--    neither at test time). Safe: NOT NULL → nullable never breaks existing rows.
+ALTER TABLE erp_oos_investigations
+  ALTER COLUMN coa_document_id DROP NOT NULL,
+  ALTER COLUMN lot_id DROP NOT NULL;
