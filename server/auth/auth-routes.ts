@@ -309,7 +309,7 @@ router.post("/forgot-password", async (req, res, next) => {
         route: `${req.method} ${req.path}`,
         requestId: req.requestId,
         meta: { ip: req.ip },
-      }).catch(() => {});
+      }).catch(() => { /* best-effort — never block the response */ });
     }
 
     return res.status(200).json({ message: "If that email is registered, a reset link is on its way." });
@@ -381,7 +381,7 @@ router.post("/reset-password", async (req, res, next) => {
       route: `${req.method} ${req.path}`,
       requestId: req.requestId,
       meta: { ip: req.ip },
-    }).catch(() => {});
+    }).catch(() => { /* best-effort — never block the response */ });
 
     return res.status(200).json({ message: "Password updated. You can now sign in." });
   } catch (err) {
