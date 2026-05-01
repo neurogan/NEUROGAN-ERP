@@ -49,7 +49,14 @@ export default function SetPassword() {
       });
 
       if (res.ok) {
-        navigate("/login");
+        // Auto-login with the new credentials so the user lands directly in the app
+        const loginRes = await fetch("/api/auth/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ email, password: newPassword }),
+        });
+        navigate(loginRes.ok ? "/" : "/login");
         return;
       }
 
