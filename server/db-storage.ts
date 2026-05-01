@@ -1894,6 +1894,7 @@ export class DatabaseStorage implements IStorage {
       ...coa,
       productName: product?.name ?? "Unknown",
       productSku: product?.sku ?? "",
+      productId: lot?.productId ?? "",
       lotNumber: lot?.lotNumber ?? "",
       supplierName: lot?.supplierName ?? null,
     };
@@ -2579,9 +2580,16 @@ export class DatabaseStorage implements IStorage {
   }
 
   private static toUserResponse(user: User, roles: readonly UserRole[]): UserResponse {
-    // Explicit destructure so passwordHash cannot be returned by accident.
-    const { passwordHash: _passwordHash, ...rest } = user;
+    // Explicit destructure strips server-only columns so they cannot leak.
+    const {
+      passwordHash: _passwordHash,
+      inviteTokenHash: _inviteTokenHash,
+      inviteTokenExpiresAt: _inviteTokenExpiresAt,
+      ...rest
+    } = user;
     void _passwordHash;
+    void _inviteTokenHash;
+    void _inviteTokenExpiresAt;
     return { ...rest, roles: [...roles] };
   }
 
@@ -2613,9 +2621,8 @@ export class DatabaseStorage implements IStorage {
     // When outerTx is provided (by withAudit) we reuse it directly so the
     // audit row and the data write share a single transaction.
     const run = async (tx: Tx) => {
-      // Set passwordChangedAt to epoch so the 90-day rotation gate fires
-      // immediately — all new accounts start with a temp password (F-01
-      // generateTemporaryPassword) and must rotate on first login (F-02).
+      // passwordChangedAt set to epoch so the 90-day rotation gate fires
+      // immediately once the user activates their account via invite (T-09).
       const [user] = await tx
         .insert(schema.users)
         .values({
@@ -2624,6 +2631,9 @@ export class DatabaseStorage implements IStorage {
           title: data.title ?? null,
           passwordHash: data.passwordHash,
           passwordChangedAt: new Date(0),
+          status: data.status ?? "ACTIVE",
+          inviteTokenHash: data.inviteTokenHash ?? null,
+          inviteTokenExpiresAt: data.inviteTokenExpiresAt ?? null,
           createdByUserId: data.createdByUserId,
         })
         .returning();
@@ -2658,6 +2668,26 @@ export class DatabaseStorage implements IStorage {
     if (!updated) return undefined;
     const rolesByUser = await this.fetchRolesByUserIds([id]);
     return DatabaseStorage.toUserResponse(updated, rolesByUser.get(id) ?? []);
+  }
+
+  async acceptInvite(userId: string, passwordHash: string): Promise<void> {
+    await db
+      .update(schema.users)
+      .set({
+        passwordHash,
+        passwordChangedAt: new Date(),
+        status: "ACTIVE",
+        inviteTokenHash: null,
+        inviteTokenExpiresAt: null,
+      })
+      .where(eq(schema.users.id, userId));
+  }
+
+  async renewInviteToken(userId: string, tokenHash: string, expiresAt: Date): Promise<void> {
+    await db
+      .update(schema.users)
+      .set({ inviteTokenHash: tokenHash, inviteTokenExpiresAt: expiresAt })
+      .where(eq(schema.users.id, userId));
   }
 
   async setUserRoles(

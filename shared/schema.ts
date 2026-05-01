@@ -34,7 +34,7 @@ export const poStatusEnum = pgEnum("po_status", ["DRAFT", "SUBMITTED", "PARTIALL
 export const userRoleEnum = z.enum(["ADMIN", "QA", "PRODUCTION", "WAREHOUSE", "LAB_TECH", "VIEWER"]);
 export type UserRole = z.infer<typeof userRoleEnum>;
 
-export const userStatusEnum = z.enum(["ACTIVE", "DISABLED"]);
+export const userStatusEnum = z.enum(["ACTIVE", "DISABLED", "PENDING_INVITE"]);
 export type UserStatus = z.infer<typeof userStatusEnum>;
 
 // Products
@@ -413,6 +413,7 @@ export const bprDeviations = pgTable("erp_bpr_deviations", {
   reviewedBy: text("reviewed_by"),
   reviewedAt: timestamp("reviewed_at"),
   signatureOfReviewer: text("signature_of_reviewer"),
+  signatureId: uuid("signature_id").references(() => electronicSignatures.id),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -643,6 +644,7 @@ export type InsertSupplierQualification = z.infer<typeof insertSupplierQualifica
 export type CoaDocumentWithDetails = CoaDocument & {
   productName: string;
   productSku: string;
+  productId: string;
   lotNumber: string;
   supplierName: string | null;
 };
@@ -823,6 +825,8 @@ export const users = pgTable("erp_users", {
   status: text("status").$type<UserStatus>().notNull().default("ACTIVE"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   createdByUserId: uuid("created_by_user_id"),
+  inviteTokenHash: text("invite_token_hash"),
+  inviteTokenExpiresAt: timestamp("invite_token_expires_at", { withTimezone: true }),
 });
 
 export const userRoles = pgTable(
@@ -873,8 +877,10 @@ export type InsertUser = z.infer<typeof insertUserSchema>;
 export type UserRoleRow = typeof userRoles.$inferSelect;
 export type InsertUserRole = z.infer<typeof insertUserRoleSchema>;
 
-// Shape returned by GET /api/users — flat list of roles, no passwordHash.
-export type UserResponse = Omit<User, "passwordHash"> & {
+// Shape returned by GET /api/users — flat list of roles; server-only columns
+// (passwordHash, inviteTokenHash, inviteTokenExpiresAt) are stripped at the
+// DB boundary so they can never be returned by accident.
+export type UserResponse = Omit<User, "passwordHash" | "inviteTokenHash" | "inviteTokenExpiresAt"> & {
   roles: UserRole[];
 };
 
@@ -949,6 +955,11 @@ export const auditActionEnum = z.enum([
   "RETURN_DISPOSITION_SIGNED",
   "RETURN_INVESTIGATION_OPENED",
   "RETURN_INVESTIGATION_CLOSED",
+  "INVITE_ACCEPTED",
+  "INVITE_RESENT",
+  "SPEC_VERSION_CREATED",
+  "SPEC_APPROVED",
+  "SPEC_VERSION_SUPERSEDED",
 ]);
 export type AuditAction = z.infer<typeof auditActionEnum>;
 
@@ -1083,6 +1094,8 @@ export const labTestResults = pgTable("erp_lab_test_results", {
   testedAt: timestamp("tested_at", { withTimezone: true }).notNull().defaultNow(),
   notes: text("notes"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  specVersionId:   uuid("spec_version_id").references(() => componentSpecVersions.id),
+  specAttributeId: uuid("spec_attribute_id").references(() => componentSpecAttributes.id),
 });
 
 export const insertLabTestResultSchema = createInsertSchema(labTestResults).omit({
@@ -1546,6 +1559,22 @@ export type InsertReturnInvestigation = z.infer<typeof insertReturnInvestigation
 export const mmrStatusEnum = z.enum(["DRAFT", "APPROVED", "SUPERSEDED"]);
 export type MmrStatus = z.infer<typeof mmrStatusEnum>;
 
+// Component Specification enums
+export const specVersionStatusEnum = z.enum(["DRAFT", "APPROVED", "SUPERSEDED"]);
+export type SpecVersionStatus = z.infer<typeof specVersionStatusEnum>;
+
+export const specAttributeCategoryEnum = z.enum(["IDENTITY", "ASSAY", "HEAVY_METAL", "MICROBIAL", "PHYSICAL", "BOTANICAL_CONTAMINANT", "RESIDUAL_SOLVENT", "MATERIAL_DECLARATION", "OTHER"]);
+export type SpecAttributeCategory = z.infer<typeof specAttributeCategoryEnum>;
+
+export const specVerificationSourceEnum = z.enum(["NEUROGAN_IN_HOUSE", "SUPPLIER_COA", "THIRD_PARTY_LAB", "SUPPLIER_DECLARATION"]);
+export type SpecVerificationSource = z.infer<typeof specVerificationSourceEnum>;
+
+export const specFrequencyEnum = z.enum(["EVERY_LOT", "ANNUAL", "PERIODIC"]);
+export type SpecFrequency = z.infer<typeof specFrequencyEnum>;
+
+export const specResultTypeEnum = z.enum(["NUMERIC", "PASS_FAIL", "TEXT"]);
+export type SpecResultType = z.infer<typeof specResultTypeEnum>;
+
 export const mmrs = pgTable("erp_mmrs", {
   id:                  uuid("id").primaryKey().defaultRandom(),
   productId:           varchar("product_id").notNull().references(() => products.id),
@@ -1588,4 +1617,67 @@ export type MmrWithSteps = Mmr & {
   recipeName: string;
   createdByName: string;
   approvedByName: string | null;
+};
+
+// Component Specification tables (Obs 1 — 21 CFR Part 111 §111.70(b))
+export const componentSpecs = pgTable("erp_component_specs", {
+  id:                uuid("id").primaryKey().defaultRandom(),
+  productId:         varchar("product_id").notNull().references(() => products.id),
+  createdByUserId:   uuid("created_by_user_id").notNull().references(() => users.id),
+  createdAt:          timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  notes:              text("notes"),
+  documentNumber:     text("document_number"),
+  synonyms:           text("synonyms"),
+  casNumber:          text("cas_number"),
+  botanicalSource:    text("botanical_source"),
+  countryOfOrigin:    text("country_of_origin"),
+  primaryPackaging:   text("primary_packaging"),
+  secondaryPackaging: text("secondary_packaging"),
+  storageConditions:  text("storage_conditions"),
+  shelfLifeMonths:    integer("shelf_life_months"),
+  retestMonths:       integer("retest_months"),
+});
+export type ComponentSpec = typeof componentSpecs.$inferSelect;
+
+export const componentSpecVersions = pgTable("erp_component_spec_versions", {
+  id:              uuid("id").primaryKey().defaultRandom(),
+  specId:          uuid("spec_id").notNull().references(() => componentSpecs.id),
+  versionNumber:   integer("version_number").notNull(),
+  status:          text("status").$type<SpecVersionStatus>().notNull().default("DRAFT"),
+  signatureId:     uuid("signature_id").references(() => electronicSignatures.id),
+  createdByUserId: uuid("created_by_user_id").notNull().references(() => users.id),
+  createdAt:       timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export type ComponentSpecVersion = typeof componentSpecVersions.$inferSelect;
+
+export const componentSpecAttributes = pgTable("erp_component_spec_attributes", {
+  id:            uuid("id").primaryKey().defaultRandom(),
+  specVersionId: uuid("spec_version_id").notNull().references(() => componentSpecVersions.id),
+  name:          text("name").notNull(),
+  category:      text("category").$type<SpecAttributeCategory>().notNull(),
+  specMin:       text("spec_min"),
+  specMax:       text("spec_max"),
+  units:         text("units"),
+  testMethod:    text("test_method"),
+  sortOrder:          integer("sort_order").notNull().default(0),
+  verificationSource: text("verification_source").$type<SpecVerificationSource>(),
+  frequency:          text("frequency").$type<SpecFrequency>(),
+  resultType:         text("result_type").$type<SpecResultType>(),
+  specificationText:  text("specification_text"),
+});
+export type ComponentSpecAttribute = typeof componentSpecAttributes.$inferSelect;
+
+export type ComponentSpecVersionWithAttributes = ComponentSpecVersion & {
+  attributes: ComponentSpecAttribute[];
+  createdByName: string;
+  approvedByName: string | null;
+};
+
+export type ComponentSpecWithVersions = ComponentSpec & {
+  productName: string;
+  productSku: string;
+  productCategory: string;
+  createdByName: string;
+  versions: ComponentSpecVersionWithAttributes[];
+  activeVersion: ComponentSpecVersion | null;
 };

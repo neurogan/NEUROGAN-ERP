@@ -20,6 +20,7 @@ import SupplyChain from "@/pages/supply-chain";
 import BatchPrint from "@/pages/batch-print";
 import SkuManager from "@/pages/sku-manager";
 import Login from "@/pages/login";
+import SetPassword from "@/pages/set-password";
 import ValidationDetail from "@/pages/quality/ValidationDetail";
 import QualityPage from "@/pages/quality";
 import ComplaintDetail from "@/pages/quality/ComplaintDetail";
@@ -27,6 +28,7 @@ import ComplaintAE from "@/pages/quality/ComplaintAE";
 import ComplaintTrends from "@/pages/quality/ComplaintTrends";
 import ReturnDetail from "@/pages/quality/ReturnDetail";
 import ReturnInvestigations from "@/pages/quality/ReturnInvestigations";
+import ComponentSpecDetail from "@/pages/quality/ComponentSpecDetail";
 import EquipmentDetailPage from "@/pages/equipment/detail";
 import ProcurementPage from "@/pages/procurement";
 import OperationsPage from "@/pages/operations";
@@ -219,6 +221,8 @@ function AppLayout() {
           <Route path="/quality/complaints/:id" component={ComplaintDetail} />
           <Route path="/quality/returns" component={QualityPage} />
           <Route path="/quality/returns/:id" component={ReturnDetail} />
+          <Route path="/quality/component-specifications" component={QualityPage} />
+          <Route path="/quality/component-specifications/:specId" component={ComponentSpecDetail} />
           <Route path="/quality/return-investigations" component={ReturnInvestigations} />
           <Route path="/profile/rotate-password" component={Profile} />
           <Route path="/profile" component={Profile} />
@@ -270,6 +274,7 @@ function App() {
             <Switch>
               <Route path="/production/print/:id" component={BatchPrint} />
               <Route path="/login" component={Login} />
+              <Route path="/set-password" component={SetPassword} />
               <Route>
                 <AuthGate>
                   <AppLayout />

@@ -31,15 +31,17 @@ import * as schema from "@shared/schema";
 import { z, ZodError } from "zod";
 import { requireAuth, requireRole, requireRoleOrSelf, rejectIdentityInBody } from "./auth/middleware";
 import { performSignature } from "./signatures/signatures";
-import { hashPassword, generateTemporaryPassword } from "./auth/password";
+import { hashPassword, generateInviteToken } from "./auth/password";
+import { sendInviteEmail } from "./email/resend";
 import { errors } from "./errors";
-import { withAudit } from "./audit/audit";
+import { writeAuditRow, withAudit } from "./audit/audit";
 import { auditRouter } from "./audit/audit-routes";
 import { signatureRouter } from "./signatures/signature-routes";
 import { validationRouter } from "./validation/validation-routes";
 import { mmrRouter } from "./routes/mmr-routes";
+import { componentSpecRouter } from "./routes/component-spec-routes";
 import { db } from "./db";
-import { eq, and, desc, ne } from "drizzle-orm";
+import { eq, and, desc, ne, isNull } from "drizzle-orm";
 import * as equipmentStorage from "./storage/equipment";
 import * as cleaningStorage from "./storage/cleaning-line-clearance";
 import * as artworkStorage from "./storage/label-artwork";
@@ -74,6 +76,9 @@ export async function registerRoutes(
 
   // ─── Master Manufacturing Records (R-07) ───────────────
   app.use("/api/mmrs", requireAuth, mmrRouter);
+
+  // ─── Component Specifications ───────────────────────────
+  app.use("/api/component-specs", requireAuth, componentSpecRouter);
 
   // ─── Health / IQ traceability ──────────────────────────
   //
@@ -122,10 +127,9 @@ export async function registerRoutes(
     return rest;
   }
 
-  // POST /api/users — ADMIN only. Creates a user + role rows atomically and
-  // returns the UserResponse along with a one-time temporaryPassword the
-  // admin shows to the new user. F-02 forces rotation of this temp password
-  // on first login.
+  // POST /api/users — ADMIN only. Creates a PENDING_INVITE user + role rows
+  // and sends an invite email with a one-time token. The user sets their own
+  // password via /set-password (T-09).
   const createUserBody = z.object({
     email: z.string().email().trim().toLowerCase(),
     fullName: z.string().min(1).trim(),
@@ -136,8 +140,19 @@ export async function registerRoutes(
   app.post("/api/users", requireAuth, requireRole("ADMIN"), async (req, res, next) => {
     try {
       const body = createUserBody.parse(req.body);
-      const tempPassword = generateTemporaryPassword();
-      const passwordHash = await hashPassword(tempPassword);
+      const rawToken = generateInviteToken();
+      const tokenHash = await hashPassword(rawToken);
+      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
+      // Send the invite email before persisting the user — if Resend fails we
+      // return 502 without creating a PENDING_INVITE row that can never be
+      // reached (no email was delivered to complete the flow).
+      try {
+        await sendInviteEmail(body.email, rawToken);
+      } catch {
+        return res.status(502).json({ error: { code: "EMAIL_DELIVERY_FAILED", message: "Failed to send invite email. Please try again." } });
+      }
+
       const user = await withAudit(
         {
           userId: req.user!.id,
@@ -152,13 +167,17 @@ export async function registerRoutes(
           email: body.email,
           fullName: body.fullName,
           title: body.title ?? null,
-          passwordHash,
+          passwordHash: "$invite_pending$",
+          status: "PENDING_INVITE",
+          inviteTokenHash: tokenHash,
+          inviteTokenExpiresAt: expiresAt,
           roles: body.roles,
           createdByUserId: req.user!.id,
           grantedByUserId: req.user!.id,
         }, tx),
       );
-      return res.status(201).json({ user, temporaryPassword: tempPassword });
+
+      return res.status(201).json({ user });
     } catch (err) {
       const pgErr = err as { code?: string } | undefined;
       if (pgErr?.code === "23505") {
@@ -176,6 +195,47 @@ export async function registerRoutes(
       const users = await storage.listUsers();
       const viewerRoles = req.user!.roles;
       return res.json(users.map((u) => projectUserForViewer(u, viewerRoles)));
+    } catch (err) {
+      return next(err);
+    }
+  });
+
+  // POST /api/users/:id/resend-invite — ADMIN only. Generates a fresh invite token
+  // and resends the invite email. Only valid when user.status === 'PENDING_INVITE'.
+  app.post("/api/users/:id/resend-invite", requireAuth, requireRole("ADMIN"), async (req, res, next) => {
+    try {
+      const user = await storage.getUserById(req.params.id as string);
+      if (!user) return next(errors.notFound("User"));
+      if (user.status !== "PENDING_INVITE") {
+        return res.status(400).json({
+          error: { code: "VALIDATION_FAILED", message: "User has already accepted their invite." },
+        });
+      }
+
+      const rawToken = generateInviteToken();
+      const tokenHash = await hashPassword(rawToken);
+      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
+      // Send email before rotating the stored token — if Resend fails the old
+      // token remains valid so the user's existing link still works.
+      try {
+        await sendInviteEmail(user.email, rawToken);
+      } catch {
+        return res.status(502).json({ error: { code: "EMAIL_DELIVERY_FAILED", message: "Failed to send invite email. Please try again." } });
+      }
+
+      await storage.renewInviteToken(user.id, tokenHash, expiresAt);
+
+      await writeAuditRow({
+        userId: req.user!.id,
+        action: "INVITE_RESENT",
+        entityType: "user",
+        entityId: user.id,
+        route: `${req.method} ${req.path}`,
+        requestId: req.requestId,
+      });
+
+      return res.status(204).send();
     } catch (err) {
       return next(err);
     }
@@ -1460,6 +1520,10 @@ export async function registerRoutes(
     try {
       const before = await storage.getBpr(req.params.id);
       if (!before) return res.status(404).json({ message: "BPR not found" });
+
+      // R-08: enforce completion gates before allowing submission for review
+      await runCompletionGates(req.params.id);
+
       const bpr = await withAudit(
         { userId: req.user!.id, action: "UPDATE", entityType: "batch_production_record",
           entityId: req.params.id, before,
@@ -1468,7 +1532,12 @@ export async function registerRoutes(
         (tx) => storage.submitBprForReview(req.params.id, tx),
       );
       res.json(bpr);
-    } catch (err) { next(err); }
+    } catch (err) {
+      if (CompletionGateError.is(err)) {
+        return res.status(409).json({ code: err.code, message: err.message });
+      }
+      next(err);
+    }
   });
 
   app.post<{ id: string }>(
@@ -1481,6 +1550,23 @@ export async function registerRoutes(
         };
         if (!disposition) return res.status(400).json({ message: "disposition is required" });
         if (!password) return res.status(400).json({ message: "password required for electronic signature" });
+
+        // R-08: block approval if any process deviations are unsigned
+        const unsignedDeviations = await db
+          .select({ id: schema.bprDeviations.id })
+          .from(schema.bprDeviations)
+          .where(and(
+            eq(schema.bprDeviations.bprId, req.params.id),
+            isNull(schema.bprDeviations.signatureId),
+          ));
+        if (unsignedDeviations.length > 0) {
+          return res.status(409).json({
+            code: "DEVIATIONS_UNSIGNED",
+            message: `${unsignedDeviations.length} deviation(s) require sign-off before QC approval.`,
+            deviationIds: unsignedDeviations.map((d) => d.id),
+          });
+        }
+
         const bpr = await performSignature(
           {
             userId: req.user!.id,
@@ -1548,6 +1634,70 @@ export async function registerRoutes(
       res.status(400).json({ message: msg });
     }
   });
+
+  // R-08: Part 11 sign-off on a single process deviation (§111.210(h)(3)(iv))
+  app.post<{ id: string; deviationId: string }>(
+    "/api/batch-production-records/:id/deviations/:deviationId/review",
+    requireAuth, requireRole("QA", "ADMIN"),
+    async (req, res, next) => {
+      try {
+        const { password, commentary } = req.body as { password?: string; commentary?: string };
+        if (!password) return res.status(400).json({ message: "password required for electronic signature" });
+
+        const [deviation] = await db
+          .select()
+          .from(schema.bprDeviations)
+          .where(and(
+            eq(schema.bprDeviations.id, req.params.deviationId),
+            eq(schema.bprDeviations.bprId, req.params.id),
+          ))
+          .limit(1);
+        if (!deviation) return res.status(404).json({ message: "Deviation not found" });
+        if (deviation.signatureId) return res.status(409).json({ code: "ALREADY_SIGNED", message: "Deviation already signed" });
+
+        await performSignature(
+          {
+            userId: req.user!.id,
+            password,
+            meaning: "DEVIATION_DISPOSITION",
+            entityType: "bpr_deviation",
+            entityId: req.params.deviationId,
+            commentary: commentary ?? null,
+            recordSnapshot: { bprId: req.params.id, deviationDescription: deviation.deviationDescription },
+            route: `${req.method} ${req.path}`,
+            requestId: req.requestId,
+          },
+          async (_tx) => { return; },
+        );
+
+        // Signature is now committed — link it to the deviation
+        const [newSig] = await db
+          .select({ id: schema.electronicSignatures.id })
+          .from(schema.electronicSignatures)
+          .where(
+            and(
+              eq(schema.electronicSignatures.entityId, req.params.deviationId),
+              eq(schema.electronicSignatures.meaning, "DEVIATION_DISPOSITION"),
+            ),
+          )
+          .orderBy(desc(schema.electronicSignatures.signedAt))
+          .limit(1);
+        await db
+          .update(schema.bprDeviations)
+          .set({ signatureId: newSig!.id })
+          .where(eq(schema.bprDeviations.id, req.params.deviationId));
+
+        const [updated] = await db
+          .select()
+          .from(schema.bprDeviations)
+          .where(eq(schema.bprDeviations.id, req.params.deviationId))
+          .limit(1);
+        res.json(updated);
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
 
   // ── Labs registry ──────────────────────────────────────────────────────────
 

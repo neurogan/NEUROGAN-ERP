@@ -1,4 +1,8 @@
-import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from "vitest";
+
+vi.mock("../email/resend", () => ({
+  sendInviteEmail: vi.fn().mockResolvedValue(undefined),
+}));
 import request from "supertest";
 import type { Express } from "express";
 import { Pool } from "pg";
@@ -91,7 +95,7 @@ describeIfDb("F-01 — /api/users", () => {
   // ─── POST /api/users ───────────────────────────────────
 
   describe("POST /api/users", () => {
-    it("201: creates user + returns one-time temporaryPassword; never leaks passwordHash", async () => {
+    it("201: creates PENDING_INVITE user; no temporaryPassword in response", async () => {
       const res = await request(app)
         .post("/api/users")
         .set("X-Test-User-Id", adminId)
@@ -106,10 +110,9 @@ describeIfDb("F-01 — /api/users", () => {
       expect(res.body.user.email).toBe("alice@test.local");
       expect(res.body.user.fullName).toBe("Alice Example");
       expect(res.body.user.roles).toEqual(["PRODUCTION"]);
-      expect(res.body.user.status).toBe("ACTIVE");
+      expect(res.body.user.status).toBe("PENDING_INVITE");
       expect(res.body.user.passwordHash).toBeUndefined();
-      expect(res.body.temporaryPassword).toMatch(/^[A-Za-z0-9_-]+$/);
-      expect(res.body.temporaryPassword.length).toBeGreaterThanOrEqual(12);
+      expect(res.body.temporaryPassword).toBeUndefined();
     });
 
     it("401: no X-Test-User-Id → UNAUTHENTICATED", async () => {

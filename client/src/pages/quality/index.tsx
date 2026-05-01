@@ -7,8 +7,9 @@ import SopsPage from "./sops";
 import ComplaintsPage from "./complaints";
 import ReturnsPage from "./returns";
 import OosInvestigations from "@/pages/OosInvestigations";
+import ComponentSpecifications from "./ComponentSpecifications";
 
-type QualityTab = "labeling" | "sops" | "complaints" | "returns" | "oos";
+type QualityTab = "labeling" | "sops" | "complaints" | "returns" | "oos" | "component-specifications";
 
 const ACTIVE_TABS: { value: QualityTab; label: string }[] = [
   { value: "labeling", label: "Labeling" },
@@ -16,6 +17,7 @@ const ACTIVE_TABS: { value: QualityTab; label: string }[] = [
   { value: "complaints", label: "Complaints" },
   { value: "returns", label: "Returns" },
   { value: "oos", label: "OOS" },
+  { value: "component-specifications", label: "Component Specifications" },
 ];
 
 const DISABLED_TABS: { value: string; label: string; tooltip: string }[] = [
@@ -28,7 +30,7 @@ export default function QualityPage() {
   // because wouter's :param stops at "/". Extract the tab segment directly from location instead.
   const tabParam = location.split("/")[2] as string | undefined;
 
-  const validTabs: QualityTab[] = ["labeling", "sops", "complaints", "returns", "oos"];
+  const validTabs: QualityTab[] = ["labeling", "sops", "complaints", "returns", "oos", "component-specifications"];
 
   useEffect(() => {
     if (!tabParam || !validTabs.includes(tabParam as QualityTab)) {
@@ -41,6 +43,7 @@ export default function QualityPage() {
     : tabParam === "complaints" ? "complaints"
     : tabParam === "returns" ? "returns"
     : tabParam === "oos" ? "oos"
+    : tabParam === "component-specifications" ? "component-specifications"
     : "labeling";
 
   return (
@@ -76,6 +79,7 @@ export default function QualityPage() {
       {activeTab === "complaints" && <ComplaintsPage />}
       {activeTab === "returns" && <ReturnsPage />}
       {activeTab === "oos" && <OosInvestigations />}
+      {activeTab === "component-specifications" && <ComponentSpecifications />}
     </div>
   );
 }

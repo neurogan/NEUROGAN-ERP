@@ -1,0 +1,40 @@
+{
+  "planPath": "docs/superpowers/plans/2026-04-30-t09-email-invite.md",
+  "tasks": [
+    {
+      "id": 25,
+      "subject": "Task 0: DB migration + schema types",
+      "status": "completed",
+      "description": "**Goal:** Add invite_token_hash + invite_token_expires_at columns to erp_users and update Drizzle schema + Zod enums.\n\n**Files:**\n- Create: `migrations/0022_t09_email_invite.sql`\n- Modify: `migrations/meta/_journal.json`\n- Modify: `shared/schema.ts`\n\n**Acceptance Criteria:**\n- [ ] npx tsc --noEmit passes\n- [ ] userStatusEnum includes \"PENDING_INVITE\"\n- [ ] users Drizzle table has inviteTokenHash and inviteTokenExpiresAt fields\n- [ ] auditActionEnum includes \"INVITE_ACCEPTED\" and \"INVITE_RESENT\"\n\n**Verify:** `npx tsc --noEmit` → no output\n\n```json:metadata\n{\"files\": [\"migrations/0022_t09_email_invite.sql\", \"migrations/meta/_journal.json\", \"shared/schema.ts\"], \"verifyCommand\": \"npx tsc --noEmit\", \"acceptanceCriteria\": [\"userStatusEnum includes PENDING_INVITE\", \"users table has inviteTokenHash + inviteTokenExpiresAt\", \"auditActionEnum includes INVITE_ACCEPTED and INVITE_RESENT\"]}\n```"
+    },
+    {
+      "id": 26,
+      "subject": "Task 1: Token generator + Resend email module",
+      "status": "completed",
+      "blockedBy": [25],
+      "description": "**Goal:** Add generateInviteToken() to password.ts and create the Resend email wrapper.\n\n**Files:**\n- Modify: `server/auth/password.ts`\n- Create: `server/email/resend.ts`\n- Modify: `package.json` (add resend)\n\n**Acceptance Criteria:**\n- [ ] generateInviteToken() returns 64-char hex string\n- [ ] sendInviteEmail constructs hash-fragment URL with ?token= and ?email=\n- [ ] sendInviteEmail throws if RESEND_API_KEY unset\n- [ ] npx tsc --noEmit passes\n\n**Verify:** `npx tsc --noEmit` → no output\n\n```json:metadata\n{\"files\": [\"server/auth/password.ts\", \"server/email/resend.ts\", \"package.json\"], \"verifyCommand\": \"npx tsc --noEmit\", \"acceptanceCriteria\": [\"generateInviteToken returns 64-char hex\", \"sendInviteEmail builds hash-fragment URL\", \"throws if RESEND_API_KEY missing\"]}\n```"
+    },
+    {
+      "id": 27,
+      "subject": "Task 2: Storage layer extensions",
+      "status": "completed",
+      "blockedBy": [25, 26],
+      "description": "**Goal:** Extend CreateUserInput to carry invite fields; add acceptInvite + renewInviteToken to storage interface and implementation.\n\n**Files:**\n- Modify: `server/storage.ts`\n- Modify: `server/db-storage.ts`\n\n**Acceptance Criteria:**\n- [ ] CreateUserInput accepts status, inviteTokenHash, inviteTokenExpiresAt\n- [ ] createUser passes those fields to the DB insert\n- [ ] acceptInvite sets passwordHash + passwordChangedAt=now + status=ACTIVE + clears token columns\n- [ ] renewInviteToken overwrites the two token columns\n- [ ] npx tsc --noEmit passes\n\n**Verify:** `npx tsc --noEmit` → no output\n\n```json:metadata\n{\"files\": [\"server/storage.ts\", \"server/db-storage.ts\"], \"verifyCommand\": \"npx tsc --noEmit\", \"acceptanceCriteria\": [\"CreateUserInput has status + invite fields\", \"acceptInvite clears token columns and sets ACTIVE\", \"renewInviteToken overwrites token columns\"]}\n```"
+    },
+    {
+      "id": 28,
+      "subject": "Task 3: Server routes + integration tests",
+      "status": "completed",
+      "blockedBy": [25, 26, 27],
+      "description": "**Goal:** Wire up all route changes and ship integration tests for the full invite lifecycle.\n\n**Files:**\n- Modify: `server/routes.ts`\n- Modify: `server/auth/auth-routes.ts`\n- Modify: `server/__tests__/users.test.ts`\n- Create: `server/__tests__/t09-invite.test.ts`\n\n**Acceptance Criteria:**\n- [ ] POST /api/users returns { user } with status=PENDING_INVITE, no temporaryPassword\n- [ ] POST /api/auth/login with PENDING_INVITE user returns 401 INVITE_PENDING\n- [ ] POST /api/auth/accept-invite with valid token → 200, status=ACTIVE\n- [ ] POST /api/auth/accept-invite with expired/wrong token → 400 INVITE_INVALID\n- [ ] POST /api/users/:id/resend-invite → 204, new token written\n- [ ] All tests pass\n\n**Verify:** `DATABASE_URL=$DATABASE_URL pnpm test` → all suites pass\n\n```json:metadata\n{\"files\": [\"server/routes.ts\", \"server/auth/auth-routes.ts\", \"server/__tests__/users.test.ts\", \"server/__tests__/t09-invite.test.ts\"], \"verifyCommand\": \"DATABASE_URL=$DATABASE_URL pnpm test\", \"acceptanceCriteria\": [\"POST /api/users returns PENDING_INVITE status\", \"PENDING_INVITE login blocked with INVITE_PENDING\", \"accept-invite lifecycle works\", \"resend-invite works\"]}\n```"
+    },
+    {
+      "id": 29,
+      "subject": "Task 4: Client pages",
+      "status": "completed",
+      "blockedBy": [25],
+      "description": "**Goal:** Add public /set-password page, register it as a public route, and update settings-users to use the invite UX.\n\n**Files:**\n- Create: `client/src/pages/set-password.tsx`\n- Modify: `client/src/App.tsx`\n- Modify: `client/src/pages/settings-users.tsx`\n\n**Acceptance Criteria:**\n- [ ] /set-password reachable without auth (outside AuthGate)\n- [ ] Wrong/expired token shows error; no retry loop\n- [ ] Valid token sets password and redirects to /login\n- [ ] Settings Users: no temp-password dialog\n- [ ] PENDING_INVITE users show amber Pending badge\n- [ ] PENDING_INVITE users show Resend invite button; Disable hidden\n- [ ] npx tsc --noEmit passes\n\n**Verify:** `npx tsc --noEmit` → no output\n\n```json:metadata\n{\"files\": [\"client/src/pages/set-password.tsx\", \"client/src/App.tsx\", \"client/src/pages/settings-users.tsx\"], \"verifyCommand\": \"npx tsc --noEmit\", \"acceptanceCriteria\": [\"/set-password is public route\", \"valid token flow works\", \"settings-users shows PENDING badge and resend button\"]}\n```"
+    }
+  ],
+  "lastUpdated": "2026-04-30T11:00:00.000Z"
+}
