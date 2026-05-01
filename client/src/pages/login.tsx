@@ -24,9 +24,11 @@ export default function Login() {
       const result = await login.mutateAsync({ email, password });
       navigate(result.user.mustRotatePassword ? "/profile/rotate-password" : "/");
     } catch (err) {
-      const e = err as Error & { status?: number };
+      const e = err as Error & { status?: number; code?: string };
       if (e.status === 423) {
         setErrorMessage("Account is temporarily locked due to too many failed attempts. Try again later.");
+      } else if (e.code === "INVITE_PENDING") {
+        setErrorMessage("Your account isn't activated yet — please use the invite link in your email to set your password first.");
       } else {
         setErrorMessage("Invalid email or password.");
       }
