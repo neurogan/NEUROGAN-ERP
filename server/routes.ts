@@ -1558,29 +1558,38 @@ export async function registerRoutes(
         if (!disposition) return res.status(400).json({ message: "disposition is required" });
         if (!password) return res.status(400).json({ message: "password required for electronic signature" });
 
-        // R-09: block release if finished-goods tests incomplete or failing
-        const fgGate = await checkFgTestsGate(req.params.id);
-        if (!fgGate.passed) {
-          if (!fgGate.specVersionId) {
+        // R-09: block release if finished-goods tests incomplete or failing.
+        // Only run for PENDING_QC_REVIEW BPRs — other statuses are handled by
+        // the state machine (RECORD_LOCKED / ILLEGAL_TRANSITION) below.
+        const [bprStatus] = await db
+          .select({ status: schema.batchProductionRecords.status })
+          .from(schema.batchProductionRecords)
+          .where(eq(schema.batchProductionRecords.id, req.params.id));
+
+        if (bprStatus?.status === "PENDING_QC_REVIEW") {
+          const fgGate = await checkFgTestsGate(req.params.id);
+          if (!fgGate.passed) {
+            if (!fgGate.specVersionId) {
+              return res.status(409).json({
+                error: {
+                  code: "FG_SPEC_MISSING",
+                  message: "No approved finished-goods specification found for this product.",
+                },
+              });
+            }
             return res.status(409).json({
               error: {
-                code: "FG_SPEC_MISSING",
-                message: "No approved finished-goods specification found for this product.",
+                code: "FG_TESTS_INCOMPLETE",
+                message: "Required finished-goods tests missing or failing.",
+                details: {
+                  specVersionId: fgGate.specVersionId,
+                  missingAttributes: fgGate.missingAttributes,
+                  failingAttributes: fgGate.failingAttributes,
+                  expiredLabQualifications: fgGate.expiredLabQualifications,
+                },
               },
             });
           }
-          return res.status(409).json({
-            error: {
-              code: "FG_TESTS_INCOMPLETE",
-              message: "Required finished-goods tests missing or failing.",
-              details: {
-                specVersionId: fgGate.specVersionId,
-                missingAttributes: fgGate.missingAttributes,
-                failingAttributes: fgGate.failingAttributes,
-                expiredLabQualifications: fgGate.expiredLabQualifications,
-              },
-            },
-          });
         }
 
         // R-08: block approval if any process deviations are unsigned

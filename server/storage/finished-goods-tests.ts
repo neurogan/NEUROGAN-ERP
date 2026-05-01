@@ -331,6 +331,22 @@ export async function checkFgTestsGate(bprId: string): Promise<{
     throw Object.assign(new Error("BPR not found"), { status: 404 });
   }
 
+  // R-09 only applies to FINISHED_GOOD products; pass all others through.
+  const [product] = await db
+    .select({ category: schema.products.category })
+    .from(schema.products)
+    .where(eq(schema.products.id, bpr.productId));
+
+  if (product?.category !== "FINISHED_GOOD") {
+    return {
+      passed: true,
+      specVersionId: null,
+      missingAttributes: [],
+      failingAttributes: [],
+      expiredLabQualifications: [],
+    };
+  }
+
   // 2. Get all tests for this BPR
   const tests = await db
     .select()

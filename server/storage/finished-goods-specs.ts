@@ -489,8 +489,9 @@ export async function approveFgSpecVersion(
 
 // ─── 8. getActiveSpec ──────────────────────────────────────────────────────────
 //
-// Returns the APPROVED version where approvedAt <= atDate with the highest
-// version number. This is the key function for the gate.
+// Returns the most recently approved spec version where approvedAt <= atDate,
+// searching across all specs for the product (a product may accumulate multiple
+// spec headers during iterative editing/testing).
 
 export async function getActiveSpec(
   productId: string,
@@ -499,26 +500,28 @@ export async function getActiveSpec(
   version: schema.FinishedGoodsSpecVersion;
   attributes: schema.FinishedGoodsSpecAttribute[];
 } | null> {
-  const [spec] = await db
+  const specs = await db
     .select()
     .from(schema.finishedGoodsSpecs)
-    .where(eq(schema.finishedGoodsSpecs.productId, productId))
-    .limit(1);
+    .where(eq(schema.finishedGoodsSpecs.productId, productId));
 
-  if (!spec) return null;
+  if (specs.length === 0) return null;
 
-  // Find APPROVED versions where approvedAt <= atDate, pick highest version
+  const specIds = specs.map((s) => s.id);
+
+  // Find all APPROVED versions across every spec for this product where
+  // approvedAt <= atDate, then pick the most recently approved.
   const approvedVersions = await db
     .select()
     .from(schema.finishedGoodsSpecVersions)
     .where(
       and(
-        eq(schema.finishedGoodsSpecVersions.specId, spec.id),
+        inArray(schema.finishedGoodsSpecVersions.specId, specIds),
         eq(schema.finishedGoodsSpecVersions.status, "APPROVED"),
         lte(schema.finishedGoodsSpecVersions.approvedAt, atDate),
       ),
     )
-    .orderBy(desc(schema.finishedGoodsSpecVersions.version));
+    .orderBy(desc(schema.finishedGoodsSpecVersions.approvedAt));
 
   const version = approvedVersions[0];
   if (!version) return null;
