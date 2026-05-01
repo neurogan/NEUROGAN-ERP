@@ -1,12 +1,13 @@
 import { Router } from "express";
 import { passport } from "./passport";
 import { storage } from "../storage";
-import { hashPassword, verifyPassword } from "./password";
+import { hashPassword, verifyPassword, generateInviteToken } from "./password";
 import { validatePasswordComplexity, isPasswordExpired } from "./password-policy";
 import { errors } from "../errors";
 import { requireAuth } from "./middleware";
 import { writeAuditRow, withAudit } from "../audit/audit";
 import { z } from "zod";
+import { sendPasswordResetEmail } from "../email/resend";
 
 const router = Router();
 
@@ -276,6 +277,113 @@ router.post("/accept-invite", async (req, res, next) => {
     if (!userResponse) return next(new Error("User not found after invite acceptance"));
 
     return res.status(200).json({ user: userResponse });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// POST /api/auth/forgot-password — public. Sends reset email if email belongs to an ACTIVE user.
+// Always returns 200 to prevent email enumeration.
+const forgotPasswordBody = z.object({
+  email: z.string().email().trim().toLowerCase(),
+});
+
+router.post("/forgot-password", async (req, res, next) => {
+  try {
+    const body = forgotPasswordBody.parse(req.body);
+    const user = await storage.getUserByEmail(body.email);
+
+    if (user && user.status === "ACTIVE") {
+      const rawToken = generateInviteToken();
+      const hash = await hashPassword(rawToken);
+      const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+      await storage.storeResetToken(user.id, hash, expiresAt);
+      await sendPasswordResetEmail(user.email, rawToken).catch((err) => {
+        console.error("[forgot-password] email send failed:", err);
+      });
+      await writeAuditRow({
+        userId: user.id,
+        action: "PASSWORD_RESET_REQUESTED",
+        entityType: "user",
+        entityId: user.id,
+        route: `${req.method} ${req.path}`,
+        requestId: req.requestId,
+        meta: { ip: req.ip },
+      }).catch(() => {});
+    }
+
+    return res.status(200).json({ message: "If that email is registered, a reset link is on its way." });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// POST /api/auth/reset-password — public. Validates token, sets new password, clears token.
+const resetPasswordBody = z.object({
+  email: z.string().email().trim().toLowerCase(),
+  token: z.string().min(1),
+  password: z.string().min(1),
+});
+
+const RESET_INVALID_RESPONSE = {
+  error: { code: "RESET_INVALID", message: "This reset link has expired or is invalid." },
+};
+
+router.post("/reset-password", async (req, res, next) => {
+  try {
+    const body = resetPasswordBody.parse(req.body);
+
+    const user = await storage.getUserByEmail(body.email);
+    if (!user || !user.resetTokenHash || !user.resetTokenExpiresAt) {
+      return res.status(400).json(RESET_INVALID_RESPONSE);
+    }
+    if (user.resetTokenExpiresAt < new Date()) {
+      return res.status(400).json(RESET_INVALID_RESPONSE);
+    }
+    const tokenMatches = await verifyPassword(user.resetTokenHash, body.token);
+    if (!tokenMatches) {
+      return res.status(400).json(RESET_INVALID_RESPONSE);
+    }
+
+    const complexityResult = validatePasswordComplexity(body.password);
+    if (!complexityResult.valid) {
+      return res.status(422).json({
+        error: {
+          code: "VALIDATION_FAILED",
+          message: "Password does not meet complexity requirements.",
+          details: { violations: complexityResult.violations },
+        },
+      });
+    }
+
+    const history = await storage.getPasswordHistory(user.id, 5);
+    for (const oldHash of history) {
+      const isReuse = await verifyPassword(oldHash, body.password);
+      if (isReuse) {
+        return res.status(422).json({
+          error: {
+            code: "VALIDATION_FAILED",
+            message: "New password was used recently. Choose a different password.",
+          },
+        });
+      }
+    }
+
+    const newHash = await hashPassword(body.password);
+    await storage.rotatePassword(user.id, newHash);
+    await storage.clearResetToken(user.id);
+
+    await writeAuditRow({
+      userId: user.id,
+      action: "PASSWORD_RESET",
+      entityType: "user",
+      entityId: user.id,
+      route: `${req.method} ${req.path}`,
+      requestId: req.requestId,
+      meta: { ip: req.ip },
+    }).catch(() => {});
+
+    return res.status(200).json({ message: "Password updated. You can now sign in." });
   } catch (err) {
     return next(err);
   }
