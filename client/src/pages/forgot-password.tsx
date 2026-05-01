@@ -85,7 +85,7 @@ export default function ForgotPassword() {
                     data-testid="input-email"
                   />
                 </div>
-                <Button type="submit" className="w-full" disabled={isPending}>
+                <Button type="submit" className="w-full" disabled={isPending} data-testid="button-send-reset-link">
                   {isPending ? "Sending…" : "Send reset link"}
                 </Button>
                 <div className="text-center">
