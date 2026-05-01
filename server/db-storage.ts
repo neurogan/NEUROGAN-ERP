@@ -2585,11 +2585,15 @@ export class DatabaseStorage implements IStorage {
       passwordHash: _passwordHash,
       inviteTokenHash: _inviteTokenHash,
       inviteTokenExpiresAt: _inviteTokenExpiresAt,
+      resetTokenHash: _resetTokenHash,
+      resetTokenExpiresAt: _resetTokenExpiresAt,
       ...rest
     } = user;
     void _passwordHash;
     void _inviteTokenHash;
     void _inviteTokenExpiresAt;
+    void _resetTokenHash;
+    void _resetTokenExpiresAt;
     return { ...rest, roles: [...roles] };
   }
 
@@ -2687,6 +2691,20 @@ export class DatabaseStorage implements IStorage {
     await db
       .update(schema.users)
       .set({ inviteTokenHash: tokenHash, inviteTokenExpiresAt: expiresAt })
+      .where(eq(schema.users.id, userId));
+  }
+
+  async storeResetToken(userId: string, hash: string, expiresAt: Date): Promise<void> {
+    await db
+      .update(schema.users)
+      .set({ resetTokenHash: hash, resetTokenExpiresAt: expiresAt })
+      .where(eq(schema.users.id, userId));
+  }
+
+  async clearResetToken(userId: string): Promise<void> {
+    await db
+      .update(schema.users)
+      .set({ resetTokenHash: null, resetTokenExpiresAt: null })
       .where(eq(schema.users.id, userId));
   }
 
