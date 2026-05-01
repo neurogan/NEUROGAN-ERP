@@ -2694,6 +2694,20 @@ export class DatabaseStorage implements IStorage {
       .where(eq(schema.users.id, userId));
   }
 
+  async storeResetToken(userId: string, hash: string, expiresAt: Date): Promise<void> {
+    await db
+      .update(schema.users)
+      .set({ resetTokenHash: hash, resetTokenExpiresAt: expiresAt })
+      .where(eq(schema.users.id, userId));
+  }
+
+  async clearResetToken(userId: string): Promise<void> {
+    await db
+      .update(schema.users)
+      .set({ resetTokenHash: null, resetTokenExpiresAt: null })
+      .where(eq(schema.users.id, userId));
+  }
+
   async setUserRoles(
     userId: string,
     nextRoles: readonly UserRole[],

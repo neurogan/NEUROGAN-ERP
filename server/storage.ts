@@ -376,6 +376,8 @@ export interface IStorage {
   createUser(data: CreateUserInput, tx?: Tx): Promise<UserResponse>;
   acceptInvite(userId: string, passwordHash: string): Promise<void>;
   renewInviteToken(userId: string, tokenHash: string, expiresAt: Date): Promise<void>;
+  storeResetToken(userId: string, hash: string, expiresAt: Date): Promise<void>;
+  clearResetToken(userId: string): Promise<void>;
   updateUserStatus(id: string, status: UserStatus, tx?: Tx): Promise<UserResponse | undefined>;
   setUserRoles(
     userId: string,
