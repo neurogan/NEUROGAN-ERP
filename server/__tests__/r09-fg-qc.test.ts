@@ -6,7 +6,7 @@ vi.mock("../email/resend", () => ({
 
 import request from "supertest";
 import type { Express } from "express";
-import { eq, and } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 
 import { buildTestApp } from "./helpers/test-app";
 import { db } from "../db";

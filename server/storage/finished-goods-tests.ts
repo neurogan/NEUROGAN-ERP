@@ -97,9 +97,10 @@ export async function enterFgQcTest(
     throw Object.assign(new Error("BPR not found"), { status: 404 });
   }
 
-  // 2. Resolve active spec at test date
-  const testedAtDate = new Date(data.testedAt);
-  const activeSpecResult = await getActiveSpec(bpr.productId, testedAtDate);
+  // 2. Resolve active spec at entry time (now). The `testedAt` date is when the
+  //    lab ran the test; spec resolution uses the ERP entry timestamp so that
+  //    a spec approved today applies to results from a lab report dated last week.
+  const activeSpecResult = await getActiveSpec(bpr.productId, new Date());
 
   if (!activeSpecResult) {
     throw Object.assign(
@@ -355,7 +356,6 @@ export async function checkFgTestsGate(bprId: string): Promise<{
   // 4. Check lab accreditation at each test date
   // A lab is accredited at date D if the most recent qualification event where
   // performedAt <= D has eventType = 'QUALIFIED'
-  const labIds = [...new Set(tests.map((t) => t.labId))];
   const expiredLabQualifications: Array<{ labId: string; labName: string; testedAt: string }> = [];
   const accreditedLabAtDate = new Map<string, boolean>(); // key: `${labId}::${testedAt}`
 
