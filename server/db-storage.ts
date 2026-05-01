@@ -2585,11 +2585,15 @@ export class DatabaseStorage implements IStorage {
       passwordHash: _passwordHash,
       inviteTokenHash: _inviteTokenHash,
       inviteTokenExpiresAt: _inviteTokenExpiresAt,
+      resetTokenHash: _resetTokenHash,
+      resetTokenExpiresAt: _resetTokenExpiresAt,
       ...rest
     } = user;
     void _passwordHash;
     void _inviteTokenHash;
     void _inviteTokenExpiresAt;
+    void _resetTokenHash;
+    void _resetTokenExpiresAt;
     return { ...rest, roles: [...roles] };
   }
 
