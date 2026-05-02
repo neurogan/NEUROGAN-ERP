@@ -10,8 +10,9 @@ import OosInvestigations from "@/pages/OosInvestigations";
 import ComponentSpecifications from "./ComponentSpecifications";
 import FinishedGoodsSpecifications from "./FinishedGoodsSpecifications";
 import RetainedSamplesPage from "./RetainedSamples";
+import CapaPage from "./Capa";
 
-type QualityTab = "labeling" | "sops" | "complaints" | "returns" | "oos" | "component-specifications" | "fg-specifications" | "retained-samples";
+type QualityTab = "labeling" | "sops" | "complaints" | "returns" | "oos" | "component-specifications" | "fg-specifications" | "retained-samples" | "capa";
 
 const ACTIVE_TABS: { value: QualityTab; label: string }[] = [
   { value: "labeling", label: "Labeling" },
@@ -22,6 +23,7 @@ const ACTIVE_TABS: { value: QualityTab; label: string }[] = [
   { value: "component-specifications", label: "Component Specifications" },
   { value: "fg-specifications", label: "FG Specifications" },
   { value: "retained-samples", label: "Retained Samples" },
+  { value: "capa", label: "CAPA" },
 ];
 
 const DISABLED_TABS: { value: string; label: string; tooltip: string }[] = [
@@ -34,7 +36,7 @@ export default function QualityPage() {
   // because wouter's :param stops at "/". Extract the tab segment directly from location instead.
   const tabParam = location.split("/")[2] as string | undefined;
 
-  const validTabs: QualityTab[] = ["labeling", "sops", "complaints", "returns", "oos", "component-specifications", "fg-specifications", "retained-samples"];
+  const validTabs: QualityTab[] = ["labeling", "sops", "complaints", "returns", "oos", "component-specifications", "fg-specifications", "retained-samples", "capa"];
 
   useEffect(() => {
     if (!tabParam || !validTabs.includes(tabParam as QualityTab)) {
@@ -50,6 +52,7 @@ export default function QualityPage() {
     : tabParam === "component-specifications" ? "component-specifications"
     : tabParam === "fg-specifications" ? "fg-specifications"
     : tabParam === "retained-samples" ? "retained-samples"
+    : tabParam === "capa" ? "capa"
     : "labeling";
 
   return (
@@ -88,6 +91,7 @@ export default function QualityPage() {
       {activeTab === "component-specifications" && <ComponentSpecifications />}
       {activeTab === "fg-specifications" && <FinishedGoodsSpecifications />}
       {activeTab === "retained-samples" && <RetainedSamplesPage />}
+      {activeTab === "capa" && <CapaPage />}
     </div>
   );
 }

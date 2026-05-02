@@ -973,6 +973,15 @@ export const auditActionEnum = z.enum([
   // Obs 11 — Retained sample register (§111.83(b))
   "RETAINED_SAMPLE_CREATED",
   "RETAINED_SAMPLE_DESTROYED",
+  // R2-03 CAPA (§111.140)
+  "NC_OPENED",
+  "NC_STATUS_CHANGED",
+  "CAPA_OPENED",
+  "CAPA_ACTION_ADDED",
+  "CAPA_ACTION_COMPLETED",
+  "CAPA_EFFECTIVENESS_RECORDED",
+  "CAPA_CLOSED",
+  "MANAGEMENT_REVIEW_SIGNED",
 ]);
 export type AuditAction = z.infer<typeof auditActionEnum>;
 
@@ -1037,6 +1046,10 @@ export const signatureMeaningEnum = z.enum([
   "RETURNED_PRODUCT_DISPOSITION",
   "RETURN_INVESTIGATION_CLOSE",
   "FG_SPEC_APPROVAL",
+  // R2-03 CAPA (§111.140)
+  "CAPA_OPEN",
+  "CAPA_CLOSE",
+  "MANAGEMENT_REVIEW",
 ]);
 export type SignatureMeaning = z.infer<typeof signatureMeaningEnum>;
 
@@ -1816,4 +1829,120 @@ export type RetainedSampleWithBpr = RetainedSample & {
   productName: string;
   createdByName: string;
   destroyedByName: string | null;
+};
+
+// ─── R2-03 CAPA / QMS backbone (21 CFR §111.140) ─────────────────────────────
+
+export const ncTypeEnum = z.enum(["OOS", "COMPLAINT", "RETURN", "DEVIATION", "EM_EXCURSION", "AUDIT_FINDING", "OTHER"]);
+export const ncSeverityEnum = z.enum(["CRITICAL", "MAJOR", "MINOR"]);
+export const ncStatusEnum = z.enum(["OPEN", "UNDER_INVESTIGATION", "CAPA_OPEN", "CLOSED"]);
+export const capaTypeEnum = z.enum(["CORRECTIVE", "PREVENTIVE", "BOTH"]);
+export const capaStatusEnum = z.enum(["OPEN", "EFFECTIVENESS_PENDING", "CLOSED"]);
+export const effectivenessResultEnum = z.enum(["EFFECTIVE", "NOT_EFFECTIVE", "PENDING"]);
+export const managementReviewOutcomeEnum = z.enum(["SATISFACTORY", "REQUIRES_ACTION"]);
+
+export type NcType = z.infer<typeof ncTypeEnum>;
+export type NcSeverity = z.infer<typeof ncSeverityEnum>;
+export type NcStatus = z.infer<typeof ncStatusEnum>;
+export type CapaType = z.infer<typeof capaTypeEnum>;
+export type CapaStatus = z.infer<typeof capaStatusEnum>;
+export type EffectivenessResult = z.infer<typeof effectivenessResultEnum>;
+
+export const nonconformances = pgTable("erp_nonconformances", {
+  id:                 uuid("id").primaryKey().defaultRandom(),
+  ncNumber:           varchar("nc_number").notNull().unique(),
+  type:               text("type").$type<NcType>().notNull(),
+  severity:           text("severity").$type<NcSeverity>().notNull(),
+  status:             text("status").$type<NcStatus>().notNull().default("OPEN"),
+  title:              text("title").notNull(),
+  description:        text("description"),
+  sourceType:         text("source_type"),
+  sourceId:           text("source_id"),
+  createdByUserId:    uuid("created_by_user_id").notNull().references(() => users.id),
+  createdAt:          timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  closedAt:           timestamp("closed_at", { withTimezone: true }),
+});
+
+export type Nonconformance = typeof nonconformances.$inferSelect;
+export type InsertNonconformance = typeof nonconformances.$inferInsert;
+
+export const capas = pgTable("erp_capas", {
+  id:                 uuid("id").primaryKey().defaultRandom(),
+  capaNumber:         varchar("capa_number").notNull().unique(),
+  ncId:               uuid("nc_id").notNull().references(() => nonconformances.id),
+  capaType:           text("capa_type").$type<CapaType>().notNull(),
+  rootCause:          text("root_cause").notNull(),
+  status:             text("status").$type<CapaStatus>().notNull().default("OPEN"),
+  openedByUserId:     uuid("opened_by_user_id").notNull().references(() => users.id),
+  openedAt:           timestamp("opened_at", { withTimezone: true }).notNull().defaultNow(),
+  openSignatureId:    uuid("open_signature_id").references(() => electronicSignatures.id),
+  closedByUserId:     uuid("closed_by_user_id").references(() => users.id),
+  closedAt:           timestamp("closed_at", { withTimezone: true }),
+  closeSignatureId:   uuid("close_signature_id").references(() => electronicSignatures.id),
+});
+
+export type Capa = typeof capas.$inferSelect;
+export type InsertCapa = typeof capas.$inferInsert;
+
+export const capaActions = pgTable("erp_capa_actions", {
+  id:                   uuid("id").primaryKey().defaultRandom(),
+  capaId:               uuid("capa_id").notNull().references(() => capas.id),
+  description:          text("description").notNull(),
+  assignedToUserId:     uuid("assigned_to_user_id").references(() => users.id),
+  dueAt:                timestamp("due_at", { withTimezone: true }),
+  completedAt:          timestamp("completed_at", { withTimezone: true }),
+  completedByUserId:    uuid("completed_by_user_id").references(() => users.id),
+  createdByUserId:      uuid("created_by_user_id").notNull().references(() => users.id),
+  createdAt:            timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type CapaAction = typeof capaActions.$inferSelect;
+
+export const capaEffectivenessChecks = pgTable("erp_capa_effectiveness_checks", {
+  id:                   uuid("id").primaryKey().defaultRandom(),
+  capaId:               uuid("capa_id").notNull().references(() => capas.id),
+  scheduledAt:          timestamp("scheduled_at", { withTimezone: true }).notNull(),
+  result:               text("result").$type<EffectivenessResult>().notNull().default("PENDING"),
+  notes:                text("notes"),
+  performedByUserId:    uuid("performed_by_user_id").references(() => users.id),
+  performedAt:          timestamp("performed_at", { withTimezone: true }),
+  signatureId:          uuid("signature_id").references(() => electronicSignatures.id),
+  createdByUserId:      uuid("created_by_user_id").notNull().references(() => users.id),
+  createdAt:            timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type CapaEffectivenessCheck = typeof capaEffectivenessChecks.$inferSelect;
+
+export const managementReviews = pgTable("erp_management_reviews", {
+  id:                 uuid("id").primaryKey().defaultRandom(),
+  reviewNumber:       varchar("review_number").notNull().unique(),
+  period:             varchar("period").notNull(),
+  reviewedAt:         timestamp("reviewed_at", { withTimezone: true }).notNull(),
+  summary:            text("summary").notNull(),
+  outcome:            text("outcome").notNull(),
+  signatureId:        uuid("signature_id").references(() => electronicSignatures.id),
+  createdByUserId:    uuid("created_by_user_id").notNull().references(() => users.id),
+  createdAt:          timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type ManagementReview = typeof managementReviews.$inferSelect;
+
+export const managementReviewCapas = pgTable("erp_management_review_capas", {
+  reviewId: uuid("review_id").notNull().references(() => managementReviews.id),
+  capaId:   uuid("capa_id").notNull().references(() => capas.id),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.reviewId, t.capaId] }),
+}));
+
+export type CapaWithDetails = Capa & {
+  actions: CapaAction[];
+  effectivenessChecks: CapaEffectivenessCheck[];
+  ncNumber: string;
+  openedByName: string;
+  closedByName: string | null;
+};
+
+export type NonconformanceWithCapa = Nonconformance & {
+  createdByName: string;
+  capa: Capa | null;
 };
