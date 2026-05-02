@@ -230,6 +230,7 @@ function AppLayout() {
           <Route path="/quality/capa" component={QualityPage} />
           <Route path="/quality/training" component={QualityPage} />
           <Route path="/quality/stability" component={QualityPage} />
+          <Route path="/quality/em" component={QualityPage} />
           <Route path="/quality/return-investigations" component={ReturnInvestigations} />
           <Route path="/profile/rotate-password" component={Profile} />
           <Route path="/profile" component={Profile} />

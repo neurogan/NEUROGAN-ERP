@@ -45,6 +45,7 @@ import { registerFgTestRoutes } from "./routes/finished-goods-test-routes";
 import { registerCapaRoutes } from "./routes/capa-routes";
 import { registerTrainingRoutes } from "./routes/training-routes";
 import { registerStabilityRoutes } from "./routes/stability-routes";
+import { registerEmRoutes } from "./routes/em-routes";
 import { checkFgTestsGate } from "./storage/finished-goods-tests";
 import { db } from "./db";
 import { eq, and, desc, ne, isNull } from "drizzle-orm";
@@ -99,6 +100,9 @@ export async function registerRoutes(
 
   // ─── R2-01 Stability program (§111.210(f)) ──────────────
   registerStabilityRoutes(app, requireAuth, requireRole);
+
+  // ─── R2-02 Environmental monitoring (§111.15) ────────────
+  registerEmRoutes(app, requireAuth, requireRole);
 
   // ─── Health / IQ traceability ──────────────────────────
   //

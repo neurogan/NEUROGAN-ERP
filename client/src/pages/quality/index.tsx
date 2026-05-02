@@ -13,8 +13,9 @@ import RetainedSamplesPage from "./RetainedSamples";
 import CapaPage from "./Capa";
 import TrainingPage from "./Training";
 import StabilityPage from "./Stability";
+import EnvironmentalMonitoringPage from "./EnvironmentalMonitoring";
 
-type QualityTab = "labeling" | "sops" | "complaints" | "returns" | "oos" | "component-specifications" | "fg-specifications" | "retained-samples" | "capa" | "training" | "stability";
+type QualityTab = "labeling" | "sops" | "complaints" | "returns" | "oos" | "component-specifications" | "fg-specifications" | "retained-samples" | "capa" | "training" | "stability" | "em";
 
 const ACTIVE_TABS: { value: QualityTab; label: string }[] = [
   { value: "labeling", label: "Labeling" },
@@ -28,6 +29,7 @@ const ACTIVE_TABS: { value: QualityTab; label: string }[] = [
   { value: "capa", label: "CAPA" },
   { value: "training", label: "Training" },
   { value: "stability", label: "Stability" },
+  { value: "em", label: "Env. Monitoring" },
 ];
 
 const DISABLED_TABS: { value: string; label: string; tooltip: string }[] = [
@@ -40,7 +42,7 @@ export default function QualityPage() {
   // because wouter's :param stops at "/". Extract the tab segment directly from location instead.
   const tabParam = location.split("/")[2] as string | undefined;
 
-  const validTabs: QualityTab[] = ["labeling", "sops", "complaints", "returns", "oos", "component-specifications", "fg-specifications", "retained-samples", "capa", "training", "stability"];
+  const validTabs: QualityTab[] = ["labeling", "sops", "complaints", "returns", "oos", "component-specifications", "fg-specifications", "retained-samples", "capa", "training", "stability", "em"];
 
   useEffect(() => {
     if (!tabParam || !validTabs.includes(tabParam as QualityTab)) {
@@ -59,6 +61,7 @@ export default function QualityPage() {
     : tabParam === "capa" ? "capa"
     : tabParam === "training" ? "training"
     : tabParam === "stability" ? "stability"
+    : tabParam === "em" ? "em"
     : "labeling";
 
   return (
@@ -100,6 +103,7 @@ export default function QualityPage() {
       {activeTab === "capa" && <CapaPage />}
       {activeTab === "training" && <TrainingPage />}
       {activeTab === "stability" && <StabilityPage />}
+      {activeTab === "em" && <EnvironmentalMonitoringPage />}
     </div>
   );
 }

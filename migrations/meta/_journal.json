@@ -225,6 +225,13 @@
       "when": 1777939200000,
       "tag": "0031_r2_01_stability_program",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1778025600000,
+      "tag": "0032_r2_02_environmental_monitoring",
+      "breakpoints": true
     }
   ]
 }
