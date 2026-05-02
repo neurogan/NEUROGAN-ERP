@@ -1,4 +1,4 @@
-import { eq, and, gte, lte, desc, asc, isNull } from "drizzle-orm";
+import { eq, and, gte, lte, desc, asc } from "drizzle-orm";
 import { db } from "../db";
 import * as schema from "@shared/schema";
 import { createNonconformance } from "./capa";
