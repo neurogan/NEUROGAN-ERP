@@ -5,7 +5,7 @@
 CREATE TABLE erp_stability_protocols (
   id                    uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   name                  varchar(255) NOT NULL,
-  product_id            uuid REFERENCES erp_products(id),
+  product_id            varchar REFERENCES erp_products(id),
   description           text,
   storage_condition     varchar(255) NOT NULL,
   test_intervals_months integer[]    NOT NULL,

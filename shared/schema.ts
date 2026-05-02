@@ -2030,7 +2030,7 @@ export type UserTrainingCompliance = {
 export const stabilityProtocols = pgTable("erp_stability_protocols", {
   id:                  uuid("id").primaryKey().defaultRandom(),
   name:                varchar("name", { length: 255 }).notNull(),
-  productId:           uuid("product_id").references(() => products.id),
+  productId:           varchar("product_id").references(() => products.id),
   description:         text("description"),
   storageCondition:    varchar("storage_condition", { length: 255 }).notNull(),
   testIntervalsMonths: integer("test_intervals_months").array().notNull(),
