@@ -9,8 +9,7 @@ import { errorMiddleware } from "./error-middleware";
 import { passport } from "./auth/passport";
 import { requireAuth } from "./auth/middleware";
 import { authRouter } from "./auth/auth-routes";
-import { getPool, getDb, checkAuditTrailImmutability } from "./db";
-import { migrate } from "drizzle-orm/node-postgres/migrator";
+import { getPool, checkAuditTrailImmutability } from "./db";
 import path from "path";
 import {
   buildAllowedOrigins,
