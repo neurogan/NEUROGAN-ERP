@@ -6,21 +6,7 @@ import { userRoleEnum } from "@shared/schema";
 import * as schema from "@shared/schema";
 import * as trainingStorage from "../storage/training";
 import { performSignature } from "../signatures/signatures";
-import { db, type Tx } from "../db";
-
-async function fetchSig(entityId: string, requestId: string | string[]) {
-  const rid = Array.isArray(requestId) ? requestId[0] : requestId;
-  const [sig] = await db
-    .select({ id: schema.electronicSignatures.id })
-    .from(schema.electronicSignatures)
-    .where(
-      eq(schema.electronicSignatures.entityType, "training_record") &&
-      eq(schema.electronicSignatures.requestId, rid),
-    )
-    .orderBy(desc(schema.electronicSignatures.signedAt))
-    .limit(1);
-  return sig?.id ?? null;
-}
+import { db } from "../db";
 
 export function registerTrainingRoutes(
   app: Express,

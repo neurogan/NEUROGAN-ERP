@@ -26,18 +26,6 @@ interface TrainingProgram {
   isActive: boolean;
 }
 
-interface TrainingRecord {
-  id: string;
-  userId: string;
-  programId: string;
-  programName: string;
-  programVersion: string;
-  completedAt: string;
-  expiresAt: string;
-  trainedByExternal: string | null;
-  notes: string | null;
-}
-
 interface TrainingAssignment {
   id: string;
   userId: string;
@@ -227,7 +215,7 @@ function ProgramsView() {
 // ─── My Training view ─────────────────────────────────────────────────────────
 
 function MyTrainingView() {
-  const { user } = useAuth();
+  useAuth();
   const qc = useQueryClient();
   const [recordOpen, setRecordOpen] = useState(false);
   const [selectedProgram, setSelectedProgram] = useState<TrainingProgram | null>(null);
