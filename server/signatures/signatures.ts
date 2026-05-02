@@ -65,6 +65,7 @@ export const MEANING_VERB: Record<SignatureMeaning, string> = {
   CAPA_CLOSE: "closed CAPA for",
   MANAGEMENT_REVIEW: "signed management review for",
   TRAINING_COMPLETE: "acknowledged completion of training program",
+  STABILITY_CONCLUSION: "issued shelf-life conclusion for",
 };
 
 // Performs the signature ceremony then calls fn(tx) for the state change —
