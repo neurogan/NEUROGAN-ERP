@@ -991,6 +991,10 @@ export const auditActionEnum = z.enum([
   "STABILITY_BATCH_ENROLLED",
   "STABILITY_RESULT_ENTERED",
   "STABILITY_CONCLUSION_SIGNED",
+  // R2-02 Environmental monitoring (§111.15)
+  "EM_SITE_CREATED",
+  "EM_RESULT_ENTERED",
+  "EM_EXCURSION_CREATED",
 ]);
 export type AuditAction = z.infer<typeof auditActionEnum>;
 
@@ -2112,4 +2116,87 @@ export type StabilityBatchWithDetails = StabilityBatch & {
   conclusion: StabilityConclusion | null;
   overdueCount: number;
   upcomingCount: number;
+};
+
+// ─── R2-02 Environmental Monitoring (§111.15) ──────────────────────────────
+
+export const emSiteTypeEnum = z.enum(["AIR", "SURFACE_NON_CONTACT", "SURFACE_CONTACT"]);
+export type EmSiteType = z.infer<typeof emSiteTypeEnum>;
+
+export const emFrequencyEnum = z.enum(["WEEKLY", "MONTHLY", "QUARTERLY"]);
+export type EmFrequency = z.infer<typeof emFrequencyEnum>;
+
+export const emLimitTypeEnum = z.enum(["ALERT", "ACTION"]);
+export type EmLimitType = z.infer<typeof emLimitTypeEnum>;
+
+export const emSites = pgTable("erp_em_sites", {
+  id:                uuid("id").primaryKey().defaultRandom(),
+  name:              varchar("name", { length: 255 }).notNull(),
+  area:              varchar("area", { length: 255 }).notNull(),
+  siteType:          text("site_type").notNull().$type<EmSiteType>(),
+  isActive:          boolean("is_active").notNull().default(true),
+  createdByUserId:   uuid("created_by_user_id").notNull().references(() => users.id),
+  createdAt:         timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type EmSite = typeof emSites.$inferSelect;
+
+export const emSchedules = pgTable("erp_em_schedules", {
+  id:                uuid("id").primaryKey().defaultRandom(),
+  siteId:            uuid("site_id").notNull().references(() => emSites.id),
+  frequency:         text("frequency").notNull().$type<EmFrequency>(),
+  organismTargets:   text("organism_targets").array().notNull().default(sql`'{}'::text[]`),
+  isActive:          boolean("is_active").notNull().default(true),
+  createdByUserId:   uuid("created_by_user_id").notNull().references(() => users.id),
+  createdAt:         timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type EmSchedule = typeof emSchedules.$inferSelect;
+
+export const emLimits = pgTable("erp_em_limits", {
+  id:                uuid("id").primaryKey().defaultRandom(),
+  siteId:            uuid("site_id").notNull().references(() => emSites.id),
+  organism:          varchar("organism", { length: 255 }).notNull(),
+  alertLimit:        numeric("alert_limit", { precision: 12, scale: 2 }),
+  actionLimit:       numeric("action_limit", { precision: 12, scale: 2 }),
+  unit:              varchar("unit", { length: 50 }).notNull().default("CFU/m³"),
+  createdByUserId:   uuid("created_by_user_id").notNull().references(() => users.id),
+  createdAt:         timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type EmLimit = typeof emLimits.$inferSelect;
+
+export const emResults = pgTable("erp_em_results", {
+  id:                uuid("id").primaryKey().defaultRandom(),
+  siteId:            uuid("site_id").notNull().references(() => emSites.id),
+  sampledAt:         timestamp("sampled_at", { withTimezone: true }).notNull(),
+  organism:          varchar("organism", { length: 255 }).notNull(),
+  cfuCount:          numeric("cfu_count", { precision: 12, scale: 2 }),
+  isBelowLod:        boolean("is_below_lod").notNull().default(false),
+  testedByLab:       varchar("tested_by_lab", { length: 255 }),
+  notes:             text("notes"),
+  enteredByUserId:   uuid("entered_by_user_id").notNull().references(() => users.id),
+  createdAt:         timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type EmResult = typeof emResults.$inferSelect;
+
+export const emExcursions = pgTable("erp_em_excursions", {
+  id:          uuid("id").primaryKey().defaultRandom(),
+  resultId:    uuid("result_id").notNull().references(() => emResults.id),
+  siteId:      uuid("site_id").notNull().references(() => emSites.id),
+  organism:    varchar("organism", { length: 255 }).notNull(),
+  limitType:   text("limit_type").notNull().$type<EmLimitType>(),
+  cfuCount:    numeric("cfu_count", { precision: 12, scale: 2 }).notNull(),
+  limitValue:  numeric("limit_value", { precision: 12, scale: 2 }).notNull(),
+  ncId:        uuid("nc_id").references(() => nonconformances.id),
+  createdAt:   timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type EmExcursion = typeof emExcursions.$inferSelect;
+
+export type EmResultWithStatus = EmResult & {
+  siteName: string;
+  excursion: EmExcursion | null;
+  status: "PASS" | "ALERT" | "ACTION" | "BELOW_LOD";
 };
