@@ -986,6 +986,11 @@ export const auditActionEnum = z.enum([
   "TRAINING_PROGRAM_CREATED",
   "TRAINING_RECORD_ADDED",
   "TRAINING_ASSIGNMENT_CREATED",
+  // R2-01 Stability program (§111.210(f))
+  "STABILITY_PROTOCOL_CREATED",
+  "STABILITY_BATCH_ENROLLED",
+  "STABILITY_RESULT_ENTERED",
+  "STABILITY_CONCLUSION_SIGNED",
 ]);
 export type AuditAction = z.infer<typeof auditActionEnum>;
 
@@ -1056,6 +1061,8 @@ export const signatureMeaningEnum = z.enum([
   "MANAGEMENT_REVIEW",
   // R2-04 Training gate (§111.12–14)
   "TRAINING_COMPLETE",
+  // R2-01 Stability program (§111.210(f))
+  "STABILITY_CONCLUSION",
 ]);
 export type SignatureMeaning = z.infer<typeof signatureMeaningEnum>;
 
@@ -2016,4 +2023,93 @@ export type UserTrainingCompliance = {
   userId:   string;
   userName: string;
   programs: TrainingComplianceRow[];
+};
+
+// ─── R2-01 Stability Program (§111.210(f)) ─────────────────────────────────
+
+export const stabilityProtocols = pgTable("erp_stability_protocols", {
+  id:                  uuid("id").primaryKey().defaultRandom(),
+  name:                varchar("name", { length: 255 }).notNull(),
+  productId:           varchar("product_id").references(() => products.id),
+  description:         text("description"),
+  storageCondition:    varchar("storage_condition", { length: 255 }).notNull(),
+  testIntervalsMonths: integer("test_intervals_months").array().notNull(),
+  isActive:            boolean("is_active").notNull().default(true),
+  signatureId:         uuid("signature_id").references(() => electronicSignatures.id),
+  createdByUserId:     uuid("created_by_user_id").notNull().references(() => users.id),
+  createdAt:           timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type StabilityProtocol = typeof stabilityProtocols.$inferSelect;
+
+export const stabilityProtocolAttributes = pgTable("erp_stability_protocol_attributes", {
+  id:          uuid("id").primaryKey().defaultRandom(),
+  protocolId:  uuid("protocol_id").notNull().references(() => stabilityProtocols.id),
+  analyteName: varchar("analyte_name", { length: 255 }).notNull(),
+  unit:        varchar("unit", { length: 50 }),
+  minSpec:     numeric("min_spec", { precision: 12, scale: 4 }),
+  maxSpec:     numeric("max_spec", { precision: 12, scale: 4 }),
+  testMethod:  varchar("test_method", { length: 255 }),
+  createdAt:   timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type StabilityProtocolAttribute = typeof stabilityProtocolAttributes.$inferSelect;
+
+export const stabilityBatches = pgTable("erp_stability_batches", {
+  id:                uuid("id").primaryKey().defaultRandom(),
+  protocolId:        uuid("protocol_id").notNull().references(() => stabilityProtocols.id),
+  bprId:             varchar("bpr_id").notNull().references(() => batchProductionRecords.id),
+  enrolledAt:        timestamp("enrolled_at", { withTimezone: true }).notNull(),
+  status:            text("status").notNull().default("ONGOING"),
+  enrolledByUserId:  uuid("enrolled_by_user_id").notNull().references(() => users.id),
+  createdAt:         timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type StabilityBatch = typeof stabilityBatches.$inferSelect;
+
+export const stabilityTimepoints = pgTable("erp_stability_timepoints", {
+  id:             uuid("id").primaryKey().defaultRandom(),
+  batchId:        uuid("batch_id").notNull().references(() => stabilityBatches.id),
+  intervalMonths: integer("interval_months").notNull(),
+  scheduledAt:    timestamp("scheduled_at", { withTimezone: true }).notNull(),
+  completedAt:    timestamp("completed_at", { withTimezone: true }),
+  createdAt:      timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type StabilityTimepoint = typeof stabilityTimepoints.$inferSelect;
+
+export const stabilityResults = pgTable("erp_stability_results", {
+  id:               uuid("id").primaryKey().defaultRandom(),
+  timepointId:      uuid("timepoint_id").notNull().references(() => stabilityTimepoints.id),
+  attributeId:      uuid("attribute_id").notNull().references(() => stabilityProtocolAttributes.id),
+  reportedValue:    numeric("reported_value", { precision: 12, scale: 4 }).notNull(),
+  reportedUnit:     varchar("reported_unit", { length: 50 }).notNull(),
+  passFail:         text("pass_fail").notNull(),
+  notes:            text("notes"),
+  enteredByUserId:  uuid("entered_by_user_id").notNull().references(() => users.id),
+  createdAt:        timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type StabilityResult = typeof stabilityResults.$inferSelect;
+
+export const stabilityConclusions = pgTable("erp_stability_conclusions", {
+  id:                       uuid("id").primaryKey().defaultRandom(),
+  batchId:                  uuid("batch_id").notNull().references(() => stabilityBatches.id).unique(),
+  supportedShelfLifeMonths: integer("supported_shelf_life_months").notNull(),
+  basis:                    text("basis").notNull(),
+  outcome:                  text("outcome").notNull(),
+  signatureId:              uuid("signature_id").references(() => electronicSignatures.id),
+  concludedByUserId:        uuid("concluded_by_user_id").notNull().references(() => users.id),
+  createdAt:                timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type StabilityConclusion = typeof stabilityConclusions.$inferSelect;
+
+export type StabilityBatchWithDetails = StabilityBatch & {
+  protocolName: string;
+  bprId: string;
+  timepoints: (StabilityTimepoint & { results: StabilityResult[] })[];
+  conclusion: StabilityConclusion | null;
+  overdueCount: number;
+  upcomingCount: number;
 };
