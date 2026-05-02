@@ -321,7 +321,7 @@ function EnterResultModal({ onClose }: { onClose: () => void }) {
 
   const mutation = useMutation({
     mutationFn: (body: object) => apiRequest("POST", "/api/em/results", body),
-    onSuccess: (_, vars) => {
+    onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["/api/em/results"] });
       qc.invalidateQueries({ queryKey: ["/api/em/dashboard/due"] });
       qc.invalidateQueries({ queryKey: ["/api/em/dashboard/excursions"] });
@@ -420,7 +420,7 @@ function DashboardView({ onEnterResult }: { onEnterResult: () => void }) {
     queryFn: async () => (await apiRequest("GET", "/api/em/dashboard/due")).json(),
   });
 
-  const { data: excursions = [], isLoading: loadingExc } = useQuery<Excursion[]>({
+  const { data: excursions = [] } = useQuery<Excursion[]>({
     queryKey: ["/api/em/dashboard/excursions"],
     queryFn: async () => (await apiRequest("GET", "/api/em/dashboard/excursions")).json(),
   });
