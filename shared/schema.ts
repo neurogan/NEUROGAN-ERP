@@ -970,6 +970,9 @@ export const auditActionEnum = z.enum([
   "FG_SPEC_APPROVED",
   "FG_TEST_ENTERED",
   "FG_TEST_RESULT_FAILED",
+  // Obs 11 — Retained sample register (§111.83(b))
+  "RETAINED_SAMPLE_CREATED",
+  "RETAINED_SAMPLE_DESTROYED",
 ]);
 export type AuditAction = z.infer<typeof auditActionEnum>;
 
@@ -1787,4 +1790,30 @@ export type FgQcTestWithResults = FinishedGoodsQcTest & {
   labName: string;
   enteredByName: string;
   results: (FinishedGoodsQcTestResult & { analyteName: string })[];
+};
+
+// ─── Obs 11 partial — Retained Samples (21 CFR §111.83(b)) ───────────────────
+
+export const retainedSamples = pgTable("erp_retained_samples", {
+  id:                   uuid("id").primaryKey().defaultRandom(),
+  bprId:                varchar("bpr_id").notNull().references(() => batchProductionRecords.id),
+  sampledAt:            timestamp("sampled_at", { withTimezone: true }).notNull(),
+  pulledQty:            numeric("pulled_qty", { precision: 10, scale: 3 }).notNull(),
+  qtyUnit:              varchar("qty_unit", { length: 20 }).notNull(),
+  retentionLocation:    varchar("retention_location", { length: 255 }).notNull(),
+  retentionExpiresAt:   timestamp("retention_expires_at", { withTimezone: true }).notNull(),
+  destroyedAt:          timestamp("destroyed_at", { withTimezone: true }),
+  destroyedByUserId:    uuid("destroyed_by_user_id").references(() => users.id),
+  createdByUserId:      uuid("created_by_user_id").notNull().references(() => users.id),
+  createdAt:            timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type RetainedSample = typeof retainedSamples.$inferSelect;
+export type InsertRetainedSample = typeof retainedSamples.$inferInsert;
+
+export type RetainedSampleWithBpr = RetainedSample & {
+  batchNumber: string;
+  productName: string;
+  createdByName: string;
+  destroyedByName: string | null;
 };
