@@ -54,6 +54,7 @@ import * as sopStorage from "./storage/sops";
 import * as reconciliationStorage from "./storage/label-reconciliations";
 import * as complaintsStorage from "./storage/complaints";
 import * as returnsStorage from "./storage/returned-products";
+import * as retainedSamplesStorage from "./storage/retained-samples";
 import { requireHmacOrAuth } from "./auth/middleware";
 import { HELPCORE_SYSTEM_USER_ID } from "./seed/ids";
 import { getLabelPrintAdapter } from "./printing/registry";
@@ -3459,6 +3460,54 @@ export async function registerRoutes(
         requestId: req.requestId, route: req.path,
       });
       return res.json(updated);
+    } catch (err) { next(err); }
+  });
+
+  // ─── Obs 11 partial — Retained Samples (§111.83(b)) ─────────────────────────
+
+  app.get("/api/quality/retained-samples", requireAuth, async (req, res, next) => {
+    try {
+      const status = (req.query.status as string | undefined) ?? "all";
+      if (!["active", "due", "destroyed", "all"].includes(status)) {
+        return res.status(400).json({ error: "Invalid status filter" });
+      }
+      const samples = await retainedSamplesStorage.listRetainedSamples(
+        status as retainedSamplesStorage.RetainedSampleStatus,
+      );
+      return res.json(samples);
+    } catch (err) { next(err); }
+  });
+
+  app.post("/api/quality/retained-samples", requireAuth, requireRole("QA", "ADMIN"), async (req, res, next) => {
+    try {
+      const body = z.object({
+        bprId: z.string().min(1),
+        sampledAt: z.string().datetime({ offset: true }),
+        pulledQty: z.string().regex(/^\d+(\.\d+)?$/),
+        qtyUnit: z.string().min(1).max(20),
+        retentionLocation: z.string().min(1).max(255),
+        retentionExpiresAt: z.string().datetime({ offset: true }),
+      }).parse(req.body);
+
+      const sample = await retainedSamplesStorage.createRetainedSample({
+        ...body,
+        createdByUserId: req.user!.id,
+        requestId: req.requestId,
+        route: req.path,
+      });
+      return res.status(201).json(sample);
+    } catch (err) { next(err); }
+  });
+
+  app.patch<{ id: string }>("/api/quality/retained-samples/:id/destroy", requireAuth, requireRole("QA", "ADMIN"), async (req, res, next) => {
+    try {
+      const sample = await retainedSamplesStorage.destroyRetainedSample({
+        id: req.params.id,
+        destroyedByUserId: req.user!.id,
+        requestId: req.requestId,
+        route: req.path,
+      });
+      return res.json(sample);
     } catch (err) { next(err); }
   });
 
