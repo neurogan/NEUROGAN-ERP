@@ -43,6 +43,7 @@ import { componentSpecRouter } from "./routes/component-spec-routes";
 import { finishedGoodsSpecRouter } from "./routes/finished-goods-spec-routes";
 import { registerFgTestRoutes } from "./routes/finished-goods-test-routes";
 import { registerCapaRoutes } from "./routes/capa-routes";
+import { registerTrainingRoutes } from "./routes/training-routes";
 import { checkFgTestsGate } from "./storage/finished-goods-tests";
 import { db } from "./db";
 import { eq, and, desc, ne, isNull } from "drizzle-orm";
@@ -91,6 +92,9 @@ export async function registerRoutes(
 
   // ─── R2-03 CAPA / QMS backbone (§111.140) ──────────────
   registerCapaRoutes(app, requireAuth, requireRole);
+
+  // ─── R2-04 Training gate (§111.12–14) ──────────────────
+  registerTrainingRoutes(app, requireAuth, requireRole);
 
   // ─── Health / IQ traceability ──────────────────────────
   //
