@@ -982,6 +982,10 @@ export const auditActionEnum = z.enum([
   "CAPA_EFFECTIVENESS_RECORDED",
   "CAPA_CLOSED",
   "MANAGEMENT_REVIEW_SIGNED",
+  // R2-04 Training gate (§111.12–14)
+  "TRAINING_PROGRAM_CREATED",
+  "TRAINING_RECORD_ADDED",
+  "TRAINING_ASSIGNMENT_CREATED",
 ]);
 export type AuditAction = z.infer<typeof auditActionEnum>;
 
@@ -1050,6 +1054,8 @@ export const signatureMeaningEnum = z.enum([
   "CAPA_OPEN",
   "CAPA_CLOSE",
   "MANAGEMENT_REVIEW",
+  // R2-04 Training gate (§111.12–14)
+  "TRAINING_COMPLETE",
 ]);
 export type SignatureMeaning = z.infer<typeof signatureMeaningEnum>;
 
@@ -1945,4 +1951,69 @@ export type CapaWithDetails = Capa & {
 export type NonconformanceWithCapa = Nonconformance & {
   createdByName: string;
   capa: Capa | null;
+};
+
+// ─── R2-04 Training Gate (§111.12–14) ─────────────────────────────────────
+
+export const trainingAssignmentStatusEnum = z.enum(["PENDING", "COMPLETED", "OVERDUE"]);
+export type TrainingAssignmentStatus = z.infer<typeof trainingAssignmentStatusEnum>;
+
+export const trainingPrograms = pgTable("erp_training_programs", {
+  id:                uuid("id").primaryKey().defaultRandom(),
+  name:              varchar("name", { length: 255 }).notNull(),
+  version:           varchar("version", { length: 50 }).notNull().default("1.0"),
+  description:       text("description"),
+  validityDays:      integer("validity_days").notNull().default(365),
+  requiredForRoles:  text("required_for_roles").array().notNull().default(sql`'{}'::text[]`),
+  documentUrl:       text("document_url"),
+  isActive:          boolean("is_active").notNull().default(true),
+  createdByUserId:   uuid("created_by_user_id").notNull().references(() => users.id),
+  createdAt:         timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type TrainingProgram = typeof trainingPrograms.$inferSelect;
+
+export const trainingRecords = pgTable("erp_training_records", {
+  id:                   uuid("id").primaryKey().defaultRandom(),
+  userId:               uuid("user_id").notNull().references(() => users.id),
+  programId:            uuid("program_id").notNull().references(() => trainingPrograms.id),
+  completedAt:          timestamp("completed_at", { withTimezone: true }).notNull(),
+  expiresAt:            timestamp("expires_at", { withTimezone: true }).notNull(),
+  trainedByUserId:      uuid("trained_by_user_id").references(() => users.id),
+  trainedByExternal:    varchar("trained_by_external", { length: 255 }),
+  documentUrl:          text("document_url"),
+  notes:                text("notes"),
+  signatureId:          uuid("signature_id").references(() => electronicSignatures.id),
+  createdByUserId:      uuid("created_by_user_id").notNull().references(() => users.id),
+  createdAt:            timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type TrainingRecord = typeof trainingRecords.$inferSelect;
+
+export const trainingAssignments = pgTable("erp_training_assignments", {
+  id:               uuid("id").primaryKey().defaultRandom(),
+  userId:           uuid("user_id").notNull().references(() => users.id),
+  programId:        uuid("program_id").notNull().references(() => trainingPrograms.id),
+  dueAt:            timestamp("due_at", { withTimezone: true }).notNull(),
+  status:           text("status").$type<TrainingAssignmentStatus>().notNull().default("PENDING"),
+  trainingRecordId: uuid("training_record_id").references(() => trainingRecords.id),
+  createdByUserId:  uuid("created_by_user_id").notNull().references(() => users.id),
+  createdAt:        timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type TrainingAssignment = typeof trainingAssignments.$inferSelect;
+
+export type TrainingComplianceRow = {
+  programId:   string;
+  programName: string;
+  version:     string;
+  status:      "CURRENT" | "EXPIRING_SOON" | "EXPIRED" | "NEVER_TRAINED";
+  expiresAt:   string | null;
+  completedAt: string | null;
+};
+
+export type UserTrainingCompliance = {
+  userId:   string;
+  userName: string;
+  programs: TrainingComplianceRow[];
 };
