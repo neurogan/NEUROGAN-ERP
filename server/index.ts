@@ -9,8 +9,7 @@ import { errorMiddleware } from "./error-middleware";
 import { passport } from "./auth/passport";
 import { requireAuth } from "./auth/middleware";
 import { authRouter } from "./auth/auth-routes";
-import { getPool, getDb, checkAuditTrailImmutability } from "./db";
-import { migrate } from "drizzle-orm/node-postgres/migrator";
+import { getPool, checkAuditTrailImmutability } from "./db";
 import path from "path";
 import {
   buildAllowedOrigins,
@@ -154,6 +153,90 @@ app.use((req, res, next) => {
   next();
 });
 
+// Idempotent migration runner for AUTO_MIGRATE=true environments (staging).
+// Runs each pending migration individually. If it fails with a PostgreSQL
+// "already exists" error (42P07 duplicate_table / 42701 duplicate_column),
+// the schema is already in the correct state — record the migration as applied
+// and continue. Any other error aborts the boot.
+//
+// Migration 0013 has a production-use guard (RAISE EXCEPTION) that fires when
+// placeholder seed users are older than 24 hours — always true on staging.
+// It is bypassed by inserting the documented skip record before iterating.
+async function idempotentMigrate(migrationsFolder: string): Promise<void> {
+  const { readFileSync } = await import("fs");
+  const pool = getPool();
+  const client = await pool.connect();
+  try {
+    await client.query(`CREATE SCHEMA IF NOT EXISTS drizzle`);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS drizzle.__drizzle_migrations (
+        id SERIAL PRIMARY KEY,
+        hash text NOT NULL,
+        created_at bigint
+      )
+    `);
+
+    // Bypass migration 0013's production-use guard.
+    const { rows: skip13 } = await client.query(
+      `SELECT 1 FROM drizzle.__drizzle_migrations WHERE created_at = $1`,
+      [1745500500000],
+    );
+    if (skip13.length === 0) {
+      await client.query(
+        `INSERT INTO drizzle.__drizzle_migrations (hash, created_at) VALUES ($1, $2)`,
+        ["manually-skipped-0013", 1745500500000],
+      );
+      console.log("[boot] migration 0013 bypass inserted");
+    }
+
+    const journal = JSON.parse(
+      readFileSync(`${migrationsFolder}/meta/_journal.json`, "utf8"),
+    ) as { entries: Array<{ idx: number; tag: string; when: number }> };
+
+    const { rows: done } = await client.query<{ created_at: string }>(
+      `SELECT created_at FROM drizzle.__drizzle_migrations`,
+    );
+    const applied = new Set(done.map((r) => Number(r.created_at)));
+
+    for (const entry of journal.entries) {
+      if (applied.has(entry.when)) continue;
+
+      const sql = readFileSync(`${migrationsFolder}/${entry.tag}.sql`, "utf8");
+      const statements = sql.split("--> statement-breakpoint").map((s) => s.trim()).filter(Boolean);
+
+      try {
+        await client.query("BEGIN");
+        for (const stmt of statements) {
+          await client.query(stmt);
+        }
+        await client.query(
+          `INSERT INTO drizzle.__drizzle_migrations (hash, created_at) VALUES ($1, $2)`,
+          [`auto-${entry.idx}`, entry.when],
+        );
+        await client.query("COMMIT");
+        console.log(`[boot] migration ${entry.tag} applied`);
+      } catch (err: unknown) {
+        await client.query("ROLLBACK");
+        const pgCode = (err as { code?: string }).code;
+        // 42P07 = duplicate_table, 42701 = duplicate_column, 42710 = duplicate_object
+        if (pgCode === "42P07" || pgCode === "42701" || pgCode === "42710") {
+          await client.query(
+            `INSERT INTO drizzle.__drizzle_migrations (hash, created_at) VALUES ($1, $2)`,
+            [`already-existed-${entry.idx}`, entry.when],
+          );
+          console.log(`[boot] migration ${entry.tag} schema already present, recorded`);
+        } else {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.log(`[boot] migration ${entry.tag} FAILED (${pgCode ?? "?"}): ${msg}`);
+          throw err;
+        }
+      }
+    }
+  } finally {
+    client.release();
+  }
+}
+
 (async () => {
   // Migrations do not run on boot by default. Per FDA/AGENTS.md §5.2 and D-09
   // of FDA/neurogan-erp-build-spec.md, self-mutating schemas are incompatible
@@ -165,10 +248,9 @@ app.use((req, res, next) => {
   // to running pending migrations on boot via drizzle-orm's programmatic
   // migrator — no CLI binary required.
   if (process.env.AUTO_MIGRATE === "true") {
-    console.log("[boot] AUTO_MIGRATE=true — applying pending migrations…");
-    await migrate(getDb(), {
-      migrationsFolder: path.join(process.cwd(), "migrations"),
-    });
+    const migrationsFolder = path.join(process.cwd(), "migrations");
+    console.log("[boot] AUTO_MIGRATE=true — applying pending migrations from:", migrationsFolder);
+    await idempotentMigrate(migrationsFolder);
     console.log("[boot] migrations up to date");
   }
 

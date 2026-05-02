@@ -9,8 +9,9 @@ import ReturnsPage from "./returns";
 import OosInvestigations from "@/pages/OosInvestigations";
 import ComponentSpecifications from "./ComponentSpecifications";
 import FinishedGoodsSpecifications from "./FinishedGoodsSpecifications";
+import RetainedSamplesPage from "./RetainedSamples";
 
-type QualityTab = "labeling" | "sops" | "complaints" | "returns" | "oos" | "component-specifications" | "fg-specifications";
+type QualityTab = "labeling" | "sops" | "complaints" | "returns" | "oos" | "component-specifications" | "fg-specifications" | "retained-samples";
 
 const ACTIVE_TABS: { value: QualityTab; label: string }[] = [
   { value: "labeling", label: "Labeling" },
@@ -20,6 +21,7 @@ const ACTIVE_TABS: { value: QualityTab; label: string }[] = [
   { value: "oos", label: "OOS" },
   { value: "component-specifications", label: "Component Specifications" },
   { value: "fg-specifications", label: "FG Specifications" },
+  { value: "retained-samples", label: "Retained Samples" },
 ];
 
 const DISABLED_TABS: { value: string; label: string; tooltip: string }[] = [
@@ -32,7 +34,7 @@ export default function QualityPage() {
   // because wouter's :param stops at "/". Extract the tab segment directly from location instead.
   const tabParam = location.split("/")[2] as string | undefined;
 
-  const validTabs: QualityTab[] = ["labeling", "sops", "complaints", "returns", "oos", "component-specifications", "fg-specifications"];
+  const validTabs: QualityTab[] = ["labeling", "sops", "complaints", "returns", "oos", "component-specifications", "fg-specifications", "retained-samples"];
 
   useEffect(() => {
     if (!tabParam || !validTabs.includes(tabParam as QualityTab)) {
@@ -47,6 +49,7 @@ export default function QualityPage() {
     : tabParam === "oos" ? "oos"
     : tabParam === "component-specifications" ? "component-specifications"
     : tabParam === "fg-specifications" ? "fg-specifications"
+    : tabParam === "retained-samples" ? "retained-samples"
     : "labeling";
 
   return (
@@ -84,6 +87,7 @@ export default function QualityPage() {
       {activeTab === "oos" && <OosInvestigations />}
       {activeTab === "component-specifications" && <ComponentSpecifications />}
       {activeTab === "fg-specifications" && <FinishedGoodsSpecifications />}
+      {activeTab === "retained-samples" && <RetainedSamplesPage />}
     </div>
   );
 }
