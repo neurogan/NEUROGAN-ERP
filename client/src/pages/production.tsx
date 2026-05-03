@@ -4,6 +4,7 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { ToastAction } from "@/components/ui/toast";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -69,7 +70,7 @@ import {
 } from "@/components/ui/tooltip";
 import { Plus, Trash2, Beaker, Play, CheckCircle, Pause, RotateCcw, Pencil, XCircle, AlertTriangle, Info, MessageSquare, Send, ClipboardCheck, Printer } from "lucide-react";
 import { LocationSelectWithAdd } from "@/components/LocationSelectWithAdd";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { BprStartModal } from "./bpr/start-modal";
 import { formatQty } from "@/lib/formatQty";
 import { DateInput } from "@/components/ui/date-input";
@@ -905,6 +906,7 @@ function CompleteBatchDialog({
   locations: Location[];
 }) {
   const { toast } = useToast();
+  const [, setLocation] = useLocation();
 
   const [actualQuantity, setActualQuantity] = useState("");
   const [outputLotNumber, setOutputLotNumber] = useState("");
@@ -998,7 +1000,15 @@ function CompleteBatchDialog({
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
       queryClient.invalidateQueries({ queryKey: ["/api/production-batches/next-lot-number"] });
       onOpenChange(false);
-      toast({ title: "Batch completed successfully" });
+      const productId = batch?.productId;
+      toast({
+        title: "Batch completed successfully",
+        action: productId ? (
+          <ToastAction altText="View in Inventory" onClick={() => setLocation(`/inventory?product=${productId}`)}>
+            View in Inventory
+          </ToastAction>
+        ) : undefined,
+      });
     },
     onError: (err: Error) => {
       toast({ title: "Insufficient Stock", description: err.message, variant: "destructive" });

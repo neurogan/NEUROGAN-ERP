@@ -688,12 +688,17 @@ export type InventoryGrouped = {
   category: string;
   defaultUom: string;
   totalQuantity: number;
+  totalAvailableQuantity: number;
+  totalQuarantineQuantity: number;
   lowStockThreshold: number | null;
   lots: {
     lotId: string;
     lotNumber: string;
     supplierName: string | null;
     expirationDate: string | null;
+    quarantineStatus: string;
+    availableQuantity: number;
+    quarantineQuantity: number;
     locations: {
       locationId: string;
       locationName: string;
