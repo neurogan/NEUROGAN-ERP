@@ -1746,6 +1746,17 @@ export async function registerRoutes(
           .set({ signatureId: newSig!.id })
           .where(eq(schema.bprDeviations.id, req.params.deviationId));
 
+        await writeAuditRow({
+          userId: req.user!.id,
+          action: "BPR_DEVIATION_SIGNED",
+          entityType: "bpr_deviation",
+          entityId: req.params.deviationId,
+          before: null,
+          after: { bprId: req.params.id, signatureId: newSig!.id },
+          route: `${req.method} ${req.path}`,
+          requestId: req.requestId,
+        });
+
         const [updated] = await db
           .select()
           .from(schema.bprDeviations)

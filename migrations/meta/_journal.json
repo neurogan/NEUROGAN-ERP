@@ -232,6 +232,13 @@
       "when": 1778025600000,
       "tag": "0032_r2_02_environmental_monitoring",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1778112000000,
+      "tag": "0033_r08_cleanup",
+      "breakpoints": true
     }
   ]
 }
