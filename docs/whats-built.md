@@ -63,13 +63,13 @@ The database is backed up daily. There is a written plan for how quickly we can 
 
 ### Validation documents
 
-The IQ, OQ, PQ, and Validation Summary Report (VSR) for the platform are stored as records inside the ERP itself. Steven Burgueno can open the Quality tab, read each document, and sign it using the same electronic signature used everywhere else in the system — no printing, no email. Once signed, the document is permanently locked.
+The IQ, OQ, PQ, and Validation Summary Report (VSR) for the platform are stored as records inside the ERP itself. Head of QC can open the Quality tab, read each document, and sign it using the same electronic signature used everywhere else in the system — no printing, no email. Once signed, the document is permanently locked.
 
 ---
 
 ## Phase 1 — Operational modules (NOT STARTED YET)
 
-These are the day-to-day workflows that operations will actually use. They cannot start until Steven Burgueno has signed the VSR-PLATFORM document in the Quality tab.
+These are the day-to-day workflows that operations will actually use. They cannot start until Head of QC has signed the VSR-PLATFORM document in the Quality tab.
 
 | Module | What it covers | Status |
 |---|---|---|
@@ -84,7 +84,7 @@ These are the day-to-day workflows that operations will actually use. They canno
 
 ## What Steven needs to sign off on before Phase 1 starts
 
-Steven Burgueno (QC Manager) needs to review and sign the Platform Validation Package — a document that confirms the foundation (Phase 0) works correctly and meets FDA requirements. That sign-off is the formal gate before any Phase 1 module begins.
+Head of QC (QC Manager) needs to review and sign the Platform Validation Package — a document that confirms the foundation (Phase 0) works correctly and meets FDA requirements. That sign-off is the formal gate before any Phase 1 module begins.
 
 ---
 
