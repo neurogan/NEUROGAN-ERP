@@ -47,6 +47,7 @@ import { registerTrainingRoutes } from "./routes/training-routes";
 import { registerStabilityRoutes } from "./routes/stability-routes";
 import { registerEmRoutes } from "./routes/em-routes";
 import { checkFgTestsGate } from "./storage/finished-goods-tests";
+import { createNonconformance } from "./storage/capa";
 import { db } from "./db";
 import { eq, and, desc, ne, isNull } from "drizzle-orm";
 import * as equipmentStorage from "./storage/equipment";
@@ -2435,6 +2436,18 @@ export async function registerRoutes(
           .limit(1);
         if (!sig) return next(Object.assign(new Error("Signature row not found after performSignature — closure not finalized"), { status: 500 }));
         const updated = await storage.finalizeOosClosure(req.params.id, sig.id);
+        // Auto-open a nonconformance for confirmed OOS (REJECTED or RECALL) so it appears in the CAPA register
+        if (updated.disposition === "REJECTED" || updated.disposition === "RECALL") {
+          await createNonconformance({
+            type: "OOS",
+            severity: updated.disposition === "RECALL" ? "CRITICAL" : "MAJOR",
+            title: `OOS confirmed: ${updated.oosNumber}`,
+            description: updated.dispositionReason ?? "",
+            sourceType: "OOS",
+            sourceId: updated.id,
+            createdByUserId: req.user!.id,
+          });
+        }
         res.json(updated);
       } catch (err) { next(err); }
     },

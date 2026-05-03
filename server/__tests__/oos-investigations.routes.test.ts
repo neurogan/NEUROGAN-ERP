@@ -35,6 +35,8 @@ describeIfDb("OOS investigation routes", () => {
     await db.delete(schema.electronicSignatures);
     await db.delete(schema.coaDocuments);
     await db.delete(schema.auditTrail);
+    await db.delete(schema.capas);
+    await db.delete(schema.nonconformances);
     await db.delete(schema.passwordHistory);
     await db.delete(schema.userRoles);
     await db.delete(schema.users);
@@ -115,7 +117,7 @@ describeIfDb("OOS investigation routes", () => {
     expect(r2.body.status).toBe("OPEN");
   });
 
-  it("POST .../close with REJECTED disposition closes investigation and flips lot", async () => {
+  it("POST .../close with REJECTED disposition closes investigation, flips lot, and creates NC", async () => {
     await request(app).post(`/api/oos-investigations/${investigationId}/assign-lead`).set("x-test-user-id", qaUser.id).send({ leadInvestigatorUserId: qaUser.id });
     const res = await request(app)
       .post(`/api/oos-investigations/${investigationId}/close`)
@@ -131,6 +133,27 @@ describeIfDb("OOS investigation routes", () => {
     expect(res.body.disposition).toBe("REJECTED");
     const [lot] = await db.select().from(schema.lots).where(eq(schema.lots.id, lotId));
     expect(lot.quarantineStatus).toBe("REJECTED");
+    // NC must be auto-created and linked back to this OOS
+    const ncs = await db.select().from(schema.nonconformances).where(eq(schema.nonconformances.sourceId, investigationId));
+    expect(ncs).toHaveLength(1);
+    expect(ncs[0].type).toBe("OOS");
+    expect(ncs[0].severity).toBe("MAJOR");
+    expect(ncs[0].sourceType).toBe("OOS");
+  });
+
+  it("POST .../close with APPROVED disposition does not create NC", async () => {
+    await request(app).post(`/api/oos-investigations/${investigationId}/assign-lead`).set("x-test-user-id", qaUser.id).send({ leadInvestigatorUserId: qaUser.id });
+    await request(app)
+      .post(`/api/oos-investigations/${investigationId}/close`)
+      .set("x-test-user-id", qaUser.id)
+      .send({
+        disposition: "APPROVED",
+        dispositionReason: "Retest passed, lab error confirmed",
+        leadInvestigatorUserId: qaUser.id,
+        signaturePassword: PASS,
+      });
+    const ncs = await db.select().from(schema.nonconformances).where(eq(schema.nonconformances.sourceId, investigationId));
+    expect(ncs).toHaveLength(0);
   });
 
   it("POST .../close with wrong password returns 401 and leaves investigation OPEN", async () => {
