@@ -411,9 +411,6 @@ export const bprDeviations = pgTable("erp_bpr_deviations", {
   scientificRationale: text("scientific_rationale"),
   reportedBy: text("reported_by"),
   reportedAt: timestamp("reported_at"),
-  reviewedBy: text("reviewed_by"),
-  reviewedAt: timestamp("reviewed_at"),
-  signatureOfReviewer: text("signature_of_reviewer"),
   signatureId: uuid("signature_id").references(() => electronicSignatures.id),
   createdAt: timestamp("created_at").defaultNow(),
 });
@@ -995,6 +992,8 @@ export const auditActionEnum = z.enum([
   "EM_SITE_CREATED",
   "EM_RESULT_ENTERED",
   "EM_EXCURSION_CREATED",
+  // R-08 cleanup
+  "BPR_DEVIATION_SIGNED",
 ]);
 export type AuditAction = z.infer<typeof auditActionEnum>;
 

@@ -198,6 +198,19 @@ describeIfDb("R-08 — BPR hardening", () => {
       // 200 means it transitioned — cleaning gate passed
       expect(res.status).toBe(200);
     });
+
+    it("blocks PUT status=COMPLETED when cleaningLogId is NULL", async () => {
+      const { bprId } = await seedBpr({ withCleaningLog: false });
+      await seedReconciliation(bprId);
+
+      const res = await request(app)
+        .put(`/api/batch-production-records/${bprId}`)
+        .set("x-test-user-id", qaId)
+        .send({ status: "COMPLETED" });
+
+      expect(res.status).toBe(409);
+      expect(res.body.code).toBe("CLEANING_LOG_MISSING");
+    });
   });
 
   // ── Deviation sign-off endpoint ───────────────────────────────────────────
