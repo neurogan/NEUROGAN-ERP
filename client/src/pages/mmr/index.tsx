@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { SignatureCeremony } from "@/components/SignatureCeremony";
@@ -22,7 +23,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Trash2, ArrowUp, ArrowDown } from "lucide-react";
+import { Plus, Trash2, ArrowUp, ArrowDown, ExternalLink } from "lucide-react";
 import type { MmrWithSteps, Product, RecipeWithDetails, Equipment } from "@shared/schema";
 
 // ── Status badge ──────────────────────────────────────────────────────────────
@@ -573,6 +574,8 @@ function MmrDetail({
   mmr: MmrWithSteps;
   onRevised: (newMmr: MmrWithSteps) => void;
 }) {
+  const [, setLocation] = useLocation();
+
   return (
     <div className="flex-1 overflow-y-auto p-6">
       <div className="flex items-start justify-between mb-4">
@@ -582,6 +585,14 @@ function MmrDetail({
             Version {mmr.version} · <StatusBadge status={mmr.status} />
             {mmr.approvedByName && ` · Approved by ${mmr.approvedByName}`}
           </p>
+          <button
+            type="button"
+            className="flex items-center gap-1 text-xs text-blue-600 hover:underline mt-1"
+            onClick={() => setLocation(`/inventory?product=${mmr.productId}`)}
+          >
+            <ExternalLink className="h-3 w-3" />
+            View Product in Inventory
+          </button>
         </div>
       </div>
 
@@ -616,6 +627,11 @@ export default function MmrPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [createForProductId, setCreateForProductId] = useState<string | undefined>();
 
+  // Read URL params: ?mmrId= selects a specific MMR; ?productId= selects the MMR for that product
+  const urlParams = new URLSearchParams(window.location.hash.split("?")[1] || "");
+  const urlMmrId = urlParams.get("mmrId");
+  const urlProductId = urlParams.get("productId");
+
   const { data: allMmrs, isLoading: mmrsLoading } = useQuery<MmrWithSteps[]>({
     queryKey: ["/api/mmrs"],
   });
@@ -623,6 +639,24 @@ export default function MmrPage() {
   const { data: products } = useQuery<Product[]>({
     queryKey: ["/api/products"],
   });
+
+  // Pre-select from URL params once data loads
+  useEffect(() => {
+    if (!allMmrs || selectedMmrId) return;
+    if (urlMmrId) {
+      const mmr = allMmrs.find(m => m.id === urlMmrId);
+      if (mmr) setSelectedMmrId(mmr.id);
+    } else if (urlProductId) {
+      // Pick the best MMR for the product (APPROVED > DRAFT > SUPERSEDED, then highest version)
+      const productMmrs = allMmrs.filter(m => m.productId === urlProductId);
+      const statusPriority = (s: string) => s === "APPROVED" ? 2 : s === "DRAFT" ? 1 : 0;
+      const best = productMmrs.sort((a, b) => {
+        const pd = statusPriority(b.status) - statusPriority(a.status);
+        return pd !== 0 ? pd : b.version - a.version;
+      })[0];
+      if (best) setSelectedMmrId(best.id);
+    }
+  }, [allMmrs, urlMmrId, urlProductId]);
 
   const finishedGoods = (products ?? []).filter((p) => p.category === "FINISHED_GOOD");
 

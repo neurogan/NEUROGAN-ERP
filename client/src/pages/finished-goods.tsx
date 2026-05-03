@@ -704,7 +704,7 @@ export default function FinishedGoods() {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => setLocation("/operations/mmr")}
+                    onClick={() => setLocation(`/operations/mmr?mmrId=${approvedMmr.id}`)}
                     data-testid="button-view-mmr"
                   >
                     View MMR
