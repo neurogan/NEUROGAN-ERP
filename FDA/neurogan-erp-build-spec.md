@@ -10,7 +10,7 @@
 
 **Date:** 2026-04-21
 **Spec author:** Frederik Hejlskov
-**QA signatory (platform + every module IQ/OQ/PQ):** Carrie Treat, QC/PCQI
+**QA signatory (platform + every module IQ/OQ/PQ):** Head of QC
 **Engineering owner:** Frederik + 1 owner + AI assistance
 
 ---
@@ -45,7 +45,7 @@ These decisions are frozen for Release 1. Changing any of them requires a change
 |---|---|---|
 | D-01 | **Session-based auth** via `passport-local` + `express-session` + `connect-pg-simple` (already in `package.json`; not yet mounted) | Simplest legally-defensible auth for a server-rendered + SPA hybrid; deferring JWT until a mobile shop-floor app exists. |
 | D-02 | **Passwords hashed with `argon2id`** (argon2 npm package). Minimum 12 chars; complexity + 90-day rotation + lockout-on-5. | NIST 800-63B current guidance, and defeats the cheap-GPU threat model. |
-| D-03 | **QA sign-off on every platform + module IQ/OQ/PQ:** Carrie Treat, QC/PCQI | Single accountable QA signer simplifies Part 11 attribution and training gates. |
+| D-03 | **QA sign-off on every platform + module IQ/OQ/PQ:** Head of QC | Single accountable QA signer simplifies Part 11 attribution and training gates. |
 | D-04 | **Module order follows the FDA clock** — Foundation → Receiving → COA/Lab → Equipment/Cleaning → Labeling → Complaints/SAER → Specifications. Phase 2 = MMR + BPR + Finished-Goods QC. | Matches response-letter commitments; CAPA due dates drive sequence. |
 | D-05 | **Paper-parallel rollout**: no ERP module replaces paper as legal record until module IQ/OQ/PQ is signed and one full operational cycle has run in parallel. | §111.605 retention + FDA's stance on self-validated custom software. |
 | D-06 | **Release 1 scope** = Foundation + 6 modules above. Release 2 = Stability, EM, CAPA, Training gate, QBO, Extensiv automation. | 180-day capacity with 1.2 FTE + AI. |
@@ -138,7 +138,7 @@ A ticket is not done until **all** of the following are true. PR merge is blocke
 
 Goal: turn the current codebase into a platform that can truthfully claim Part 11 identity, attribution, signature, and audit.
 
-No module in Phase 1 may begin until **all** Phase 0 tickets are merged, platform IQ/OQ/PQ is signed by Carrie Treat, and the platform validation summary report (VSR-PLATFORM) is on file.
+No module in Phase 1 may begin until **all** Phase 0 tickets are merged, platform IQ/OQ/PQ is signed by Head of QC, and the platform validation summary report (VSR-PLATFORM) is on file.
 
 ### 4.0 F-00 — Repo hygiene and working rules (AGENTS.md, CI, scripts)
 
@@ -397,7 +397,7 @@ export const electronicSignatures = pgTable("erp_electronic_signatures", {
 - `GET /api/signatures?entityType=&entityId=` — ADMIN, QA.
 
 **UI**
-- Shared `<SignatureCeremony>` dialog component. Inputs: password, optional commentary. Shows the manifestation preview ("I, **Carrie Treat (QC / PCQI)**, hereby ___ this record on ___.") before submit. Submit button disabled until password is non-empty.
+- Shared `<SignatureCeremony>` dialog component. Inputs: password, optional commentary. Shows the manifestation preview ("I, **Head of QC (QC / PCQI)**, hereby ___ this record on ___.") before submit. Submit button disabled until password is non-empty.
 - On every regulated record page, signatures are listed under a "Signatures" tab with name, title-at-signing, meaning, time.
 
 **Acceptance**
@@ -566,7 +566,7 @@ export const lotTransitions: Transition<LotStatus>[] = [
 
 ### 4.10 F-10 — Platform Validation Package (URS, FRS, DS, IQ, OQ, PQ, VSR)
 
-**Traceability:** GAMP 5 Category 5 mandatory deliverable. Signed by Carrie Treat.
+**Traceability:** GAMP 5 Category 5 mandatory deliverable. Signed by Head of QC.
 **Preconditions:** F-01 through F-09.
 
 **Scope**
@@ -575,10 +575,10 @@ export const lotTransitions: Transition<LotStatus>[] = [
 - Draft OQ: the Vitest + supertest + Playwright suites already written.
 - Draft PQ: a 5-working-day shadow run on non-production data, covering login, role changes, audit export, record-lock attempt, signature ceremony, rollback.
 - Traceability Matrix: obs → URS → FRS → DS → OQ tests.
-- Validation Summary Report (VSR-PLATFORM): Carrie Treat signs.
+- Validation Summary Report (VSR-PLATFORM): Head of QC signs.
 
 **Acceptance**
-- VSR-PLATFORM signed and dated by Carrie Treat.
+- VSR-PLATFORM signed and dated by Head of QC.
 - Phase 1 modules can now begin.
 
 ---
@@ -652,7 +652,7 @@ Tickets in this module:
 
 #### R-01-08 — Receiving IQ/OQ/PQ
 
-- Run module validation per `validation-scaffold.md`. Carrie Treat signs VSR-R-01.
+- Run module validation per `validation-scaffold.md`. Head of QC signs VSR-R-01.
 
 **Module go-live rule (D-05):** Until VSR-R-01 signed, paper receiving log continues as legal record; ERP runs in parallel.
 
@@ -855,12 +855,12 @@ Not expanded in this spec. Tickets will follow the same shape:
 
 All of the following are true:
 
-1. VSR-PLATFORM (F-10) signed by Carrie Treat.
-2. VSR-R-01 through VSR-R-06 signed by Carrie Treat.
+1. VSR-PLATFORM (F-10) signed by Head of QC.
+2. VSR-R-01 through VSR-R-06 signed by Head of QC.
 3. Paper-parallel cycle completed for each module (one full operating cycle, with the audit trail review clean).
 4. Training records exist for every user performing a regulated action in any of the six modules.
 5. Restore-check (F-08) clean for the most recent month.
-6. External Part 11 / GAMP 5 review (budgeted in roadmap §7) complete, with any findings closed or risk-accepted by Carrie Treat and Frederik.
+6. External Part 11 / GAMP 5 review (budgeted in roadmap §7) complete, with any findings closed or risk-accepted by Head of QC and Frederik.
 
 When all six are true, Release 1 replaces paper for the six modules as the legal record; paper is retained per §111.605. Release 2 begins.
 

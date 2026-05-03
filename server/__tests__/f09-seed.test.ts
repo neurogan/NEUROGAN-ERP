@@ -18,7 +18,7 @@ describeIfDb("F-09: seed fixtures", () => {
 
   // ── Users ──────────────────────────────────────────────────────────────────
 
-  it("seeds real users (Frederik, Steven, Carrie)", async () => {
+  it("seeds real users (Frederik, QC Manager, Carrie)", async () => {
     const rows = await db
       .select({ id: schema.users.id })
       .from(schema.users)

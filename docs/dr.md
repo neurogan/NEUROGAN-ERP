@@ -4,7 +4,7 @@
 **Version:** 1.0  
 **Effective date:** 2026-04-22  
 **Owner:** Frederik Hejlskov (Solo Developer / DBA)  
-**QA Reviewer:** Carrie Treat  
+**QA Reviewer:** Head of QC  
 **Regulatory basis:** 21 CFR §111.605 (records retention), 21 CFR Part 11 §11.10(c) (backup and recovery)
 
 ---
@@ -83,7 +83,7 @@ A restore check script (`scripts/restore-check.ts`) runs monthly via CI schedule
 | Role | Name | Contact |
 |------|------|---------|
 | Solo Developer / DBA | Frederik Hejlskov | fhv@neurogan.com |
-| QA Reviewer | Carrie Treat | *(see internal contact list)* |
+| QA Reviewer | Head of QC | *(see internal contact list)* |
 | Railway support | — | https://railway.app/help |
 
 ---

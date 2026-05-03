@@ -3,7 +3,7 @@
 **Status:** Draft, pending user review
 **Date:** 2026-04-27
 **Branch:** `ticket/r-04-labeling-reconciliation` (created from `FDA-EQMS-feature-package`)
-**Owner:** Frederik (solo dev), QC stakeholder: Steven Burgueno (QC Manager)
+**Owner:** Frederik (solo dev), QC stakeholder: Head of QC
 
 ## 1. Goal
 

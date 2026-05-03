@@ -3,7 +3,7 @@
 **Status:** Draft, pending user review
 **Date:** 2026-04-25
 **Branch:** `ticket/t-08-oos-investigation` (to be created from `FDA-EQMS-feature-package`)
-**Owner:** Frederik (solo dev), QC stakeholder: Steven Burgueno (QC Manager)
+**Owner:** Frederik (solo dev), QC stakeholder: Head of QC
 
 ## 1. Goal
 

@@ -1,7 +1,7 @@
 # NEUROGAN-ERP — GAMP 5 Category 5 Validation Scaffold
 
 **System:** Neurogan-ERP (custom software; GAMP 5 Category 5).
-**Signatory (all documents below):** Steven Burgueno, QC Manager.
+**Signatory (all documents below):** Head of QC.
 **Engineering owner:** Frederik Hejlskov.
 **Target compliance:** 21 CFR Part 111 (cGMP for dietary supplements), 21 CFR Part 11 (electronic records / e-signatures).
 **Version:** 0.1 (scaffold). Populated as tickets from `neurogan-erp-build-spec.md` are completed.
@@ -10,7 +10,7 @@
 
 ## How to use this scaffold
 
-Every ticket in the build spec writes or updates at least one row in §2 (URS), §3 (FRS), §4 (DS), and §7 (Traceability). The ticket's PR must include those appends. At module close, the PQ protocol is executed and the VSR (§9) is signed by Steven Burgueno.
+Every ticket in the build spec writes or updates at least one row in §2 (URS), §3 (FRS), §4 (DS), and §7 (Traceability). The ticket's PR must include those appends. At module close, the PQ protocol is executed and the VSR (§9) is signed by Head of QC.
 
 Convention for traceability ids:
 - URS: `URS-<TICKET>-<NN>` e.g. `URS-F-02-01`
@@ -247,7 +247,7 @@ One row per URS. Fill as tickets close. Row is complete when all five columns re
 ```
 Title: Installation Qualification — <Module / Platform>
 Protocol ID: IQ-<MODULE>-001
-Approved by: Steven Burgueno, QC Manager — date, signature
+Approved by: Head of QC — date, signature
 Executed by: <name> — date
 Reviewed by: <name> — date
 
@@ -270,7 +270,7 @@ Acceptance criteria: each step recorded with evidence; any deviation raised to c
 
 Executed result: <attach evidence bundle>
 Disposition: <PASS / FAIL / PASS WITH DEVIATION>
-QA sign-off: Steven Burgueno — date, signature
+QA sign-off: Head of QC — date, signature
 ```
 
 ### 8.2 OQ Protocol (template)
@@ -278,7 +278,7 @@ QA sign-off: Steven Burgueno — date, signature
 ```
 Title: Operational Qualification — <Module / Platform>
 Protocol ID: OQ-<MODULE>-001
-Approved by: Steven Burgueno, QC Manager — date, signature
+Approved by: Head of QC — date, signature
 
 Scope: Verify the system's functions perform as specified in the FRS under
        challenge.
@@ -289,7 +289,7 @@ Test dataset: pnpm seed:test + module fixtures per seed-fixtures-plan.md.
 Test cases: (one row per URS)
   OQ-<id>  URS ref  Procedure   Expected    Actual    Pass/Fail   Deviation
 
-Sign-off: Steven Burgueno — date, signature
+Sign-off: Head of QC — date, signature
 ```
 
 ### 8.3 PQ Protocol (template)
@@ -297,7 +297,7 @@ Sign-off: Steven Burgueno — date, signature
 ```
 Title: Performance Qualification — <Module / Platform>
 Protocol ID: PQ-<MODULE>-001
-Approved by: Steven Burgueno, QC Manager — date, signature
+Approved by: Head of QC — date, signature
 
 Scope: Demonstrate the system performs its intended regulated role under
        real production load for a defined shadow-run period.
@@ -320,7 +320,7 @@ Procedure:
 Acceptance criteria: zero unresolved deviations; audit-trail review clean;
   paper-vs-electronic reconciliation clean.
 
-Sign-off: Steven Burgueno — date, signature
+Sign-off: Head of QC — date, signature
 ```
 
 ### 8.4 Validation Summary Report (VSR) (template)
@@ -328,7 +328,7 @@ Sign-off: Steven Burgueno — date, signature
 ```
 Title: Validation Summary Report — <Module / Platform>
 Report ID: VSR-<MODULE>
-Signatory: Steven Burgueno, QC Manager — date, signature
+Signatory: Head of QC — date, signature
 
 1. System description (1 paragraph)
 2. Validation approach (GAMP 5 Cat 5, IQ/OQ/PQ, risk-based rationale)
@@ -341,7 +341,7 @@ Signatory: Steven Burgueno, QC Manager — date, signature
 9. Conclusion: FIT FOR INTENDED USE / NOT FIT / FIT WITH CONSTRAINTS
 10. Authorization to replace paper as legal record (explicit statement; date of cutover)
 
-QA signature:    Steven Burgueno, QC Manager
+QA signature:    Head of QC
 Engineering:     Frederik Hejlskov
 ```
 
@@ -351,7 +351,7 @@ Engineering:     Frederik Hejlskov
 
 | Section | Revision | Approver | Date | Signature |
 |---|---|---|---|---|
-| Scaffold v0.1 | Initial | Steven Burgueno | _pending_ | _pending_ |
+| Scaffold v0.1 | Initial | Head of QC | _pending_ | _pending_ |
 | Scaffold v1.0 (post-Phase 0) | — | — | — | — |
 | VSR-PLATFORM | — | — | — | — |
 | VSR-R-01 (Receiving) | — | — | — | — |
@@ -367,7 +367,7 @@ Engineering:     Frederik Hejlskov
 
 | CC # | Date | Requested by | Scope | Risk class | Disposition | Approver |
 |---|---|---|---|---|---|---|
-| CC-001 | 2026-04-21 | Frederik | Initial scaffold and URS/FRS/DS set for Phase 0 and Phase 1 | Low | APPROVED | Steven Burgueno (pending) |
+| CC-001 | 2026-04-21 | Frederik | Initial scaffold and URS/FRS/DS set for Phase 0 and Phase 1 | Low | APPROVED | Head of QC (pending) |
 
 Additional change-control entries created by every PR that modifies §2–§6 of this document.
 
@@ -377,11 +377,11 @@ Additional change-control entries created by every PR that modifies §2–§6 of
 
 | Review | Frequency | Owner | Evidence |
 |---|---|---|---|
-| Audit trail review | Weekly (first 90 days), monthly thereafter | Steven Burgueno | Signed audit-review log |
-| Role review | Quarterly | Steven Burgueno | Current `erp_user_roles` export vs. org chart |
+| Audit trail review | Weekly (first 90 days), monthly thereafter | Head of QC | Signed audit-review log |
+| Role review | Quarterly | Head of QC | Current `erp_user_roles` export vs. org chart |
 | Password policy review | Annual | Frederik | Policy diff vs. NIST 800-63B current edition |
 | DR restore test | Monthly | Frederik | `restore-check.ts` run log |
-| Validation package review | Annual | Steven Burgueno | VSR revisions |
+| Validation package review | Annual | Head of QC | VSR revisions |
 
 ---
 
