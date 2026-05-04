@@ -239,6 +239,13 @@
       "when": 1778112000000,
       "tag": "0033_r08_cleanup",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1778284800000,
+      "tag": "0034_validation_package_replacement",
+      "breakpoints": true
     }
   ]
 }
