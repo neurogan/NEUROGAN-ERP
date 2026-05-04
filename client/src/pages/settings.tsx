@@ -738,9 +738,9 @@ export default function Settings() {
         {activeTab === "settings" && <SettingsContent />}
         {activeTab === "locations" && <LocationsContent />}
         {activeTab === "sku-manager" && <SkuManagerEmbed />}
-        {activeTab === "users" && isAdmin && <UsersEmbed />}
-        {activeTab === "validation" && <ValidationEmbed />}
-        {activeTab === "labs" && (isAdmin || isQa) && <LabsEmbed />}
+        {activeTab === "users" && isAdmin && <div data-tour="settings-users"><UsersEmbed /></div>}
+        {activeTab === "validation" && <div data-tour="settings-validation"><ValidationEmbed /></div>}
+        {activeTab === "labs" && (isAdmin || isQa) && <div data-tour="settings-labs"><LabsEmbed /></div>}
         {activeTab === "approved-materials" && (isAdmin || isQa) && <ApprovedMaterialsEmbed />}
       </div>
     </div>

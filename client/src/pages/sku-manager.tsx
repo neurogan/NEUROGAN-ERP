@@ -209,7 +209,7 @@ export default function SkuManager() {
             {products.length} SKUs
           </Badge>
         </div>
-        <Button size="sm" onClick={() => setCreateOpen(true)} data-testid="button-new-sku">
+        <Button size="sm" onClick={() => setCreateOpen(true)} data-testid="button-new-sku" data-tour="sku-new-button">
           <Plus className="h-4 w-4 mr-1" />
           New SKU
         </Button>
@@ -251,7 +251,7 @@ export default function SkuManager() {
       </div>
 
       {/* Table */}
-      <div className="flex-1 overflow-auto">
+      <div className="flex-1 overflow-auto" data-tour="sku-list">
         {isLoading ? (
           <div className="p-6 space-y-2">
             {[1, 2, 3, 4, 5].map(i => (

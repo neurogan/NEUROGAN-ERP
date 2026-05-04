@@ -103,7 +103,9 @@ export default function EquipmentPage() {
         <h1 className="text-xl font-semibold tracking-tight">Equipment</h1>
       </div>
 
-      <SubTabNav activeTab={activeTab} />
+      <div data-tour="equipment-tabs">
+        <SubTabNav activeTab={activeTab} />
+      </div>
 
       {activeTab === "master" && <MasterTab />}
       {activeTab === "calibration" && <CalibrationTab />}
@@ -191,7 +193,7 @@ function MasterTab() {
         )}
       </div>
 
-      <div className="rounded-md border border-border" data-testid="table-equipment">
+      <div className="rounded-md border border-border" data-testid="table-equipment" data-tour="equipment-list">
         <Table>
           <TableHeader>
             <TableRow>

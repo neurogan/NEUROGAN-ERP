@@ -796,7 +796,7 @@ function ProductionSteps({
   });
 
   return (
-    <Card data-testid="section-production-steps">
+    <Card data-testid="section-production-steps" data-tour="production-steps">
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
           <CardTitle className="text-sm font-semibold flex items-center gap-2">
@@ -1059,7 +1059,7 @@ function Deviations({
   });
 
   return (
-    <Card data-testid="section-deviations">
+    <Card data-testid="section-deviations" data-tour="production-deviations">
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
           <CardTitle className="text-sm font-semibold flex items-center gap-2">
@@ -1770,7 +1770,7 @@ function QcReview({
   if (!isReviewable && !isReviewed) return null;
 
   return (
-    <Card data-testid="section-qc-review">
+    <Card data-testid="section-qc-review" data-tour="production-qc-release">
       <CardHeader className="pb-3">
         <CardTitle className="text-sm font-semibold flex items-center gap-2">
           <Shield className="h-4 w-4 text-muted-foreground" />

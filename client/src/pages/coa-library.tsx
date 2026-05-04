@@ -1194,6 +1194,7 @@ export default function CoaLibrary() {
                 size="sm"
                 onClick={() => setUploadOpen(true)}
                 data-testid="button-upload-coa"
+                data-tour="coa-upload-button"
               >
                 <Upload className="h-3.5 w-3.5 mr-1.5" />
                 Upload COA
@@ -1242,7 +1243,7 @@ export default function CoaLibrary() {
         </div>
 
         {/* List */}
-        <div className="flex-1 overflow-y-auto" data-testid="list-coa">
+        <div className="flex-1 overflow-y-auto" data-testid="list-coa" data-tour="coa-list">
           {isLoading ? (
             <div className="p-4 space-y-3">
               {Array.from({ length: 6 }).map((_, i) => (

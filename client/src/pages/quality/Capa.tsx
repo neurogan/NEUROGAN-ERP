@@ -357,7 +357,7 @@ function CapaDetail({ capaId, onBack, canMutate }: { capaId: string; onBack: () 
       </div>
 
       {/* Effectiveness checks */}
-      <div className="border rounded-md p-4 space-y-3">
+      <div className="border rounded-md p-4 space-y-3" data-tour="capa-effectiveness-check">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-medium">Effectiveness Check</h3>
           {canMutate && capa.status !== "CLOSED" && allActionsComplete && capa.effectivenessChecks.length === 0 && (
@@ -705,7 +705,7 @@ export default function CapaPage() {
           ))}
         </div>
         {view === "nc-list" && (
-          <Button size="sm" onClick={() => { setError(null); setShowNewNc(true); }}>+ Open NC</Button>
+          <Button size="sm" onClick={() => { setError(null); setShowNewNc(true); }} data-tour="capa-new-nc-button">+ Open NC</Button>
         )}
       </div>
 
@@ -724,7 +724,7 @@ export default function CapaPage() {
           {isLoading ? (
             <div className="text-sm text-muted-foreground">Loading…</div>
           ) : (
-            <div className="border rounded-md overflow-hidden">
+            <div className="border rounded-md overflow-hidden" data-tour="capa-nc-list">
               <table className="w-full text-sm">
                 <thead className="bg-muted/50">
                   <tr>
@@ -762,7 +762,7 @@ export default function CapaPage() {
 
       {/* CAPA List */}
       {view === "capa-list" && (
-        <div className="border rounded-md overflow-hidden">
+        <div className="border rounded-md overflow-hidden" data-tour="capa-capa-list">
           <table className="w-full text-sm">
             <thead className="bg-muted/50">
               <tr>

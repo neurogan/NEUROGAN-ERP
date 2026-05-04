@@ -98,7 +98,7 @@ export default function ComponentSpecifications() {
 
   return (
     <div className="space-y-4">
-      <Table data-testid="table-component-specs">
+      <Table data-testid="table-component-specs" data-tour="component-specs-list">
         <TableHeader>
           <TableRow>
             <TableHead>Product Name</TableHead>
@@ -143,6 +143,7 @@ export default function ComponentSpecifications() {
                     <Button
                       size="sm"
                       variant="outline"
+                      data-tour="component-specs-new-button"
                       onClick={(e) => {
                         e.stopPropagation();
                         createMutation.mutate(item.productId);

@@ -153,7 +153,7 @@ export function LineClearanceTab() {
   }, [clearanceQueries]);
 
   return (
-    <div className="space-y-4" data-testid="panel-line-clearance-tab">
+    <div className="space-y-4" data-testid="panel-line-clearance-tab" data-tour="equipment-line-clearance">
       <div className="flex items-center justify-between">
         <p className="text-xs text-muted-foreground">
           Recent line clearances across all active equipment. Each clearance is a

@@ -32,7 +32,7 @@ export default function LabelingPage() {
   return (
     <div className="space-y-4">
       <Tabs value={activeTab} onValueChange={(v) => setLocation(`/quality/labeling/${v}`)}>
-        <TabsList>
+        <TabsList data-tour="labeling-tabs">
           {TABS.map((t) => (
             <TabsTrigger key={t.value} value={t.value} data-testid={`tab-labeling-${t.value}`}>
               {t.label}

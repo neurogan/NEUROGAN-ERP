@@ -581,7 +581,7 @@ function MmrDetail({
       <div className="flex items-start justify-between mb-4">
         <div>
           <h2 className="text-lg font-semibold">{mmr.productName}</h2>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-sm text-muted-foreground" data-tour="mmr-version-badge">
             Version {mmr.version} · <StatusBadge status={mmr.status} />
             {mmr.approvedByName && ` · Approved by ${mmr.approvedByName}`}
           </p>
@@ -589,6 +589,7 @@ function MmrDetail({
             type="button"
             className="flex items-center gap-1 text-xs text-blue-600 hover:underline mt-1"
             onClick={() => setLocation(`/inventory?product=${mmr.productId}`)}
+            data-tour="mmr-inventory-link"
           >
             <ExternalLink className="h-3 w-3" />
             View Product in Inventory
@@ -596,7 +597,7 @@ function MmrDetail({
         </div>
       </div>
 
-      <Tabs defaultValue="formula">
+      <Tabs defaultValue="formula" data-tour="mmr-steps">
         <TabsList>
           <TabsTrigger value="formula">Formula</TabsTrigger>
           <TabsTrigger value="steps">Process Steps</TabsTrigger>
@@ -689,7 +690,7 @@ export default function MmrPage() {
         <div className="p-3 border-b">
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">MMR Library</p>
         </div>
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto" data-tour="mmr-list">
           {mmrsLoading && (
             <div className="p-3 text-sm text-muted-foreground">Loading…</div>
           )}

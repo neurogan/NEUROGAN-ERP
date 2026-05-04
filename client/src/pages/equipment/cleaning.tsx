@@ -155,7 +155,7 @@ export function CleaningTab() {
   }, [logQueries]);
 
   return (
-    <div className="space-y-4" data-testid="panel-cleaning-tab">
+    <div className="space-y-4" data-testid="panel-cleaning-tab" data-tour="equipment-cleaning">
       <div className="flex items-center justify-between">
         <p className="text-xs text-muted-foreground">
           Recent cleaning logs across all active equipment. New logs require two

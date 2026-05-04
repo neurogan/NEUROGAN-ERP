@@ -716,7 +716,7 @@ function MaterialsTab({ initialSelectedId, initialHighlightLotId }: { initialSel
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto" data-tour="inventory-materials-list">
           {isLoading ? (
             <div className="p-4 space-y-3">
               {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
@@ -741,7 +741,7 @@ function MaterialsTab({ initialSelectedId, initialHighlightLotId }: { initialSel
       </div>
 
       {/* Right panel */}
-      <div className="flex-1 min-w-0 overflow-auto">
+      <div className="flex-1 min-w-0 overflow-auto" data-tour="inventory-lot-quantities">
         {selectedItem ? (
           <div className="p-6">
             <MaterialDetailPanel item={selectedItem} onDeleted={() => setSelectedId(null)} highlightLotId={initialHighlightLotId} />
@@ -2241,6 +2241,7 @@ export default function Inventory() {
           onClick={() => inventoryData && exportCSV(inventoryData)}
           disabled={!inventoryData}
           data-testid="button-export-csv"
+          data-tour="inventory-export"
         >
           <Download className="h-4 w-4 mr-1" />
           Export CSV
@@ -2248,7 +2249,7 @@ export default function Inventory() {
       </div>
 
       {/* Browser-style tabs */}
-      <div className="px-6 pt-2 shrink-0 bg-muted/30 border-b">
+      <div className="px-6 pt-2 shrink-0 bg-muted/30 border-b" data-tour="inventory-tabs">
         <div className="flex gap-0 -mb-px">
           <button
             onClick={() => setActiveTab("materials")}

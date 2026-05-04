@@ -101,7 +101,7 @@ export default function SopsPage() {
     <div className="space-y-4">
       {canManage && (
         <div className="flex justify-end">
-          <Button size="sm" onClick={() => setCreateOpen(true)} data-testid="button-create-sop">
+          <Button size="sm" onClick={() => setCreateOpen(true)} data-testid="button-create-sop" data-tour="sops-new-button">
             + New SOP
           </Button>
         </div>
@@ -114,7 +114,7 @@ export default function SopsPage() {
       )}
 
       {!isLoading && sops !== undefined && (
-        <Table data-testid="table-sops">
+        <Table data-testid="table-sops" data-tour="sops-list">
           <TableHeader>
             <TableRow>
               <TableHead>Code</TableHead>
@@ -149,6 +149,7 @@ export default function SopsPage() {
                       variant="outline"
                       onClick={() => setPendingAction({ sop, meaning: "SOP_APPROVED" })}
                       data-testid={`button-approve-sop-${sop.id}`}
+                      data-tour="sops-approve-button"
                     >
                       Approve
                     </Button>

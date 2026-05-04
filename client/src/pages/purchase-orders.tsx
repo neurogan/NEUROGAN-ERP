@@ -184,6 +184,7 @@ function DetailPanel({
                 size="sm"
                 onClick={onReceive}
                 data-testid="button-receive-items"
+                data-tour="po-receive-button"
               >
                 <PackageCheck className="h-3.5 w-3.5 mr-1" />
                 Receive Items
@@ -1486,6 +1487,7 @@ export default function PurchaseOrders({ initialSelectedId, initialOpenCreate, i
           size="sm"
           onClick={() => setCreateSheetOpen(true)}
           data-testid="button-create-po"
+          data-tour="po-new-button"
         >
           <Plus className="h-4 w-4 mr-1" />
           Create PO
@@ -1515,7 +1517,7 @@ export default function PurchaseOrders({ initialSelectedId, initialOpenCreate, i
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto">
+          <div className="flex-1 overflow-y-auto" data-tour="po-list">
             {isLoading ? (
               <div className="p-4 space-y-3">
                 {[1, 2, 3, 4].map((i) => (
