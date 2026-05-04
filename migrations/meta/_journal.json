@@ -253,6 +253,13 @@
       "when": 1746403200000,
       "tag": "0035_drop_r01_validation_docs",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1746489600000,
+      "tag": "0036_drop_r2_validation_docs",
+      "breakpoints": true
     }
   ]
 }
