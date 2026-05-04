@@ -239,13 +239,13 @@ export default function Suppliers() {
     <div className="p-6 space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold" data-testid="text-page-title">Suppliers</h1>
-        <Button size="sm" onClick={handleAdd} data-testid="button-add-supplier">
+        <Button size="sm" onClick={handleAdd} data-testid="button-add-supplier" data-tour="suppliers-new-button">
           <Plus className="h-4 w-4 mr-1" />
           Add Supplier
         </Button>
       </div>
 
-      <Card>
+      <Card data-tour="suppliers-list">
         <CardContent className="p-0">
           {isLoading ? (
             <div className="p-4 space-y-2">

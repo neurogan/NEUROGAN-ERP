@@ -139,13 +139,13 @@ export default function RetainedSamplesPage() {
           ))}
         </div>
         {canMutate && (
-          <Button size="sm" onClick={() => { setError(null); setShowAddModal(true); }}>
+          <Button size="sm" onClick={() => { setError(null); setShowAddModal(true); }} data-tour="retained-samples-add-button">
             + Add sample
           </Button>
         )}
       </div>
 
-      <div className="border rounded-md overflow-hidden">
+      <div className="border rounded-md overflow-hidden" data-tour="retained-samples-list">
         <table className="w-full text-sm">
           <thead className="bg-muted/50">
             <tr>
@@ -204,6 +204,7 @@ export default function RetainedSamplesPage() {
                             size="sm"
                             variant="outline"
                             onClick={() => setDestroyConfirmId(s.id)}
+                            data-tour="retained-samples-destroy-button"
                           >
                             Mark destroyed
                           </Button>

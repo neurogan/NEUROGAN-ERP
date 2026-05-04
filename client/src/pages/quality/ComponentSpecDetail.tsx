@@ -1048,7 +1048,7 @@ export default function ComponentSpecDetail() {
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
           Version History
         </h2>
-        <div className="rounded-md border divide-y" data-testid="version-history">
+        <div className="rounded-md border divide-y" data-testid="version-history" data-tour="component-specs-version-badge">
           {sortedVersions.map((v) => {
             const vWithAttrs = spec.versions.find((sv) => sv.id === v.id) as ComponentSpecVersionWithAttributes | undefined;
             return (

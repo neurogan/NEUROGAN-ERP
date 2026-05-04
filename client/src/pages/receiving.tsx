@@ -607,7 +607,7 @@ function ReceivingDetail({
   const showQcSection = isPendingQc || isReviewed;
 
   return (
-    <div className="p-5 space-y-6 overflow-y-auto h-full">
+    <div className="p-5 space-y-6 overflow-y-auto h-full" data-tour="receiving-detail">
       {/* Header */}
       <div>
         <div className="flex items-center gap-3 mb-2">
@@ -635,7 +635,7 @@ function ReceivingDetail({
           )}
           {/* Z1.4 sampling plan */}
           {record.qcWorkflowType === "FULL_LAB_TEST" && record.samplingPlan && (
-            <div className="rounded-md border border-border bg-muted/30 p-3 space-y-1">
+            <div className="rounded-md border border-border bg-muted/30 p-3 space-y-1" data-tour="receiving-sampling-plan">
               <div className="text-xs font-medium text-foreground">Z1.4 Sampling Plan — AQL 2.5</div>
               <div className="grid grid-cols-3 gap-2 text-xs text-muted-foreground">
                 <div>
@@ -699,12 +699,14 @@ function ReceivingDetail({
       <Separator />
 
       {/* COA Status */}
-      <CoaStatusSection lotId={record.lotId} receivingRecordId={record.id} />
+      <div data-tour="receiving-coa">
+        <CoaStatusSection lotId={record.lotId} receivingRecordId={record.id} />
+      </div>
 
       <Separator />
 
       {/* Visual Inspection */}
-      <div>
+      <div data-tour="receiving-visual-exam">
         <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
           <ClipboardCheck className="h-4 w-4 text-muted-foreground" />
           Visual Inspection
@@ -819,7 +821,7 @@ function ReceivingDetail({
       {showQcSection && (
         <>
           <Separator />
-          <div>
+          <div data-tour="receiving-qc-review">
             <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
               <Shield className="h-4 w-4 text-muted-foreground" />
               QC Review
@@ -1022,7 +1024,7 @@ export default function Receiving() {
 
           {/* Status filter */}
           <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="h-8 text-sm" data-testid="select-status-filter">
+            <SelectTrigger className="h-8 text-sm" data-testid="select-status-filter" data-tour="receiving-status-filter">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -1038,7 +1040,7 @@ export default function Receiving() {
         </div>
 
         {/* List */}
-        <div className="flex-1 overflow-y-auto" data-testid="list-receiving">
+        <div className="flex-1 overflow-y-auto" data-testid="list-receiving" data-tour="receiving-list">
           {isLoading ? (
             <div className="p-4 space-y-3">
               {Array.from({ length: 6 }).map((_, i) => (

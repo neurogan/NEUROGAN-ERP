@@ -81,7 +81,7 @@ export default function ComplaintsPage() {
             className="w-64"
           />
           <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-52">
+            <SelectTrigger className="w-52" data-tour="complaints-status-filter">
               <SelectValue placeholder="All statuses" />
             </SelectTrigger>
             <SelectContent>
@@ -95,6 +95,7 @@ export default function ComplaintsPage() {
             variant={aeOnly ? "default" : "outline"}
             size="sm"
             onClick={() => setAeOnly(!aeOnly)}
+            data-tour="complaints-ae-flag"
           >
             AE only
           </Button>
@@ -111,7 +112,7 @@ export default function ComplaintsPage() {
       {isLoading ? (
         <div className="text-sm text-muted-foreground">Loading…</div>
       ) : (
-        <Table>
+        <Table data-tour="complaints-list">
           <TableHeader>
             <TableRow>
               <TableHead>Ref</TableHead>

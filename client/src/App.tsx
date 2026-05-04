@@ -6,6 +6,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider, useTheme } from "@/components/theme-provider";
 import { Settings as SettingsIcon, Sun, Moon, LogOut } from "lucide-react";
+import { HelpButton } from "@/components/HelpButton";
 import neuroganLogo from "@/assets/neurogan-logo.jpg";
 import NotFound from "@/pages/not-found";
 import Dashboard from "@/pages/dashboard";
@@ -129,6 +130,7 @@ function TopNav() {
               <span>Settings</span>
             </button>
           </Link>
+          <HelpButton />
           <ThemeToggle />
           {user && (
             <div className="flex items-center gap-2 pl-2 border-l border-border">
