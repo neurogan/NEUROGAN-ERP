@@ -1381,7 +1381,7 @@ function BprLabelingSection({
 
       {/* Reconciliation section */}
       {(canReconcile || reconciliation) && (
-        <div>
+        <div data-tour="production-label-recon">
           <h3 className="text-sm font-semibold mb-2">Label Reconciliation</h3>
           {reconciliation ? (
             <div className="rounded-md border p-3 space-y-1 text-xs" data-testid="section-recon-summary">
@@ -1922,13 +1922,14 @@ export default function Production() {
                 setSheetOpen(true);
               }}
               data-testid="button-new-batch"
+              data-tour="production-start-button"
             >
               <Plus className="h-3.5 w-3.5 mr-1" />
               New Batch
             </Button>
           </div>
 
-          <div className="flex-1 overflow-y-auto">
+          <div className="flex-1 overflow-y-auto" data-tour="production-list">
             {batches && batches.length === 0 ? (
               <div className="p-8 text-center text-muted-foreground text-sm">
                 No batch records yet. Create your first batch.

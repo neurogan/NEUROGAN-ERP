@@ -257,7 +257,7 @@ function ProtocolsView() {
         {isQA && <Button size="sm" onClick={() => setShowCreate(true)}>+ New Protocol</Button>}
       </div>
 
-      <div className="border rounded-md overflow-hidden">
+      <div className="border rounded-md overflow-hidden" data-tour="stability-protocols-list">
         <table className="w-full text-sm">
           <thead className="bg-muted/50">
             <tr>
@@ -608,7 +608,7 @@ function BatchDetailView({ batchId, onBack }: { batchId: string; onBack: () => v
       </div>
 
       {batch.conclusion && (
-        <div className="rounded-md border border-green-200 bg-green-50 dark:bg-green-950 dark:border-green-800 p-4 space-y-1">
+        <div className="rounded-md border border-green-200 bg-green-50 dark:bg-green-950 dark:border-green-800 p-4 space-y-1" data-tour="stability-conclusion">
           <p className="text-sm font-semibold text-green-800 dark:text-green-200">Shelf-Life Conclusion</p>
           <p className="text-sm"><span className="font-medium">Supported shelf life:</span> {batch.conclusion.supportedShelfLifeMonths} months</p>
           <p className="text-sm"><span className="font-medium">Outcome:</span> {batch.conclusion.outcome}</p>
@@ -619,7 +619,7 @@ function BatchDetailView({ batchId, onBack }: { batchId: string; onBack: () => v
         </div>
       )}
 
-      <div className="space-y-3">
+      <div className="space-y-3" data-tour="stability-timepoint-results">
         <h3 className="text-sm font-semibold">Timepoints</h3>
         {batch.timepoints.map((tp) => {
           const isOverdue = !tp.completedAt && new Date(tp.scheduledAt) < new Date();
@@ -716,7 +716,7 @@ function BatchesView() {
         {isQA && <Button size="sm" onClick={() => setShowEnroll(true)}>+ Enroll Batch</Button>}
       </div>
 
-      <div className="border rounded-md overflow-hidden">
+      <div className="border rounded-md overflow-hidden" data-tour="stability-batches-list">
         <table className="w-full text-sm">
           <thead className="bg-muted/50">
             <tr>

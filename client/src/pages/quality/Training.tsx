@@ -117,7 +117,7 @@ function ProgramsView() {
         )}
       </div>
 
-      <div className="rounded border overflow-hidden">
+      <div className="rounded border overflow-hidden" data-tour="training-programs-list">
         <table className="w-full text-sm">
           <thead className="bg-muted/40">
             <tr>
@@ -441,10 +441,10 @@ function AllUsersView() {
         <p className="text-sm text-muted-foreground">
           Training compliance status for all active users across all programs.
         </p>
-        <Button size="sm" onClick={() => setAssignOpen(true)}>+ Assign Training</Button>
+        <Button size="sm" onClick={() => setAssignOpen(true)} data-tour="training-record-completion">+ Assign Training</Button>
       </div>
 
-      <div className="rounded border overflow-hidden">
+      <div className="rounded border overflow-hidden" data-tour="training-compliance-matrix">
         <table className="w-full text-sm">
           <thead className="bg-muted/40">
             <tr>

@@ -78,7 +78,7 @@ export default function ReturnsPage() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <div className="flex gap-2">
+        <div className="flex gap-2" data-tour="returns-status-filter">
           {(["", "QUARANTINE", "DISPOSED"] as const).map((s) => (
             <Button key={s} size="sm" variant={statusFilter === s ? "default" : "outline"} onClick={() => setStatusFilter(s)}>
               {s === "" ? "All" : s === "QUARANTINE" ? "Quarantine" : "Disposed"}
@@ -89,11 +89,11 @@ export default function ReturnsPage() {
           <Button size="sm" variant="outline" onClick={() => navigate("/quality/return-investigations")}>
             Investigations
           </Button>
-          <Button size="sm" onClick={() => setShowModal(true)}>Log return</Button>
+          <Button size="sm" onClick={() => setShowModal(true)} data-tour="returns-new-button">Log return</Button>
         </div>
       </div>
 
-      <div className="border rounded-md overflow-hidden">
+      <div className="border rounded-md overflow-hidden" data-tour="returns-list">
         <table className="w-full text-sm">
           <thead className="bg-muted/50">
             <tr>

@@ -538,6 +538,7 @@ function VersionDetail({ specId, version, canManage }: VersionDetailProps) {
             size="sm"
             onClick={() => setSigOpen(true)}
             data-testid={`button-approve-version-${version.id}`}
+            data-tour="fg-specs-approve-button"
           >
             Approve Version
           </Button>
@@ -675,7 +676,7 @@ export default function FinishedGoodsSpecifications() {
 
   return (
     <div className="space-y-4" data-testid="fg-specs-page">
-      <Table data-testid="table-fg-specs">
+      <Table data-testid="table-fg-specs" data-tour="fg-specs-list">
         <TableHeader>
           <TableRow>
             <TableHead className="w-8"></TableHead>
@@ -752,6 +753,7 @@ export default function FinishedGoodsSpecifications() {
                           setCreateDialogProductId(item.productId);
                         }}
                         data-testid={`button-create-spec-${item.productId}`}
+                        data-tour="fg-specs-new-button"
                       >
                         Create Spec
                       </Button>

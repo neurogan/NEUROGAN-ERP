@@ -127,7 +127,7 @@ export default function OosInvestigations() {
         <div>
           <Label>Status</Label>
           <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as "OPEN" | "RETEST_PENDING" | "CLOSED" | "ALL")}>
-            <SelectTrigger className="w-[180px]"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="w-[180px]" data-tour="oos-status-filter"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="OPEN">Open</SelectItem>
               <SelectItem value="RETEST_PENDING">Retest Pending</SelectItem>
@@ -138,6 +138,7 @@ export default function OosInvestigations() {
         </div>
       </div>
 
+      <div data-tour="oos-list">
       <Table>
         <TableHeader>
           <TableRow>
@@ -172,6 +173,7 @@ export default function OosInvestigations() {
           })}
         </TableBody>
       </Table>
+      </div>
 
       {/* Detail dialog */}
       <Dialog open={!!openInvestigationId && closeMode === "none"} onOpenChange={(o) => !o && setOpenInvestigationId(null)}>

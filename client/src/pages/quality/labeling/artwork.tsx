@@ -94,7 +94,7 @@ export default function ArtworkTab() {
           </SelectContent>
         </Select>
         {canManage && (
-          <Button size="sm" onClick={() => setCreateOpen(true)} data-testid="button-create-artwork">
+          <Button size="sm" onClick={() => setCreateOpen(true)} data-testid="button-create-artwork" data-tour="labeling-new-artwork">
             + New artwork
           </Button>
         )}
@@ -113,7 +113,7 @@ export default function ArtworkTab() {
       )}
 
       {productId && !isLoading && artworks !== undefined && (
-        <Table data-testid="table-artworks">
+        <Table data-testid="table-artworks" data-tour="labeling-artwork-list">
           <TableHeader>
             <TableRow>
               <TableHead>Version</TableHead>

@@ -196,7 +196,7 @@ export function CalibrationTab() {
   }, [activeEquipment, calibrationQueries]);
 
   return (
-    <div className="space-y-4" data-testid="panel-calibration-tab">
+    <div className="space-y-4" data-testid="panel-calibration-tab" data-tour="equipment-calibration">
       <div
         className="rounded-md border border-border"
         data-testid="table-calibration-schedules"

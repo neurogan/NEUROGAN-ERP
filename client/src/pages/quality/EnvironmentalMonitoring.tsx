@@ -432,7 +432,7 @@ function DashboardView({ onEnterResult }: { onEnterResult: () => void }) {
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-base font-semibold">Environmental Monitoring Dashboard</h2>
-        <Button size="sm" onClick={onEnterResult}>+ Enter Result</Button>
+        <Button size="sm" onClick={onEnterResult} data-tour="em-log-result">+ Enter Result</Button>
       </div>
 
       {overdue.length > 0 && (
@@ -467,7 +467,7 @@ function DashboardView({ onEnterResult }: { onEnterResult: () => void }) {
       )}
 
       {upcoming.length > 0 && (
-        <div className="space-y-2">
+        <div className="space-y-2" data-tour="em-due-today">
           <h3 className="text-sm font-medium flex items-center gap-2">
             <span className="inline-block h-2 w-2 rounded-full bg-yellow-500" />
             Due This Week ({upcoming.length})
@@ -502,7 +502,7 @@ function DashboardView({ onEnterResult }: { onEnterResult: () => void }) {
       )}
 
       {excursions.length > 0 && (
-        <div className="space-y-2">
+        <div className="space-y-2" data-tour="em-excursions">
           <h3 className="text-sm font-medium flex items-center gap-2">
             <span className="inline-block h-2 w-2 rounded-full bg-red-500" />
             Recent Excursions
@@ -740,7 +740,7 @@ function SitesView() {
         {isQA && <Button size="sm" onClick={() => setShowCreate(true)}>+ New Site</Button>}
       </div>
 
-      <div className="border rounded-md overflow-hidden">
+      <div className="border rounded-md overflow-hidden" data-tour="em-sites-list">
         <table className="w-full text-sm">
           <thead className="bg-muted/50">
             <tr>
