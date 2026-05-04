@@ -182,13 +182,13 @@ During the FDA/EQMS feature build, work flows through a long-lived integration b
 
 1. **Tickets.** Every ticket from `neurogan-erp-build-spec.md` gets its own branch `ticket/<id>-<slug>` (e.g. `ticket/F-03-audit-trail`), created from the current tip of `FDA-EQMS-feature-package`.
 2. **Ticket PRs target `FDA-EQMS-feature-package`,** not `main`.
-3. **Module PRs to `main`.** Once every ticket in a module (e.g. R-01) is merged into `FDA-EQMS-feature-package` **and** the module's VSR (`VSR-R-0x`) is signed by Carrie Treat, a PR from `FDA-EQMS-feature-package` to `main` carries that module across. Merges into `main` happen **one module at a time**, never as a single big-bang merge.
+3. **Module PRs to `main`.** Once every ticket in a module (e.g. R-01) is merged into `FDA-EQMS-feature-package` **and** the module's VSR (`VSR-R-0x`) is signed by the Head of QC, a PR from `FDA-EQMS-feature-package` to `main` carries that module across. Merges into `main` happen **one module at a time**, never as a single big-bang merge.
 4. **Weekly back-merge `main` → `FDA-EQMS-feature-package`** to keep the integration branch in sync with any hotfixes that land directly on `main`.
 5. **Release = tag `rel-v1.x.y` on `main`** immediately after each module merge. IQ log for the release includes image digest + migration SHA.
 
 ### 6.2 Environments
 
-- `FDA-EQMS-feature-package` auto-deploys to **Railway staging**. Carrie exercises the signature ceremony here against seeded-but-staging data as part of OQ/PQ.
+- `FDA-EQMS-feature-package` auto-deploys to **Railway staging**. The Head of QC exercises the signature ceremony here against seeded-but-staging data as part of OQ/PQ.
 - `main` auto-deploys to **Railway production**. This is the signed, validated record of truth.
 - Ticket branches do **not** auto-deploy. Preview deploys are not used during this build.
 
@@ -197,7 +197,7 @@ During the FDA/EQMS feature build, work flows through a long-lived integration b
 Current staffing for this build is a single developer (Frederik). The classic "two reviewers for regulated paths" rule assumes a multi-person team and is not operable today. The regulated-software controls that replace peer review are:
 
 - **CI gatekeeping.** Every PR to `FDA-EQMS-feature-package` or `main` must have a green CI run: `pnpm lint --max-warnings 0`, `pnpm typecheck` (tsc --noEmit), `pnpm test` (unit), `pnpm test:integration` (including the 6-case suite — happy / 401 / 403 / 409 / 422 / audit-row assertion — for every regulated endpoint). Branch protection blocks merges with red CI.
-- **Signature ceremony as separation-of-duties.** Regulated record state changes (APPROVE, RELEASE, SUBMIT) do not become law when a developer merges a PR. They become law when a QA-role user (Carrie Treat) completes the ceremony defined in F-04: password re-entry, meaning code, manifestation-of-identity row. The developer cannot sign a record they produced — the ceremony requires the QA role, which the developer account does not hold. This is the 21 CFR Part 11 separation-of-duties control. Peer PR approval is not.
+- **Signature ceremony as separation-of-duties.** Regulated record state changes (APPROVE, RELEASE, SUBMIT) do not become law when a developer merges a PR. They become law when a QA-role user (the Head of QC or any QA-role holder) completes the ceremony defined in F-04: password re-entry, meaning code, manifestation-of-identity row. The developer cannot sign a record they produced — the ceremony requires the QA role, which the developer account does not hold. This is the 21 CFR Part 11 separation-of-duties control. Peer PR approval is not.
 - **CODEOWNERS** remains in place for `shared/schema.ts`, `server/db-storage.ts`, `server/auth/*`, `server/audit/*`, `server/state/*`. It surfaces review-worthy PRs but does not block self-merge in a solo-dev setup (`require_code_owner_reviews: false` on branch protection).
 
 When a second developer joins, branch protection on `main` and `FDA-EQMS-feature-package` tightens: `required_approving_review_count` becomes `1` (or `2` for regulated paths), `require_code_owner_reviews` flips to `true`. Until then, CI + the signature ceremony are the gates.
@@ -228,9 +228,9 @@ When a second developer joins, branch protection on `main` and `FDA-EQMS-feature
 
 Every PR contributes to the validation package. The scaffold lives in `validation-scaffold.md` (in the FDA/ folder). When your ticket adds a URS line, the PR adds the corresponding FRS, DS, and OQ entries in the same PR. Traceability must hold.
 
-**Platform validation summary report (VSR-PLATFORM)** is signed by Carrie Treat (QC / PCQI) after Phase 0 completes. No Phase 1 module begins until that signature exists.
+**Platform validation summary report (VSR-PLATFORM)** is signed by the Head of QC after Phase 0 completes. No Phase 1 module begins until that signature exists.
 
-**Module VSRs (VSR-R-01 .. VSR-R-06)** are signed by Carrie Treat after each module's IQ/OQ/PQ. No module becomes the legal record until its VSR is signed **and** paper-parallel has run a full cycle.
+**Module VSRs (VSR-R-01 .. VSR-R-06)** are signed by the Head of QC after each module's IQ/OQ/PQ. No module becomes the legal record until its VSR is signed **and** paper-parallel has run a full cycle.
 
 This is not optional ceremony. It is how the FDA evaluates custom software under GAMP 5 Category 5.
 

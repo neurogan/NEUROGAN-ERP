@@ -8,7 +8,7 @@ const IQ_CONTENT = `# Installation Qualification — Platform (IQ-PLATFORM)
 **Version:** 1.0
 **Date:** 2026-04-23
 **Engineering Owner:** Frederik Hejlskov
-**QA Signatory:** Steven Burgueno, QC Manager
+**QA Signatory:** Head of QC
 
 ## 1. Scope
 
@@ -77,7 +77,7 @@ const OQ_CONTENT = `# Operational Qualification — Platform (OQ-PLATFORM)
 **Version:** 1.0
 **Date:** 2026-04-23
 **Engineering Owner:** Frederik Hejlskov
-**QA Signatory:** Steven Burgueno, QC Manager
+**QA Signatory:** Head of QC
 
 ## 1. Scope
 
@@ -168,7 +168,7 @@ const PQ_CONTENT = `# Performance Qualification — Platform (PQ-PLATFORM)
 **Version:** 1.0
 **Date:** 2026-04-23
 **Engineering Owner:** Frederik Hejlskov
-**QA Signatory:** Steven Burgueno, QC Manager
+**QA Signatory:** Head of QC
 
 ## 1. Scope
 
@@ -183,7 +183,7 @@ Demonstrate that the platform performs its intended regulated functions under re
 
 ## 3. Shadow-run procedure
 
-Each day Steven Burgueno performs the listed tasks in the staging environment and records the outcome.
+Each day Head of QC performs the listed tasks in the staging environment and records the outcome.
 
 | Day | Task | Pass/Fail | Notes |
 |---|---|---|---|
@@ -209,7 +209,7 @@ PQ is PASSED when all 10 tasks above are PASS and the deviation log has zero unr
 
 **Disposition:** PASS / FAIL / PASS WITH DEVIATION
 
-Executed by: Steven Burgueno, QC Manager — date: ___________`;
+Executed by: Head of QC — date: ___________`;
 
 const VSR_CONTENT = `# Validation Summary Report — Platform (VSR-PLATFORM)
 
@@ -217,7 +217,7 @@ const VSR_CONTENT = `# Validation Summary Report — Platform (VSR-PLATFORM)
 **Version:** 1.0
 **Date:** pending signature
 **Engineering Owner:** Frederik Hejlskov
-**QA Signatory:** Steven Burgueno, QC Manager
+**QA Signatory:** Head of QC
 
 ## 1. System description
 
@@ -256,14 +256,14 @@ All 8 platform URS items (URS-F-01-01 through URS-F-08-01) are covered by FRS an
 | User | Role | Training completed | Date |
 |---|---|---|---|
 | Frederik Hejlskov | ADMIN | System builder | 2026-04-23 |
-| Steven Burgueno | QA | PQ shadow run + system walkthrough | record at execution |
+| Head of QC | QA | PQ shadow run + system walkthrough | record at execution |
 
 ## 8. Periodic review plan
 
-- Audit trail QA review: weekly (first 90 days), monthly thereafter - Steven Burgueno
-- Role review: quarterly - Steven Burgueno
+- Audit trail QA review: weekly (first 90 days), monthly thereafter - Head of QC
+- Role review: quarterly - Head of QC
 - DR restore test: monthly automated CI - Frederik Hejlskov
-- Full validation review: annual - Steven Burgueno
+- Full validation review: annual - Head of QC
 
 ## 9. Conclusion
 
@@ -285,7 +285,7 @@ const IQ_R01_CONTENT = `# Installation Qualification — Receiving Module (IQ-R0
 **Version:** 1.0
 **Date:** 2026-04-24
 **Engineering Owner:** Frederik Hejlskov
-**QA Signatory:** Steven Burgueno, QC Manager
+**QA Signatory:** Head of QC
 **Regulatory basis:** 21 CFR Part 111 §111.75, §111.80; GAMP 5 Category 5
 
 ## 1. Scope
@@ -342,7 +342,7 @@ const OQ_R01_CONTENT = `# Operational Qualification — Receiving Module (OQ-R01
 **Version:** 1.0
 **Date:** 2026-04-24
 **Engineering Owner:** Frederik Hejlskov
-**QA Signatory:** Steven Burgueno, QC Manager
+**QA Signatory:** Head of QC
 **Regulatory basis:** 21 CFR Part 111 §111.75(a)(1), §111.80(b); 21 CFR Part 11 §11.10
 
 ## 1. Scope
@@ -456,7 +456,7 @@ const PQ_R01_CONTENT = `# Performance Qualification — Receiving Module (PQ-R01
 **Version:** 1.0
 **Date:** 2026-04-24
 **Engineering Owner:** Frederik Hejlskov
-**QA Signatory:** Steven Burgueno, QC Manager
+**QA Signatory:** Head of QC
 **Regulatory basis:** 21 CFR Part 111 §111.75, §111.80, §111.180; GAMP 5 Category 5
 
 ## 1. Scope
@@ -529,7 +529,7 @@ const VSR_R01_CONTENT = `# Validation Summary Report — Receiving Module (VSR-R
 **Version:** 1.0
 **Date:** 2026-04-24
 **Engineering Owner:** Frederik Hejlskov
-**QA Signatory:** Steven Burgueno, QC Manager
+**QA Signatory:** Head of QC
 **Regulatory basis:** 21 CFR Part 111 §111.75, §111.80; 21 CFR Part 11; GAMP 5 Category 5
 
 ## 1. Purpose
@@ -589,7 +589,7 @@ This release does not cover:
 **Approved for Use:**
 
 Signature: ___________________ Date: ___________
-Name: Steven Burgueno
+Name: Head of QC
 Title: QC Manager
 
 This signature was applied using the Neurogan ERP electronic signature system, compliant with 21 CFR Part 11 Section 11.50 and Section 11.200.`;

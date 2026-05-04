@@ -1,7 +1,9 @@
 import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { ToastAction } from "@/components/ui/toast";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -498,6 +500,7 @@ function ReceivingDetail({
   onUpdated: () => void;
 }) {
   const { toast } = useToast();
+  const [, setLocation] = useLocation();
 
   // Visual inspection form state
   const [containerOk, setContainerOk] = useState(record.containerConditionOk === "true");
@@ -581,7 +584,15 @@ function ReceivingDetail({
     },
     onSuccess: () => {
       setSigOpen(false);
-      toast({ title: "QC review submitted" });
+      const lotId = record.lotId;
+      toast({
+        title: "QC review submitted",
+        action: (
+          <ToastAction altText="View in Inventory" onClick={() => setLocation(`/inventory?lot=${lotId}`)}>
+            View in Inventory
+          </ToastAction>
+        ),
+      });
       queryClient.invalidateQueries({ queryKey: ["/api/receiving"] });
       onUpdated();
     },

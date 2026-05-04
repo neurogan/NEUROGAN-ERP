@@ -317,6 +317,8 @@ export class DatabaseStorage implements IStorage {
           category: product.category,
           defaultUom: product.defaultUom,
           totalQuantity: 0,
+          totalAvailableQuantity: 0,
+          totalQuarantineQuantity: 0,
           lowStockThreshold: product.lowStockThreshold ? parseFloat(product.lowStockThreshold) : null,
           lots: [],
         });
@@ -330,6 +332,9 @@ export class DatabaseStorage implements IStorage {
           lotNumber: lot.lotNumber,
           supplierName: lot.supplierName,
           expirationDate: lot.expirationDate,
+          quarantineStatus: lot.quarantineStatus ?? "QUARANTINED",
+          availableQuantity: 0,
+          quarantineQuantity: 0,
           locations: [],
           totalQuantity: 0,
         };
@@ -345,6 +350,15 @@ export class DatabaseStorage implements IStorage {
 
       lotEntry.totalQuantity += qty;
       productEntry.totalQuantity += qty;
+
+      const isAvailable = (lot.quarantineStatus ?? "QUARANTINED") === "APPROVED";
+      if (isAvailable) {
+        lotEntry.availableQuantity += qty;
+        productEntry.totalAvailableQuantity += qty;
+      } else {
+        lotEntry.quarantineQuantity += qty;
+        productEntry.totalQuarantineQuantity += qty;
+      }
     }
 
     return Array.from(productMap.values());

@@ -46,7 +46,7 @@ async function main() {
 
   await seedValidationDocuments();
   console.log("All four validation documents refreshed with current fixture content.");
-  console.log("VSR is now DRAFT — Steven Burgueno can sign it in the Quality tab.");
+  console.log("VSR is now DRAFT — Head of QC can sign it in the Quality tab.");
   process.exit(0);
 }
 

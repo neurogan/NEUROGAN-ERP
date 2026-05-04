@@ -411,9 +411,6 @@ export const bprDeviations = pgTable("erp_bpr_deviations", {
   scientificRationale: text("scientific_rationale"),
   reportedBy: text("reported_by"),
   reportedAt: timestamp("reported_at"),
-  reviewedBy: text("reviewed_by"),
-  reviewedAt: timestamp("reviewed_at"),
-  signatureOfReviewer: text("signature_of_reviewer"),
   signatureId: uuid("signature_id").references(() => electronicSignatures.id),
   createdAt: timestamp("created_at").defaultNow(),
 });
@@ -691,12 +688,17 @@ export type InventoryGrouped = {
   category: string;
   defaultUom: string;
   totalQuantity: number;
+  totalAvailableQuantity: number;
+  totalQuarantineQuantity: number;
   lowStockThreshold: number | null;
   lots: {
     lotId: string;
     lotNumber: string;
     supplierName: string | null;
     expirationDate: string | null;
+    quarantineStatus: string;
+    availableQuantity: number;
+    quarantineQuantity: number;
     locations: {
       locationId: string;
       locationName: string;
@@ -973,6 +975,30 @@ export const auditActionEnum = z.enum([
   // Obs 11 — Retained sample register (§111.83(b))
   "RETAINED_SAMPLE_CREATED",
   "RETAINED_SAMPLE_DESTROYED",
+  // R2-03 CAPA (§111.140)
+  "NC_OPENED",
+  "NC_STATUS_CHANGED",
+  "CAPA_OPENED",
+  "CAPA_ACTION_ADDED",
+  "CAPA_ACTION_COMPLETED",
+  "CAPA_EFFECTIVENESS_RECORDED",
+  "CAPA_CLOSED",
+  "MANAGEMENT_REVIEW_SIGNED",
+  // R2-04 Training gate (§111.12–14)
+  "TRAINING_PROGRAM_CREATED",
+  "TRAINING_RECORD_ADDED",
+  "TRAINING_ASSIGNMENT_CREATED",
+  // R2-01 Stability program (§111.210(f))
+  "STABILITY_PROTOCOL_CREATED",
+  "STABILITY_BATCH_ENROLLED",
+  "STABILITY_RESULT_ENTERED",
+  "STABILITY_CONCLUSION_SIGNED",
+  // R2-02 Environmental monitoring (§111.15)
+  "EM_SITE_CREATED",
+  "EM_RESULT_ENTERED",
+  "EM_EXCURSION_CREATED",
+  // R-08 cleanup
+  "BPR_DEVIATION_SIGNED",
 ]);
 export type AuditAction = z.infer<typeof auditActionEnum>;
 
@@ -1037,6 +1063,14 @@ export const signatureMeaningEnum = z.enum([
   "RETURNED_PRODUCT_DISPOSITION",
   "RETURN_INVESTIGATION_CLOSE",
   "FG_SPEC_APPROVAL",
+  // R2-03 CAPA (§111.140)
+  "CAPA_OPEN",
+  "CAPA_CLOSE",
+  "MANAGEMENT_REVIEW",
+  // R2-04 Training gate (§111.12–14)
+  "TRAINING_COMPLETE",
+  // R2-01 Stability program (§111.210(f))
+  "STABILITY_CONCLUSION",
 ]);
 export type SignatureMeaning = z.infer<typeof signatureMeaningEnum>;
 
@@ -1816,4 +1850,357 @@ export type RetainedSampleWithBpr = RetainedSample & {
   productName: string;
   createdByName: string;
   destroyedByName: string | null;
+};
+
+// ─── R2-03 CAPA / QMS backbone (21 CFR §111.140) ─────────────────────────────
+
+export const ncTypeEnum = z.enum(["OOS", "COMPLAINT", "RETURN", "DEVIATION", "EM_EXCURSION", "AUDIT_FINDING", "OTHER"]);
+export const ncSeverityEnum = z.enum(["CRITICAL", "MAJOR", "MINOR"]);
+export const ncStatusEnum = z.enum(["OPEN", "UNDER_INVESTIGATION", "CAPA_OPEN", "CLOSED"]);
+export const capaTypeEnum = z.enum(["CORRECTIVE", "PREVENTIVE", "BOTH"]);
+export const capaStatusEnum = z.enum(["OPEN", "EFFECTIVENESS_PENDING", "CLOSED"]);
+export const effectivenessResultEnum = z.enum(["EFFECTIVE", "NOT_EFFECTIVE", "PENDING"]);
+export const managementReviewOutcomeEnum = z.enum(["SATISFACTORY", "REQUIRES_ACTION"]);
+
+export type NcType = z.infer<typeof ncTypeEnum>;
+export type NcSeverity = z.infer<typeof ncSeverityEnum>;
+export type NcStatus = z.infer<typeof ncStatusEnum>;
+export type CapaType = z.infer<typeof capaTypeEnum>;
+export type CapaStatus = z.infer<typeof capaStatusEnum>;
+export type EffectivenessResult = z.infer<typeof effectivenessResultEnum>;
+
+export const nonconformances = pgTable("erp_nonconformances", {
+  id:                 uuid("id").primaryKey().defaultRandom(),
+  ncNumber:           varchar("nc_number").notNull().unique(),
+  type:               text("type").$type<NcType>().notNull(),
+  severity:           text("severity").$type<NcSeverity>().notNull(),
+  status:             text("status").$type<NcStatus>().notNull().default("OPEN"),
+  title:              text("title").notNull(),
+  description:        text("description"),
+  sourceType:         text("source_type"),
+  sourceId:           text("source_id"),
+  createdByUserId:    uuid("created_by_user_id").notNull().references(() => users.id),
+  createdAt:          timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  closedAt:           timestamp("closed_at", { withTimezone: true }),
+});
+
+export type Nonconformance = typeof nonconformances.$inferSelect;
+export type InsertNonconformance = typeof nonconformances.$inferInsert;
+
+export const capas = pgTable("erp_capas", {
+  id:                 uuid("id").primaryKey().defaultRandom(),
+  capaNumber:         varchar("capa_number").notNull().unique(),
+  ncId:               uuid("nc_id").notNull().references(() => nonconformances.id),
+  capaType:           text("capa_type").$type<CapaType>().notNull(),
+  rootCause:          text("root_cause").notNull(),
+  status:             text("status").$type<CapaStatus>().notNull().default("OPEN"),
+  openedByUserId:     uuid("opened_by_user_id").notNull().references(() => users.id),
+  openedAt:           timestamp("opened_at", { withTimezone: true }).notNull().defaultNow(),
+  openSignatureId:    uuid("open_signature_id").references(() => electronicSignatures.id),
+  closedByUserId:     uuid("closed_by_user_id").references(() => users.id),
+  closedAt:           timestamp("closed_at", { withTimezone: true }),
+  closeSignatureId:   uuid("close_signature_id").references(() => electronicSignatures.id),
+});
+
+export type Capa = typeof capas.$inferSelect;
+export type InsertCapa = typeof capas.$inferInsert;
+
+export const capaActions = pgTable("erp_capa_actions", {
+  id:                   uuid("id").primaryKey().defaultRandom(),
+  capaId:               uuid("capa_id").notNull().references(() => capas.id),
+  description:          text("description").notNull(),
+  assignedToUserId:     uuid("assigned_to_user_id").references(() => users.id),
+  dueAt:                timestamp("due_at", { withTimezone: true }),
+  completedAt:          timestamp("completed_at", { withTimezone: true }),
+  completedByUserId:    uuid("completed_by_user_id").references(() => users.id),
+  createdByUserId:      uuid("created_by_user_id").notNull().references(() => users.id),
+  createdAt:            timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type CapaAction = typeof capaActions.$inferSelect;
+
+export const capaEffectivenessChecks = pgTable("erp_capa_effectiveness_checks", {
+  id:                   uuid("id").primaryKey().defaultRandom(),
+  capaId:               uuid("capa_id").notNull().references(() => capas.id),
+  scheduledAt:          timestamp("scheduled_at", { withTimezone: true }).notNull(),
+  result:               text("result").$type<EffectivenessResult>().notNull().default("PENDING"),
+  notes:                text("notes"),
+  performedByUserId:    uuid("performed_by_user_id").references(() => users.id),
+  performedAt:          timestamp("performed_at", { withTimezone: true }),
+  signatureId:          uuid("signature_id").references(() => electronicSignatures.id),
+  createdByUserId:      uuid("created_by_user_id").notNull().references(() => users.id),
+  createdAt:            timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type CapaEffectivenessCheck = typeof capaEffectivenessChecks.$inferSelect;
+
+export const managementReviews = pgTable("erp_management_reviews", {
+  id:                 uuid("id").primaryKey().defaultRandom(),
+  reviewNumber:       varchar("review_number").notNull().unique(),
+  period:             varchar("period").notNull(),
+  reviewedAt:         timestamp("reviewed_at", { withTimezone: true }).notNull(),
+  summary:            text("summary").notNull(),
+  outcome:            text("outcome").notNull(),
+  signatureId:        uuid("signature_id").references(() => electronicSignatures.id),
+  createdByUserId:    uuid("created_by_user_id").notNull().references(() => users.id),
+  createdAt:          timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type ManagementReview = typeof managementReviews.$inferSelect;
+
+export const managementReviewCapas = pgTable("erp_management_review_capas", {
+  reviewId: uuid("review_id").notNull().references(() => managementReviews.id),
+  capaId:   uuid("capa_id").notNull().references(() => capas.id),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.reviewId, t.capaId] }),
+}));
+
+export type CapaWithDetails = Capa & {
+  actions: CapaAction[];
+  effectivenessChecks: CapaEffectivenessCheck[];
+  ncNumber: string;
+  openedByName: string;
+  closedByName: string | null;
+};
+
+export type NonconformanceWithCapa = Nonconformance & {
+  createdByName: string;
+  capa: Capa | null;
+};
+
+// ─── R2-04 Training Gate (§111.12–14) ─────────────────────────────────────
+
+export const trainingAssignmentStatusEnum = z.enum(["PENDING", "COMPLETED", "OVERDUE"]);
+export type TrainingAssignmentStatus = z.infer<typeof trainingAssignmentStatusEnum>;
+
+export const trainingPrograms = pgTable("erp_training_programs", {
+  id:                uuid("id").primaryKey().defaultRandom(),
+  name:              varchar("name", { length: 255 }).notNull(),
+  version:           varchar("version", { length: 50 }).notNull().default("1.0"),
+  description:       text("description"),
+  validityDays:      integer("validity_days").notNull().default(365),
+  requiredForRoles:  text("required_for_roles").array().notNull().default(sql`'{}'::text[]`),
+  documentUrl:       text("document_url"),
+  isActive:          boolean("is_active").notNull().default(true),
+  createdByUserId:   uuid("created_by_user_id").notNull().references(() => users.id),
+  createdAt:         timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type TrainingProgram = typeof trainingPrograms.$inferSelect;
+
+export const trainingRecords = pgTable("erp_training_records", {
+  id:                   uuid("id").primaryKey().defaultRandom(),
+  userId:               uuid("user_id").notNull().references(() => users.id),
+  programId:            uuid("program_id").notNull().references(() => trainingPrograms.id),
+  completedAt:          timestamp("completed_at", { withTimezone: true }).notNull(),
+  expiresAt:            timestamp("expires_at", { withTimezone: true }).notNull(),
+  trainedByUserId:      uuid("trained_by_user_id").references(() => users.id),
+  trainedByExternal:    varchar("trained_by_external", { length: 255 }),
+  documentUrl:          text("document_url"),
+  notes:                text("notes"),
+  signatureId:          uuid("signature_id").references(() => electronicSignatures.id),
+  createdByUserId:      uuid("created_by_user_id").notNull().references(() => users.id),
+  createdAt:            timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type TrainingRecord = typeof trainingRecords.$inferSelect;
+
+export const trainingAssignments = pgTable("erp_training_assignments", {
+  id:               uuid("id").primaryKey().defaultRandom(),
+  userId:           uuid("user_id").notNull().references(() => users.id),
+  programId:        uuid("program_id").notNull().references(() => trainingPrograms.id),
+  dueAt:            timestamp("due_at", { withTimezone: true }).notNull(),
+  status:           text("status").$type<TrainingAssignmentStatus>().notNull().default("PENDING"),
+  trainingRecordId: uuid("training_record_id").references(() => trainingRecords.id),
+  createdByUserId:  uuid("created_by_user_id").notNull().references(() => users.id),
+  createdAt:        timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type TrainingAssignment = typeof trainingAssignments.$inferSelect;
+
+export type TrainingComplianceRow = {
+  programId:   string;
+  programName: string;
+  version:     string;
+  status:      "CURRENT" | "EXPIRING_SOON" | "EXPIRED" | "NEVER_TRAINED";
+  expiresAt:   string | null;
+  completedAt: string | null;
+};
+
+export type UserTrainingCompliance = {
+  userId:   string;
+  userName: string;
+  programs: TrainingComplianceRow[];
+};
+
+// ─── R2-01 Stability Program (§111.210(f)) ─────────────────────────────────
+
+export const stabilityProtocols = pgTable("erp_stability_protocols", {
+  id:                  uuid("id").primaryKey().defaultRandom(),
+  name:                varchar("name", { length: 255 }).notNull(),
+  productId:           varchar("product_id").references(() => products.id),
+  description:         text("description"),
+  storageCondition:    varchar("storage_condition", { length: 255 }).notNull(),
+  testIntervalsMonths: integer("test_intervals_months").array().notNull(),
+  isActive:            boolean("is_active").notNull().default(true),
+  signatureId:         uuid("signature_id").references(() => electronicSignatures.id),
+  createdByUserId:     uuid("created_by_user_id").notNull().references(() => users.id),
+  createdAt:           timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type StabilityProtocol = typeof stabilityProtocols.$inferSelect;
+
+export const stabilityProtocolAttributes = pgTable("erp_stability_protocol_attributes", {
+  id:          uuid("id").primaryKey().defaultRandom(),
+  protocolId:  uuid("protocol_id").notNull().references(() => stabilityProtocols.id),
+  analyteName: varchar("analyte_name", { length: 255 }).notNull(),
+  unit:        varchar("unit", { length: 50 }),
+  minSpec:     numeric("min_spec", { precision: 12, scale: 4 }),
+  maxSpec:     numeric("max_spec", { precision: 12, scale: 4 }),
+  testMethod:  varchar("test_method", { length: 255 }),
+  createdAt:   timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type StabilityProtocolAttribute = typeof stabilityProtocolAttributes.$inferSelect;
+
+export const stabilityBatches = pgTable("erp_stability_batches", {
+  id:                uuid("id").primaryKey().defaultRandom(),
+  protocolId:        uuid("protocol_id").notNull().references(() => stabilityProtocols.id),
+  bprId:             varchar("bpr_id").notNull().references(() => batchProductionRecords.id),
+  enrolledAt:        timestamp("enrolled_at", { withTimezone: true }).notNull(),
+  status:            text("status").notNull().default("ONGOING"),
+  enrolledByUserId:  uuid("enrolled_by_user_id").notNull().references(() => users.id),
+  createdAt:         timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type StabilityBatch = typeof stabilityBatches.$inferSelect;
+
+export const stabilityTimepoints = pgTable("erp_stability_timepoints", {
+  id:             uuid("id").primaryKey().defaultRandom(),
+  batchId:        uuid("batch_id").notNull().references(() => stabilityBatches.id),
+  intervalMonths: integer("interval_months").notNull(),
+  scheduledAt:    timestamp("scheduled_at", { withTimezone: true }).notNull(),
+  completedAt:    timestamp("completed_at", { withTimezone: true }),
+  createdAt:      timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type StabilityTimepoint = typeof stabilityTimepoints.$inferSelect;
+
+export const stabilityResults = pgTable("erp_stability_results", {
+  id:               uuid("id").primaryKey().defaultRandom(),
+  timepointId:      uuid("timepoint_id").notNull().references(() => stabilityTimepoints.id),
+  attributeId:      uuid("attribute_id").notNull().references(() => stabilityProtocolAttributes.id),
+  reportedValue:    numeric("reported_value", { precision: 12, scale: 4 }).notNull(),
+  reportedUnit:     varchar("reported_unit", { length: 50 }).notNull(),
+  passFail:         text("pass_fail").notNull(),
+  notes:            text("notes"),
+  enteredByUserId:  uuid("entered_by_user_id").notNull().references(() => users.id),
+  createdAt:        timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type StabilityResult = typeof stabilityResults.$inferSelect;
+
+export const stabilityConclusions = pgTable("erp_stability_conclusions", {
+  id:                       uuid("id").primaryKey().defaultRandom(),
+  batchId:                  uuid("batch_id").notNull().references(() => stabilityBatches.id).unique(),
+  supportedShelfLifeMonths: integer("supported_shelf_life_months").notNull(),
+  basis:                    text("basis").notNull(),
+  outcome:                  text("outcome").notNull(),
+  signatureId:              uuid("signature_id").references(() => electronicSignatures.id),
+  concludedByUserId:        uuid("concluded_by_user_id").notNull().references(() => users.id),
+  createdAt:                timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type StabilityConclusion = typeof stabilityConclusions.$inferSelect;
+
+export type StabilityBatchWithDetails = StabilityBatch & {
+  protocolName: string;
+  bprId: string;
+  timepoints: (StabilityTimepoint & { results: StabilityResult[] })[];
+  conclusion: StabilityConclusion | null;
+  overdueCount: number;
+  upcomingCount: number;
+};
+
+// ─── R2-02 Environmental Monitoring (§111.15) ──────────────────────────────
+
+export const emSiteTypeEnum = z.enum(["AIR", "SURFACE_NON_CONTACT", "SURFACE_CONTACT"]);
+export type EmSiteType = z.infer<typeof emSiteTypeEnum>;
+
+export const emFrequencyEnum = z.enum(["WEEKLY", "MONTHLY", "QUARTERLY"]);
+export type EmFrequency = z.infer<typeof emFrequencyEnum>;
+
+export const emLimitTypeEnum = z.enum(["ALERT", "ACTION"]);
+export type EmLimitType = z.infer<typeof emLimitTypeEnum>;
+
+export const emSites = pgTable("erp_em_sites", {
+  id:                uuid("id").primaryKey().defaultRandom(),
+  name:              varchar("name", { length: 255 }).notNull(),
+  area:              varchar("area", { length: 255 }).notNull(),
+  siteType:          text("site_type").notNull().$type<EmSiteType>(),
+  isActive:          boolean("is_active").notNull().default(true),
+  createdByUserId:   uuid("created_by_user_id").notNull().references(() => users.id),
+  createdAt:         timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type EmSite = typeof emSites.$inferSelect;
+
+export const emSchedules = pgTable("erp_em_schedules", {
+  id:                uuid("id").primaryKey().defaultRandom(),
+  siteId:            uuid("site_id").notNull().references(() => emSites.id),
+  frequency:         text("frequency").notNull().$type<EmFrequency>(),
+  organismTargets:   text("organism_targets").array().notNull().default(sql`'{}'::text[]`),
+  isActive:          boolean("is_active").notNull().default(true),
+  createdByUserId:   uuid("created_by_user_id").notNull().references(() => users.id),
+  createdAt:         timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type EmSchedule = typeof emSchedules.$inferSelect;
+
+export const emLimits = pgTable("erp_em_limits", {
+  id:                uuid("id").primaryKey().defaultRandom(),
+  siteId:            uuid("site_id").notNull().references(() => emSites.id),
+  organism:          varchar("organism", { length: 255 }).notNull(),
+  alertLimit:        numeric("alert_limit", { precision: 12, scale: 2 }),
+  actionLimit:       numeric("action_limit", { precision: 12, scale: 2 }),
+  unit:              varchar("unit", { length: 50 }).notNull().default("CFU/m³"),
+  createdByUserId:   uuid("created_by_user_id").notNull().references(() => users.id),
+  createdAt:         timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type EmLimit = typeof emLimits.$inferSelect;
+
+export const emResults = pgTable("erp_em_results", {
+  id:                uuid("id").primaryKey().defaultRandom(),
+  siteId:            uuid("site_id").notNull().references(() => emSites.id),
+  sampledAt:         timestamp("sampled_at", { withTimezone: true }).notNull(),
+  organism:          varchar("organism", { length: 255 }).notNull(),
+  cfuCount:          numeric("cfu_count", { precision: 12, scale: 2 }),
+  isBelowLod:        boolean("is_below_lod").notNull().default(false),
+  testedByLab:       varchar("tested_by_lab", { length: 255 }),
+  notes:             text("notes"),
+  enteredByUserId:   uuid("entered_by_user_id").notNull().references(() => users.id),
+  createdAt:         timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type EmResult = typeof emResults.$inferSelect;
+
+export const emExcursions = pgTable("erp_em_excursions", {
+  id:          uuid("id").primaryKey().defaultRandom(),
+  resultId:    uuid("result_id").notNull().references(() => emResults.id),
+  siteId:      uuid("site_id").notNull().references(() => emSites.id),
+  organism:    varchar("organism", { length: 255 }).notNull(),
+  limitType:   text("limit_type").notNull().$type<EmLimitType>(),
+  cfuCount:    numeric("cfu_count", { precision: 12, scale: 2 }).notNull(),
+  limitValue:  numeric("limit_value", { precision: 12, scale: 2 }).notNull(),
+  ncId:        uuid("nc_id").references(() => nonconformances.id),
+  createdAt:   timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type EmExcursion = typeof emExcursions.$inferSelect;
+
+export type EmResultWithStatus = EmResult & {
+  siteName: string;
+  excursion: EmExcursion | null;
+  status: "PASS" | "ALERT" | "ACTION" | "BELOW_LOD";
 };

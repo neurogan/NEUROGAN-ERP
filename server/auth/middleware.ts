@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from "crypto";
 import type { Request, RequestHandler } from "express";
 import type { UserRole } from "@shared/schema";
 import { errors } from "../errors";
+import { getLatestRecord } from "../storage/training";
 
 // F-01 defines the auth middleware. F-02 populates req.user via
 // express-session + passport and mounts requireAuth globally. Until then,
@@ -101,6 +102,32 @@ export const requireHmacOrAuth: RequestHandler = (req, res, next) => {
   if (!hasRole) return next(errors.forbidden("This endpoint requires ADMIN or QA role."));
   return next();
 };
+
+// Block regulated actions if the user does not have a current (non-expired)
+// training record for the specified program. Returns 409 TRAINING_EXPIRED.
+// Apply the same way as requireRole; always combine with requireAuth first.
+//
+// Usage:
+//   app.post("/api/...", requireAuth, requireRole("QA"), requireTraining(CAPA_TRAINING_ID), handler)
+export function requireTraining(programId: string): RequestHandler {
+  return async (req, _res, next) => {
+    if (!req.user) return next(errors.unauthenticated());
+    try {
+      const record = await getLatestRecord(req.user.id, programId);
+      if (!record || record.expiresAt < new Date()) {
+        return next(
+          Object.assign(new Error("User does not have current training for this program."), {
+            status: 409,
+            code: "TRAINING_EXPIRED",
+          }),
+        );
+      }
+      return next();
+    } catch (err) {
+      return next(err);
+    }
+  };
+}
 
 export function requireRoleOrSelf(
   getSubjectUserId: SubjectIdGetter,

@@ -225,6 +225,12 @@ function AppLayout() {
           <Route path="/quality/returns/:id" component={ReturnDetail} />
           <Route path="/quality/component-specifications" component={QualityPage} />
           <Route path="/quality/component-specifications/:specId" component={ComponentSpecDetail} />
+          <Route path="/quality/fg-specifications" component={QualityPage} />
+          <Route path="/quality/retained-samples" component={QualityPage} />
+          <Route path="/quality/capa" component={QualityPage} />
+          <Route path="/quality/training" component={QualityPage} />
+          <Route path="/quality/stability" component={QualityPage} />
+          <Route path="/quality/em" component={QualityPage} />
           <Route path="/quality/return-investigations" component={ReturnInvestigations} />
           <Route path="/profile/rotate-password" component={Profile} />
           <Route path="/profile" component={Profile} />

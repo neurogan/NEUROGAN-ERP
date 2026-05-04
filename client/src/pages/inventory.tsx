@@ -85,7 +85,7 @@ import type {
 
 function exportCSV(data: InventoryGrouped[]) {
   const rows: string[] = [
-    "Material,SKU,Category,Lot Number,Supplier,Qty,UOM,Location,Expiration Date",
+    "Material,SKU,Category,Lot Number,Supplier,Status,Available Qty,Quarantine Qty,UOM,Location,Expiration Date",
   ];
   for (const product of data) {
     for (const lot of product.lots) {
@@ -97,7 +97,9 @@ function exportCSV(data: InventoryGrouped[]) {
             product.category,
             lot.lotNumber,
             lot.supplierName ?? "",
-            loc.quantity,
+            lot.quarantineStatus,
+            lot.availableQuantity,
+            lot.quarantineQuantity,
             loc.uom,
             `"${loc.locationName}"`,
             lot.expirationDate ?? "",
@@ -143,7 +145,7 @@ function formatCategory(cat: string) {
 
 // ─── Shared Lot Table ──────────────────────────────────────
 
-function LotTable({ lots }: { lots: InventoryGrouped["lots"] }) {
+function LotTable({ lots, highlightLotId }: { lots: InventoryGrouped["lots"]; highlightLotId?: string | null }) {
   return (
     <Card>
       <CardContent className="p-0">
@@ -152,7 +154,8 @@ function LotTable({ lots }: { lots: InventoryGrouped["lots"] }) {
             <TableRow>
               <TableHead className="text-xs">Lot #</TableHead>
               <TableHead className="text-xs">Supplier</TableHead>
-              <TableHead className="text-xs text-right">Qty</TableHead>
+              <TableHead className="text-xs text-right">Available</TableHead>
+              <TableHead className="text-xs text-right">Quarantine</TableHead>
               <TableHead className="text-xs">Location</TableHead>
               <TableHead className="text-xs">Expiration</TableHead>
             </TableRow>
@@ -161,7 +164,7 @@ function LotTable({ lots }: { lots: InventoryGrouped["lots"] }) {
             {lots.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={5}
+                  colSpan={6}
                   className="text-center text-sm text-muted-foreground py-6"
                 >
                   No lots on hand.
@@ -169,15 +172,22 @@ function LotTable({ lots }: { lots: InventoryGrouped["lots"] }) {
               </TableRow>
             ) : (
               lots.map((lot) => (
-                <TableRow key={lot.lotId} data-testid={`row-lot-${lot.lotId}`}>
+                <TableRow
+                  key={lot.lotId}
+                  data-testid={`row-lot-${lot.lotId}`}
+                  className={highlightLotId === lot.lotId ? "ring-2 ring-primary ring-inset bg-primary/5" : ""}
+                >
                   <TableCell className="text-sm font-mono whitespace-nowrap font-medium">
                     {lot.lotNumber}
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
                     {lot.supplierName ?? "—"}
                   </TableCell>
-                  <TableCell className="text-sm text-right font-semibold tabular-nums">
-                    {formatQty(lot.totalQuantity)}
+                  <TableCell className="text-sm text-right font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
+                    {lot.availableQuantity > 0 ? formatQty(lot.availableQuantity) : "—"}
+                  </TableCell>
+                  <TableCell className="text-sm text-right font-semibold tabular-nums text-amber-600 dark:text-amber-400">
+                    {lot.quarantineQuantity > 0 ? formatQty(lot.quarantineQuantity) : "—"}
                   </TableCell>
                   <TableCell className="text-sm">
                     {lot.locations.map((l) => (
@@ -452,9 +462,11 @@ function DeleteMaterialDialog({
 function MaterialDetailPanel({
   item,
   onDeleted,
+  highlightLotId,
 }: {
   item: InventoryGrouped;
   onDeleted: () => void;
+  highlightLotId?: string | null;
 }) {
   const [showEdit, setShowEdit] = useState(false);
   const [showDelete, setShowDelete] = useState(false);
@@ -521,7 +533,7 @@ function MaterialDetailPanel({
             </Badge>
           </div>
         </div>
-        <div className="text-right">
+        <div className="text-right space-y-0.5">
           <div
             className={`text-2xl font-bold tabular-nums ${
               isLowStock ? "text-amber-400" : ""
@@ -529,9 +541,12 @@ function MaterialDetailPanel({
           >
             {formatQty(item.totalQuantity)}
           </div>
-          <div className="text-sm text-muted-foreground">
-            {item.defaultUom} total
-          </div>
+          <div className="text-sm text-muted-foreground">{item.defaultUom} total</div>
+          {item.totalQuarantineQuantity > 0 && (
+            <div className="text-xs text-amber-600 dark:text-amber-400 tabular-nums">
+              {formatQty(item.totalAvailableQuantity)} avail · {formatQty(item.totalQuarantineQuantity)} quar.
+            </div>
+          )}
         </div>
       </div>
 
@@ -560,14 +575,14 @@ function MaterialDetailPanel({
             </CardContent>
           </Card>
         ) : (
-          <LotTable lots={item.lots} />
+          <LotTable lots={item.lots} highlightLotId={highlightLotId} />
         )}
       </div>
     </div>
   );
 }
 
-function MaterialsTab({ initialSelectedId }: { initialSelectedId?: string | null }) {
+function MaterialsTab({ initialSelectedId, initialHighlightLotId }: { initialSelectedId?: string | null; initialHighlightLotId?: string | null }) {
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(initialSelectedId ?? null);
   const [categoryFilter, setCategoryFilter] = useState("all");
@@ -600,6 +615,8 @@ function MaterialsTab({ initialSelectedId }: { initialSelectedId?: string | null
         category: product.category,
         defaultUom: product.defaultUom,
         totalQuantity: 0,
+        totalAvailableQuantity: 0,
+        totalQuarantineQuantity: 0,
         lowStockThreshold: product.lowStockThreshold ? parseFloat(product.lowStockThreshold) : null,
         lots: [],
       } as InventoryGrouped;
@@ -615,6 +632,20 @@ function MaterialsTab({ initialSelectedId }: { initialSelectedId?: string | null
       return () => clearTimeout(timer);
     }
   }, [initialSelectedId, data]);
+
+  useEffect(() => {
+    if (initialHighlightLotId && data.length > 0) {
+      const ownerProduct = data.find(p => p.lots.some(l => l.lotId === initialHighlightLotId));
+      if (ownerProduct) {
+        setSelectedId(ownerProduct.productId);
+        const timer = setTimeout(() => {
+          const el = document.querySelector(`[data-testid="row-lot-${initialHighlightLotId}"]`);
+          if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }, 400);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [initialHighlightLotId, data]);
 
   const filtered = useMemo(() => {
     let result = data;
@@ -713,7 +744,7 @@ function MaterialsTab({ initialSelectedId }: { initialSelectedId?: string | null
       <div className="flex-1 min-w-0 overflow-auto">
         {selectedItem ? (
           <div className="p-6">
-            <MaterialDetailPanel item={selectedItem} onDeleted={() => setSelectedId(null)} />
+            <MaterialDetailPanel item={selectedItem} onDeleted={() => setSelectedId(null)} highlightLotId={initialHighlightLotId} />
           </div>
         ) : (
           <div className="flex flex-col items-center justify-center h-full text-center py-16 px-8">
@@ -2182,10 +2213,11 @@ function ProductsTab({ initialSelectedId, initialOpenRecipe }: { initialSelected
 // ═══════════════════════════════════════════════════════════
 
 export default function Inventory() {
-  // Read URL params for pre-selection (hash routing: /#/inventory?material=xxx or ?product=xxx)
+  // Read URL params for pre-selection (hash routing: /#/inventory?material=xxx or ?product=xxx or ?lot=xxx)
   const searchParams = new URLSearchParams(window.location.hash.split("?")[1] || "");
   const urlMaterial = searchParams.get("material");
   const urlProduct = searchParams.get("product");
+  const urlLot = searchParams.get("lot");
   const urlOpenRecipe = searchParams.get("openRecipe") === "true";
 
   const [activeTab, setActiveTab] = useState<"materials" | "products">(
@@ -2244,7 +2276,7 @@ export default function Inventory() {
       </div>
 
       {/* Tab content */}
-      {activeTab === "materials" ? <MaterialsTab initialSelectedId={urlMaterial} /> : <ProductsTab initialSelectedId={urlProduct} initialOpenRecipe={urlOpenRecipe} />}
+      {activeTab === "materials" ? <MaterialsTab initialSelectedId={urlMaterial} initialHighlightLotId={urlLot} /> : <ProductsTab initialSelectedId={urlProduct} initialOpenRecipe={urlOpenRecipe} />}
     </div>
   );
 }

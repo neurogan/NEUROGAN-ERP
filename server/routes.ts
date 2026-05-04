@@ -42,7 +42,12 @@ import { mmrRouter } from "./routes/mmr-routes";
 import { componentSpecRouter } from "./routes/component-spec-routes";
 import { finishedGoodsSpecRouter } from "./routes/finished-goods-spec-routes";
 import { registerFgTestRoutes } from "./routes/finished-goods-test-routes";
+import { registerCapaRoutes } from "./routes/capa-routes";
+import { registerTrainingRoutes } from "./routes/training-routes";
+import { registerStabilityRoutes } from "./routes/stability-routes";
+import { registerEmRoutes } from "./routes/em-routes";
 import { checkFgTestsGate } from "./storage/finished-goods-tests";
+import { createNonconformance } from "./storage/capa";
 import { db } from "./db";
 import { eq, and, desc, ne, isNull } from "drizzle-orm";
 import * as equipmentStorage from "./storage/equipment";
@@ -87,6 +92,18 @@ export async function registerRoutes(
   // ─── Finished-Goods Specs (R-09) ────────────────────────
   app.use("/api/finished-goods-specs", requireAuth, finishedGoodsSpecRouter);
   registerFgTestRoutes(app, requireAuth, requireRole);
+
+  // ─── R2-03 CAPA / QMS backbone (§111.140) ──────────────
+  registerCapaRoutes(app, requireAuth, requireRole);
+
+  // ─── R2-04 Training gate (§111.12–14) ──────────────────
+  registerTrainingRoutes(app, requireAuth, requireRole);
+
+  // ─── R2-01 Stability program (§111.210(f)) ──────────────
+  registerStabilityRoutes(app, requireAuth, requireRole);
+
+  // ─── R2-02 Environmental monitoring (§111.15) ────────────
+  registerEmRoutes(app, requireAuth, requireRole);
 
   // ─── Health / IQ traceability ──────────────────────────
   //
@@ -1729,6 +1746,17 @@ export async function registerRoutes(
           .set({ signatureId: newSig!.id })
           .where(eq(schema.bprDeviations.id, req.params.deviationId));
 
+        await writeAuditRow({
+          userId: req.user!.id,
+          action: "BPR_DEVIATION_SIGNED",
+          entityType: "bpr_deviation",
+          entityId: req.params.deviationId,
+          before: null,
+          after: { bprId: req.params.id, signatureId: newSig!.id },
+          route: `${req.method} ${req.path}`,
+          requestId: req.requestId,
+        });
+
         const [updated] = await db
           .select()
           .from(schema.bprDeviations)
@@ -2419,6 +2447,18 @@ export async function registerRoutes(
           .limit(1);
         if (!sig) return next(Object.assign(new Error("Signature row not found after performSignature — closure not finalized"), { status: 500 }));
         const updated = await storage.finalizeOosClosure(req.params.id, sig.id);
+        // Auto-open a nonconformance for confirmed OOS (REJECTED or RECALL) so it appears in the CAPA register
+        if (updated.disposition === "REJECTED" || updated.disposition === "RECALL") {
+          await createNonconformance({
+            type: "OOS",
+            severity: updated.disposition === "RECALL" ? "CRITICAL" : "MAJOR",
+            title: `OOS confirmed: ${updated.oosNumber}`,
+            description: updated.dispositionReason ?? "",
+            sourceType: "OOS",
+            sourceId: updated.id,
+            createdByUserId: req.user!.id,
+          });
+        }
         res.json(updated);
       } catch (err) { next(err); }
     },

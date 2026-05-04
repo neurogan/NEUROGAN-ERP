@@ -159,7 +159,7 @@ function BprHeader({ bpr, isReadOnly }: { bpr: BprWithDetails; isReadOnly: boole
           <button
             type="button"
             className="flex items-center gap-1 text-xs text-blue-600 hover:underline"
-            onClick={() => setLocation("/operations/mmr")}
+            onClick={() => setLocation(`/operations/mmr?mmrId=${bpr.mmrId}`)}
             data-testid="link-produced-from-mmr"
           >
             Produced from MMR v{bpr.mmrVersion}
