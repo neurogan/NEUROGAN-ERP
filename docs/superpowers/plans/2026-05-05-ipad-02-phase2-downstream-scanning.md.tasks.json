@@ -1,0 +1,45 @@
+{
+  "planPath": "docs/superpowers/plans/2026-05-05-ipad-02-phase2-downstream-scanning.md",
+  "tasks": [
+    {
+      "id": 5,
+      "subject": "Task 1: DB migration + schema types for box sampling",
+      "status": "pending",
+      "description": "**Goal:** Add `sampled_at` and `sampled_by_id` columns to `erp_receiving_boxes` and update the Drizzle schema.\n\n**Files:**\n- Create: `migrations/0040_receiving_boxes_sampling.sql`\n- Modify: `shared/schema.ts`\n\n**Acceptance Criteria:**\n- [ ] Migration SQL adds `sampled_at TIMESTAMPTZ` and `sampled_by_id UUID REFERENCES erp_users(id)` to `erp_receiving_boxes`\n- [ ] `receivingBoxes` pgTable includes `sampledAt` and `sampledById` fields\n- [ ] `ReceivingBoxWithSampler` type exported from `shared/schema.ts`\n- [ ] `pnpm typecheck` passes\n\n**Verify:** `pnpm typecheck` → 0 errors\n\n```json:metadata\n{\"files\": [\"migrations/0040_receiving_boxes_sampling.sql\", \"shared/schema.ts\"], \"verifyCommand\": \"pnpm typecheck\", \"acceptanceCriteria\": [\"migration adds sampled_at and sampled_by_id columns\", \"receivingBoxes pgTable has sampledAt and sampledById\", \"ReceivingBoxWithSampler type exported\", \"pnpm typecheck passes\"]}\n```"
+    },
+    {
+      "id": 6,
+      "subject": "Task 2: Storage layer — sampleBox(), getBoxByLabel(), updated getReceivingBoxes()",
+      "status": "pending",
+      "blockedBy": [5],
+      "description": "**Goal:** Implement three storage methods powering the scan endpoints.\n\n**Files:**\n- Modify: `server/db-storage.ts`\n\n**Acceptance Criteria:**\n- [ ] `sampleBox(boxId, userId)` marks box sampled + auto-advances QUARANTINED→SAMPLING and SAMPLING→PENDING_QC in one transaction\n- [ ] handles sampleSize=1 edge case\n- [ ] throws 404 if box not found, 409 if already sampled\n- [ ] `getBoxByLabel(label)` returns `{ box, receivingRecord }` or undefined\n- [ ] `getReceivingBoxes()` returns `ReceivingBoxWithSampler[]` with sampler name joined\n- [ ] `pnpm typecheck` passes\n\n**Verify:** `pnpm typecheck` → 0 errors\n\n```json:metadata\n{\"files\": [\"server/db-storage.ts\"], \"verifyCommand\": \"pnpm typecheck\", \"acceptanceCriteria\": [\"sampleBox marks box and auto-advances status\", \"getBoxByLabel returns box + record\", \"getReceivingBoxes joins sampler name\"]}\n```"
+    },
+    {
+      "id": 7,
+      "subject": "Task 3: API routes — PATCH sample + GET by-label",
+      "status": "pending",
+      "blockedBy": [6],
+      "description": "**Goal:** Expose two endpoints for the scan flows.\n\n**Files:**\n- Modify: `server/routes.ts`\n\n**Acceptance Criteria:**\n- [ ] `PATCH /api/receiving/boxes/:id/sample` requires auth + WAREHOUSE/LAB_TECH/QA role\n- [ ] `GET /api/receiving/boxes/by-label/:label` requires auth; URL-decodes label\n- [ ] Both routes use `next(err)` for error propagation\n- [ ] `pnpm typecheck` passes\n\n**Verify:** `pnpm typecheck` → 0 errors\n\n```json:metadata\n{\"files\": [\"server/routes.ts\"], \"verifyCommand\": \"pnpm typecheck\", \"acceptanceCriteria\": [\"PATCH route added with correct auth\", \"GET route added with URL decode\"]}\n```"
+    },
+    {
+      "id": 8,
+      "subject": "Task 4: QR code on labels — ZPL + HTML preview",
+      "status": "pending",
+      "description": "**Goal:** Add QR code to ZPL template and HTML preview; remove QUARANTINE text from ZPL.\n\n**Files:**\n- Modify: `client/src/lib/zebra-print.ts`\n- Modify: `client/src/components/receiving/ReceivingLabelDrawer.tsx`\n\n**Acceptance Criteria:**\n- [ ] qrcode package installed\n- [ ] `buildZpl()` includes `^BQ` QR code encoding `box.boxLabel`\n- [ ] `buildZpl()` no longer contains QUARANTINE text\n- [ ] HTML preview shows QR image for first box\n- [ ] `pnpm typecheck` passes\n\n**Verify:** `pnpm typecheck` → 0 errors\n\n```json:metadata\n{\"files\": [\"client/src/lib/zebra-print.ts\", \"client/src/components/receiving/ReceivingLabelDrawer.tsx\", \"package.json\"], \"verifyCommand\": \"pnpm typecheck\", \"acceptanceCriteria\": [\"^BQ in ZPL\", \"QUARANTINE text removed\", \"QR image in preview\"]}\n```"
+    },
+    {
+      "id": 9,
+      "subject": "Task 5: BoxScanner component",
+      "status": "pending",
+      "description": "**Goal:** Build BoxScanner Sheet with BarcodeDetector camera + text-input fallback.\n\n**Files:**\n- Create: `client/src/components/receiving/BoxScanner.tsx`\n\n**Acceptance Criteria:**\n- [ ] Uses BarcodeDetector with camera when available\n- [ ] Falls back to text input if unsupported or camera denied\n- [ ] Calls `onScan(label)` on detection\n- [ ] Shows `error` prop\n- [ ] `pnpm typecheck` passes\n\n**Verify:** `pnpm typecheck` → 0 errors\n\n```json:metadata\n{\"files\": [\"client/src/components/receiving/BoxScanner.tsx\"], \"verifyCommand\": \"pnpm typecheck\", \"acceptanceCriteria\": [\"BarcodeDetector camera scan\", \"text fallback\", \"onScan called\", \"error shown\"]}\n```"
+    },
+    {
+      "id": 10,
+      "subject": "Task 6: Wire scan buttons + box list into ReceivingDetail",
+      "status": "pending",
+      "blockedBy": [7, 9],
+      "description": "**Goal:** Add Mark Box Sampled + Scan Box buttons, box list, scan flows to ReceivingDetail.\n\n**Files:**\n- Modify: `client/src/pages/receiving.tsx`\n\n**Acceptance Criteria:**\n- [ ] ReceivingDetail has `onNavigateTo` prop\n- [ ] Box list with sampled state\n- [ ] Mark Box Sampled: QUARANTINED/SAMPLING, WAREHOUSE/LAB_TECH/QA\n- [ ] Scan Box: PENDING_QC, QA only\n- [ ] Lab + QC scan flows with all error cases\n- [ ] PO font sizes fixed\n- [ ] `pnpm typecheck` passes\n\n**Verify:** `pnpm typecheck` → 0 errors\n\n```json:metadata\n{\"files\": [\"client/src/pages/receiving.tsx\"], \"verifyCommand\": \"pnpm typecheck\", \"acceptanceCriteria\": [\"onNavigateTo prop\", \"box list\", \"scan buttons with role checks\", \"all scan flows\", \"PO font sizes\"]}\n```"
+    }
+  ],
+  "lastUpdated": "2026-05-05T00:00:00.000Z"
+}

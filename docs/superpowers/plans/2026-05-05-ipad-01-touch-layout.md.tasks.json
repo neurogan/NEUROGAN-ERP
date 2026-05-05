@@ -1,0 +1,26 @@
+{
+  "planPath": "docs/superpowers/plans/2026-05-05-ipad-01-touch-layout.md",
+  "tasks": [
+    {
+      "id": 0,
+      "subject": "Task 1: Add tablet breakpoint",
+      "status": "completed",
+      "description": "**Goal:** Add `tablet: '820px'` to `tailwind.config.ts` so the `tablet:` responsive prefix works in all subsequent tasks.\n\n**Files:**\n- Modify: `tailwind.config.ts`\n\n**Acceptance Criteria:**\n- [ ] `theme.extend.screens` has `tablet: '820px'`\n- [ ] `npm run build` exits 0\n\n**Verify:** `npm run build` → exits 0\n\n```json:metadata\n{\"files\": [\"tailwind.config.ts\"], \"verifyCommand\": \"npm run build\", \"acceptanceCriteria\": [\"theme.extend.screens has tablet: '820px'\", \"npm run build exits 0\"]}\n```"
+    },
+    {
+      "id": 1,
+      "subject": "Task 2: Fix iOS zoom and touch targets on global UI components",
+      "status": "completed",
+      "blockedBy": [0],
+      "description": "**Goal:** Prevent Safari iOS auto-zoom on inputs/selects and ensure all interactive elements meet Apple HIG 44px touch target at the tablet breakpoint.\n\n**Files:**\n- Modify: `client/src/components/ui/button.tsx`\n- Modify: `client/src/components/ui/input.tsx`\n- Modify: `client/src/components/ui/select.tsx`\n\n**Acceptance Criteria:**\n- [ ] All Button size variants have `tablet:min-h-11`\n- [ ] Input base className has `tablet:text-base tablet:min-h-11`\n- [ ] SelectTrigger base className has `tablet:text-base tablet:min-h-11`\n- [ ] Desktop appearance unchanged\n\n**Verify:** `npm run build` → exits 0; DevTools at 820px shows buttons/inputs ≥44px and font-size 16px\n\n```json:metadata\n{\"files\": [\"client/src/components/ui/button.tsx\", \"client/src/components/ui/input.tsx\", \"client/src/components/ui/select.tsx\"], \"verifyCommand\": \"npm run build\", \"acceptanceCriteria\": [\"Button size variants have tablet:min-h-11\", \"Input has tablet:text-base tablet:min-h-11\", \"SelectTrigger has tablet:text-base tablet:min-h-11\", \"Desktop appearance unchanged\"]}\n```"
+    },
+    {
+      "id": 2,
+      "subject": "Task 3: Fix Audit Trail header button overflow",
+      "status": "completed",
+      "blockedBy": [1],
+      "description": "**Goal:** Prevent the Refresh and Export buttons in the Audit Trail header from overflowing on iPad portrait.\n\n**Files:**\n- Modify: `client/src/pages/audit.tsx`\n\n**Acceptance Criteria:**\n- [ ] Header button group div has `flex-wrap`\n- [ ] At 820px, both buttons are fully visible\n- [ ] At 1280px, buttons remain on single row\n\n**Verify:** `npm run dev` → Audit Trail at 820px DevTools → buttons visible, no overflow\n\n```json:metadata\n{\"files\": [\"client/src/pages/audit.tsx\"], \"verifyCommand\": \"npm run dev\", \"acceptanceCriteria\": [\"Header button group has flex-wrap\", \"Buttons visible at 820px\", \"Single row at 1280px\"]}\n```"
+    }
+  ],
+  "lastUpdated": "2026-05-05T12:00:00.000Z"
+}
