@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import QRCode from "qrcode";
 import {
   Sheet,
   SheetContent,
@@ -56,8 +57,19 @@ export function ReceivingLabelDrawer({ open, onOpenChange, jobs }: Props) {
   const [detecting, setDetecting] = useState(false);
   const [printing, setPrinting] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [qrUrls, setQrUrls] = useState<Record<string, string>>({});
 
   const totalLabels = jobs.reduce((sum, j) => sum + j.boxes.length, 0);
+
+  useEffect(() => {
+    if (!open) return;
+    const allLabels = jobs.flatMap((j) => j.boxes.map((b) => b.boxLabel));
+    Promise.all(
+      allLabels.map((label) =>
+        QRCode.toDataURL(label, { width: 100, margin: 1 }).then((url) => [label, url] as const),
+      ),
+    ).then((entries) => setQrUrls(Object.fromEntries(entries)));
+  }, [open, jobs]);
 
   useEffect(() => {
     if (!open || jobs.length === 0) return;
@@ -202,13 +214,24 @@ export function ReceivingLabelDrawer({ open, onOpenChange, jobs }: Props) {
                   <div>PO: {job.poNumber}</div>
                   <div>Received: {job.dateReceived}</div>
                   {firstBox && (
-                    <div className="mt-1 rounded bg-muted px-2 py-1 font-mono tracking-widest text-center">
-                      {firstBox.boxLabel}
+                    <div className="mt-1 flex items-center gap-3">
+                      {qrUrls[firstBox.boxLabel] && (
+                        <img
+                          src={qrUrls[firstBox.boxLabel]}
+                          alt={`QR: ${firstBox.boxLabel}`}
+                          className="w-20 h-20 border border-border rounded"
+                        />
+                      )}
+                      <div>
+                        <div className="rounded bg-muted px-2 py-1 font-mono tracking-widest text-center text-[10px]">
+                          {firstBox.boxLabel}
+                        </div>
+                        <div className="text-muted-foreground mt-1">
+                          Box 1 of {job.boxes.length}
+                        </div>
+                      </div>
                     </div>
                   )}
-                  <div className="text-muted-foreground">
-                    Box 1 of {job.boxes.length}
-                  </div>
 
                 </div>
               );
