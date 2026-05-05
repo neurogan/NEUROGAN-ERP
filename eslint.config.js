@@ -20,6 +20,7 @@ export default tseslint.config(
       "tailwind.config.ts",
       "tailwind.config.ts.bak",
       "postcss.config.js",
+      "client/public/",
     ],
   },
 
