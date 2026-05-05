@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -1124,9 +1124,10 @@ function ReceivingDetail({
 // ── Main page ──
 
 export default function Receiving() {
-  // Read record ID from URL params (hash routing: /#/receiving?record=xxx)
+  // Read record ID / PO ID from URL params (hash routing: /#/receiving?record=xxx or ?po=xxx)
   const searchParams = new URLSearchParams(window.location.hash.split("?")[1] || "");
   const urlRecordId = searchParams.get("record");
+  const urlPoId = searchParams.get("po");
 
   const [selectedId, setSelectedId] = useState<string | null>(urlRecordId);
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
@@ -1154,6 +1155,16 @@ export default function Receiving() {
     () => (allPOs ?? []).filter((po) => po.status === "SUBMITTED" || po.status === "PARTIALLY_RECEIVED"),
     [allPOs],
   );
+
+  // Auto-open ReceiveSheet when navigated from dashboard with ?po=xxx
+  useEffect(() => {
+    if (!urlPoId || !allPOs) return;
+    const po = allPOs.find((p) => p.id === urlPoId);
+    if (po) {
+      setReceiveSheetPo(po);
+      setReceiveSheetOpen(true);
+    }
+  }, [urlPoId, allPOs]);
 
   const filteredRecords = useMemo(() => {
     let result = records;

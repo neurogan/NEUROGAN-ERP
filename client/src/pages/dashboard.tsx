@@ -471,7 +471,7 @@ export default function Dashboard() {
                     <div
                       key={po.id}
                       className="px-4 py-3 cursor-pointer hover:bg-muted/50 transition-colors"
-                      onClick={() => { window.location.hash = `#/suppliers?po=${po.id}`; }}
+                      onClick={() => { window.location.hash = `#/procurement/receiving?po=${po.id}`; }}
                       data-testid={`row-po-${po.id}`}
                     >
                       <div className="flex items-center justify-between mb-2">
