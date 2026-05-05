@@ -747,10 +747,11 @@ export async function registerRoutes(
 
   app.post("/api/purchase-orders/receive", requireAuth, requireRole("WAREHOUSE", "QA", "ADMIN"), async (req, res) => {
     try {
-      const { lineItemId, quantity, lotNumber, locationId, supplierName, expirationDate, receivedDate } = req.body;
+      const { lineItemId, quantity, lotNumber, locationId, supplierName, expirationDate, receivedDate, boxCount } = req.body;
       if (!lineItemId || !quantity || !locationId) {
         return res.status(400).json({ message: "Missing required fields: lineItemId, quantity, locationId" });
       }
+      const parsedBoxCount = typeof boxCount === "number" ? boxCount : parseInt(boxCount ?? "0", 10) || 0;
       const result = await storage.receivePOLineItem(
         lineItemId,
         parseFloat(quantity),
@@ -759,6 +760,7 @@ export async function registerRoutes(
         supplierName,
         expirationDate,
         receivedDate,
+        parsedBoxCount,
       );
       res.status(201).json(result);
     } catch (err) {
@@ -1219,6 +1221,17 @@ export async function registerRoutes(
       res.json({ identifier: id });
     } catch (err) {
       res.status(500).json({ message: "Failed to generate identifier" });
+    }
+  });
+
+  app.get("/api/receiving/:id/boxes", async (req, res) => {
+    try {
+      const record = await storage.getReceivingRecord(req.params.id);
+      if (!record) return res.status(404).json({ message: "Receiving record not found" });
+      const boxes = await storage.getReceivingBoxes(req.params.id);
+      res.json({ boxes });
+    } catch (err) {
+      res.status(500).json({ message: "Failed to fetch boxes" });
     }
   });
 
