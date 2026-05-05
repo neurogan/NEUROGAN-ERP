@@ -54,6 +54,7 @@ import { LocationSelectWithAdd } from "@/components/LocationSelectWithAdd";
 import { formatQty } from "@/lib/formatQty";
 import { DateInput } from "@/components/ui/date-input";
 import { formatDate } from "@/lib/formatDate";
+import { ReceivingLabelDrawer, type PrintJob } from "@/components/receiving/ReceivingLabelDrawer";
 import type {
   PurchaseOrderWithDetails,
   Supplier,
@@ -1150,12 +1151,14 @@ function ReceiveSheet({
   onOpenChange,
   locations,
   products,
+  onReceiveComplete,
 }: {
   po: PurchaseOrderWithDetails;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   locations: Location[];
   products: Product[];
+  onReceiveComplete: (jobs: PrintJob[]) => void;
 }) {
   const { toast } = useToast();
 
@@ -1183,6 +1186,7 @@ function ReceiveSheet({
         lotNumber: z.string().optional().default(""),
         locationId: z.string().min(1, "Location is required"),
         expirationDate: z.string().optional(),
+        boxCount: z.coerce.number().int().min(1, "At least 1 box required").max(999, "Maximum 999 boxes").default(1),
       })
     ),
   });
@@ -1209,6 +1213,7 @@ function ReceiveSheet({
           lotNumber: li.lotNumber ?? "",
           locationId: "",
           expirationDate: "",
+          boxCount: 1,
         };
       }),
     },
@@ -1228,7 +1233,6 @@ function ReceiveSheet({
       toast({ title: "Nothing to receive", description: "Enter quantity > 0 for at least one item.", variant: "destructive" });
       return;
     }
-    // Validate lotNumber: required for non-secondary packaging
     for (const item of itemsToReceive) {
       if (!isSecondaryPackaging(item.productId) && !item.lotNumber) {
         toast({ title: "Lot # required", description: `Lot # is required for ${item.productName}.`, variant: "destructive" });
@@ -1238,8 +1242,9 @@ function ReceiveSheet({
 
     setIsSubmitting(true);
     try {
+      const jobs: PrintJob[] = [];
       for (const item of itemsToReceive) {
-        await apiRequest("POST", "/api/purchase-orders/receive", {
+        const res = await apiRequest("POST", "/api/purchase-orders/receive", {
           lineItemId: item.lineItemId,
           quantity: item.quantity,
           lotNumber: item.lotNumber,
@@ -1247,7 +1252,21 @@ function ReceiveSheet({
           supplierName: po.supplierName,
           expirationDate: item.expirationDate || null,
           receivedDate: values.receivedDate || null,
+          boxCount: item.boxCount,
         });
+        const result = await res.json() as { receivingUniqueId: string; boxes: { boxLabel: string; boxNumber: number }[] };
+
+        if (result.boxes.length > 0) {
+          jobs.push({
+            componentName: item.productName,
+            supplierLotNumber: item.lotNumber || "",
+            supplierName: po.supplierName,
+            poNumber: po.poNumber,
+            dateReceived: values.receivedDate,
+            receivingUniqueId: result.receivingUniqueId,
+            boxes: result.boxes,
+          });
+        }
       }
 
       queryClient.invalidateQueries({ queryKey: ["/api/purchase-orders"] });
@@ -1257,11 +1276,15 @@ function ReceiveSheet({
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
       queryClient.invalidateQueries({ queryKey: ["/api/lots"] });
 
-      toast({
-        title: "Items received",
-        description: `${itemsToReceive.length} line item${itemsToReceive.length > 1 ? "s" : ""} received for ${po.poNumber}.`,
-      });
-      onOpenChange(false);
+      if (jobs.length > 0) {
+        onReceiveComplete(jobs);
+      } else {
+        toast({
+          title: "Items received",
+          description: `${itemsToReceive.length} line item${itemsToReceive.length > 1 ? "s" : ""} received for ${po.poNumber}.`,
+        });
+        onOpenChange(false);
+      }
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       toast({ title: "Error", description: message, variant: "destructive" });
@@ -1384,6 +1407,29 @@ function ReceiveSheet({
                           )}
                         />
                       </div>
+
+                      <div>
+                        <FormField
+                          control={form.control}
+                          name={`items.${index}.boxCount`}
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel className="text-xs">Boxes / Containers</FormLabel>
+                              <FormControl>
+                                <Input
+                                  {...field}
+                                  type="number"
+                                  min={1}
+                                  max={999}
+                                  step={1}
+                                  data-testid={`input-receive-boxcount-${index}`}
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
                     </div>
                   </Card>
                 ))
@@ -1395,7 +1441,7 @@ function ReceiveSheet({
                     Cancel
                   </Button>
                   <Button type="submit" disabled={isSubmitting} data-testid="button-submit-receive">
-                    {isSubmitting ? "Receiving..." : "Receive"}
+                    {isSubmitting ? "Receiving..." : "Receive & Print Labels"}
                   </Button>
                 </div>
               )}
@@ -1414,6 +1460,8 @@ export default function PurchaseOrders({ initialSelectedId, initialOpenCreate, i
   const [statusFilter, setStatusFilter] = useState("");
   const [createSheetOpen, setCreateSheetOpen] = useState(initialOpenCreate ?? false);
   const [receiveSheetOpen, setReceiveSheetOpen] = useState(false);
+  const [printJobs, setPrintJobs] = useState<PrintJob[]>([]);
+  const [labelDrawerOpen, setLabelDrawerOpen] = useState(false);
   const { toast } = useToast();
 
   // Build query string for filtering
@@ -1580,8 +1628,20 @@ export default function PurchaseOrders({ initialSelectedId, initialOpenCreate, i
           onOpenChange={setReceiveSheetOpen}
           locations={locations}
           products={products}
+          onReceiveComplete={(jobs) => {
+            setPrintJobs(jobs);
+            setReceiveSheetOpen(false);
+            setLabelDrawerOpen(true);
+          }}
         />
       )}
+      <ReceivingLabelDrawer
+        open={labelDrawerOpen}
+        onOpenChange={(open) => {
+          setLabelDrawerOpen(open);
+        }}
+        jobs={printJobs}
+      />
     </div>
   );
 }

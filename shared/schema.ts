@@ -13,6 +13,7 @@ import {
   jsonb,
   boolean,
   unique,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -106,6 +107,17 @@ export const receivingRecords = pgTable("erp_receiving_records", {
     rejectNumber: number;
   } | null>(),
 });
+
+// Per-box tracking — one row per physical container in a receiving record
+export const receivingBoxes = pgTable("erp_receiving_boxes", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  receivingRecordId: varchar("receiving_record_id").notNull().references(() => receivingRecords.id, { onDelete: "cascade" }),
+  boxNumber: integer("box_number").notNull(),
+  boxLabel: text("box_label").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => ({
+  uniqRecordBox: uniqueIndex("erp_receiving_boxes_record_box_uq").on(t.receivingRecordId, t.boxNumber),
+}));
 
 // Locations
 export const locations = pgTable("erp_locations", {
@@ -572,6 +584,7 @@ export const insertReceivingRecordSchema = createInsertSchema(receivingRecords).
   qcReviewedBy: true,
   samplingPlan: true,
 });
+export const insertReceivingBoxSchema = createInsertSchema(receivingBoxes).omit({ id: true, createdAt: true });
 export const insertCoaDocumentSchema = createInsertSchema(coaDocuments).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertSupplierQualificationSchema = createInsertSchema(supplierQualifications).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertBprSchema = createInsertSchema(batchProductionRecords).omit({ id: true, createdAt: true, updatedAt: true });
@@ -626,6 +639,8 @@ export type SupplierDocument = typeof supplierDocuments.$inferSelect;
 export type InsertSupplierDocument = z.infer<typeof insertSupplierDocumentSchema>;
 export type ReceivingRecord = typeof receivingRecords.$inferSelect;
 export type InsertReceivingRecord = z.infer<typeof insertReceivingRecordSchema>;
+export type ReceivingBox = typeof receivingBoxes.$inferSelect;
+export type InsertReceivingBox = z.infer<typeof insertReceivingBoxSchema>;
 
 export type ReceivingRecordWithDetails = ReceivingRecord & {
   productName: string;

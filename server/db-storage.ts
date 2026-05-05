@@ -39,6 +39,7 @@ import {
   type ApprovedMaterial,
   type OosInvestigationDetail,
   type OosInvestigationSummary,
+  type ReceivingBox,
 } from "@shared/schema";
 import type {
   IStorage,
@@ -458,7 +459,8 @@ export class DatabaseStorage implements IStorage {
     supplierName?: string,
     expirationDate?: string,
     receivedDate?: string,
-  ): Promise<{ lot: Lot; transaction: Transaction }> {
+    boxCount = 0,
+  ): Promise<{ lot: Lot; transaction: Transaction; receivingRecordId: string; receivingUniqueId: string; boxes: ReceivingBox[] }> {
     const [lineItem] = await db.select().from(schema.poLineItems).where(eq(schema.poLineItems.id, lineItemId));
     if (!lineItem) throw new Error("Line item not found");
 
@@ -505,7 +507,7 @@ export class DatabaseStorage implements IStorage {
       // must not override the active workflow state. The existing lot's status is authoritative.
       return db.transaction(async (tx) => {
         const rcvId = await this.getNextReceivingIdentifier();
-        await tx.insert(schema.receivingRecords).values({
+        const [rcvRecord] = await tx.insert(schema.receivingRecords).values({
           purchaseOrderId: po.id,
           lotId: existingLot.id,
           uniqueIdentifier: rcvId,
@@ -516,7 +518,8 @@ export class DatabaseStorage implements IStorage {
           status: "QUARANTINED",
           qcWorkflowType: "EXEMPT",
           requiresQualification: false,
-        });
+        }).returning();
+        const boxes = await this.createReceivingBoxes(rcvRecord!.id, boxCount, rcvId);
         const transaction = await this.createTransaction({
           lotId: existingLot.id,
           locationId,
@@ -538,7 +541,7 @@ export class DatabaseStorage implements IStorage {
           await this.updatePurchaseOrderStatus(po.id, "PARTIALLY_RECEIVED");
         }
         const [fullLot] = await tx.select().from(schema.lots).where(eq(schema.lots.id, existingLot.id));
-        return { lot: fullLot! as Lot, transaction };
+        return { lot: fullLot! as Lot, transaction, receivingRecordId: rcvRecord!.id, receivingUniqueId: rcvId, boxes };
       });
     }
 
@@ -568,7 +571,7 @@ export class DatabaseStorage implements IStorage {
 
     // Auto-create receiving record
     const rcvId = await this.getNextReceivingIdentifier();
-    await this.createReceivingRecord({
+    const rcvRecord = await this.createReceivingRecord({
       purchaseOrderId: po.id,
       lotId: lot.id,
       uniqueIdentifier: rcvId,
@@ -578,6 +581,8 @@ export class DatabaseStorage implements IStorage {
       supplierLotNumber: lotNumber,
       status: "QUARANTINED",
     });
+
+    const boxes = await this.createReceivingBoxes(rcvRecord.id, boxCount, rcvId);
 
     // Update line item received quantity
     const newReceived = parseFloat(lineItem.quantityReceived) + Math.abs(quantity);
@@ -598,7 +603,7 @@ export class DatabaseStorage implements IStorage {
       await this.updatePurchaseOrderStatus(po.id, "PARTIALLY_RECEIVED");
     }
 
-    return { lot, transaction };
+    return { lot, transaction, receivingRecordId: rcvRecord.id, receivingUniqueId: rcvId, boxes };
   }
 
   // ─── Production Batches ──────────────────────────────
@@ -1883,6 +1888,31 @@ export class DatabaseStorage implements IStorage {
       return updated!;
     };
     return outerTx ? run(outerTx) : db.transaction(run);
+  }
+
+  async createReceivingBoxes(receivingRecordId: string, boxCount: number, uniqueIdentifier: string): Promise<ReceivingBox[]> {
+    if (boxCount < 0) throw Object.assign(new Error("boxCount must be non-negative"), { status: 400 });
+    if (boxCount === 0) return [];
+    const existing = await db.select({ id: schema.receivingBoxes.id })
+      .from(schema.receivingBoxes)
+      .where(eq(schema.receivingBoxes.receivingRecordId, receivingRecordId))
+      .limit(1);
+    if (existing.length > 0) throw Object.assign(
+      new Error("Boxes already exist for this receiving record."),
+      { status: 409 },
+    );
+    const rows = Array.from({ length: boxCount }, (_, i) => ({
+      receivingRecordId,
+      boxNumber: i + 1,
+      boxLabel: `${uniqueIdentifier}-BOX-${String(i + 1).padStart(2, "0")}`,
+    }));
+    return db.insert(schema.receivingBoxes).values(rows).returning();
+  }
+
+  async getReceivingBoxes(receivingRecordId: string): Promise<ReceivingBox[]> {
+    return db.select().from(schema.receivingBoxes)
+      .where(eq(schema.receivingBoxes.receivingRecordId, receivingRecordId))
+      .orderBy(schema.receivingBoxes.boxNumber);
   }
 
   async getNextReceivingIdentifier(): Promise<string> {
