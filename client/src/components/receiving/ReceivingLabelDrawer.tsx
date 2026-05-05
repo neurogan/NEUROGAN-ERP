@@ -148,28 +148,48 @@ export function ReceivingLabelDrawer({ open, onOpenChange, jobs }: Props) {
               >
                 retry detection
               </button>
-              .
+              .{" "}
+              <a
+                href="https://www.zebra.com/us/en/support-downloads/printer-software/browser-print.html"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline text-primary"
+              >
+                Download Zebra Browser Print
+              </a>
             </p>
           )}
 
-          {/* Job summary */}
-          <div className="space-y-2">
-            {jobs.map((job, i) => (
-              <div
-                key={i}
-                className="rounded-md border bg-muted/30 p-3 space-y-1 text-sm"
-              >
-                <div className="font-medium">{job.componentName}</div>
-                <div className="text-xs text-muted-foreground font-mono">
-                  {job.boxes[0]?.boxLabel} …{" "}
-                  {job.boxes[job.boxes.length - 1]?.boxLabel}
+          {/* Label previews */}
+          <div className="space-y-3">
+            {jobs.map((job, i) => {
+              const firstBox = job.boxes[0];
+              return (
+                <div
+                  key={i}
+                  className="rounded border border-border bg-white p-3 text-xs space-y-1 shadow-sm"
+                  style={{ fontFamily: "monospace" }}
+                >
+                  <div className="font-bold text-sm">{job.componentName}</div>
+                  <div>Lot: {job.receivingUniqueId}</div>
+                  <div>Supplier lot: {job.supplierLotNumber}</div>
+                  <div>Supplier: {job.supplierName}</div>
+                  <div>PO: {job.poNumber}</div>
+                  <div>Received: {job.dateReceived}</div>
+                  {firstBox && (
+                    <div className="mt-1 rounded bg-muted px-2 py-1 font-mono tracking-widest text-center">
+                      {firstBox.boxLabel}
+                    </div>
+                  )}
+                  <div className="text-muted-foreground">
+                    Box 1 of {job.boxes.length}
+                  </div>
+                  <div className="font-bold text-destructive text-center">
+                    ⚠ QUARANTINE — DO NOT USE ⚠
+                  </div>
                 </div>
-                <div className="text-xs text-muted-foreground">
-                  {job.boxes.length} label{job.boxes.length > 1 ? "s" : ""} ·
-                  Supplier lot: {job.supplierLotNumber}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           {/* Progress */}
@@ -189,8 +209,17 @@ export function ReceivingLabelDrawer({ open, onOpenChange, jobs }: Props) {
             onClick={() => onOpenChange(false)}
             disabled={printing}
           >
-            Close
+            Done
           </Button>
+          {!printer && !detecting && (
+            <Button
+              variant="secondary"
+              onClick={() => window.print()}
+              data-testid="button-print-as-pdf"
+            >
+              Print as PDF
+            </Button>
+          )}
           <Button
             onClick={handlePrint}
             disabled={!printer || printing || detecting}
