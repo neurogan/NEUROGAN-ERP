@@ -114,6 +114,8 @@ export const receivingBoxes = pgTable("erp_receiving_boxes", {
   receivingRecordId: varchar("receiving_record_id").notNull().references(() => receivingRecords.id, { onDelete: "cascade" }),
   boxNumber: integer("box_number").notNull(),
   boxLabel: text("box_label").notNull(),
+  sampledAt: timestamp("sampled_at", { withTimezone: true }),
+  sampledById: uuid("sampled_by_id").references(() => users.id),
   createdAt: timestamp("created_at").defaultNow(),
 }, (t) => ({
   uniqRecordBox: uniqueIndex("erp_receiving_boxes_record_box_uq").on(t.receivingRecordId, t.boxNumber),
@@ -641,6 +643,9 @@ export type ReceivingRecord = typeof receivingRecords.$inferSelect;
 export type InsertReceivingRecord = z.infer<typeof insertReceivingRecordSchema>;
 export type ReceivingBox = typeof receivingBoxes.$inferSelect;
 export type InsertReceivingBox = z.infer<typeof insertReceivingBoxSchema>;
+export type ReceivingBoxWithSampler = ReceivingBox & {
+  sampledByName: string | null;
+};
 
 export type ReceivingRecordWithDetails = ReceivingRecord & {
   productName: string;

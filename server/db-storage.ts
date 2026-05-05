@@ -1909,10 +1909,101 @@ export class DatabaseStorage implements IStorage {
     return db.insert(schema.receivingBoxes).values(rows).returning();
   }
 
-  async getReceivingBoxes(receivingRecordId: string): Promise<ReceivingBox[]> {
-    return db.select().from(schema.receivingBoxes)
+  async getReceivingBoxes(receivingRecordId: string): Promise<schema.ReceivingBoxWithSampler[]> {
+    const rows = await db
+      .select({
+        ...getTableColumns(schema.receivingBoxes),
+        sampledByName: schema.users.fullName,
+      })
+      .from(schema.receivingBoxes)
+      .leftJoin(schema.users, eq(schema.receivingBoxes.sampledById, schema.users.id))
       .where(eq(schema.receivingBoxes.receivingRecordId, receivingRecordId))
       .orderBy(schema.receivingBoxes.boxNumber);
+    return rows.map((r) => ({ ...r, sampledByName: r.sampledByName ?? null }));
+  }
+
+  async getBoxByLabel(label: string): Promise<{ box: schema.ReceivingBox; receivingRecord: schema.ReceivingRecord } | undefined> {
+    const [box] = await db
+      .select()
+      .from(schema.receivingBoxes)
+      .where(eq(schema.receivingBoxes.boxLabel, label));
+    if (!box) return undefined;
+
+    const [receivingRecord] = await db
+      .select()
+      .from(schema.receivingRecords)
+      .where(eq(schema.receivingRecords.id, box.receivingRecordId));
+    if (!receivingRecord) return undefined;
+
+    return { box, receivingRecord };
+  }
+
+  async sampleBox(boxId: string, userId: string): Promise<schema.ReceivingRecord> {
+    return db.transaction(async (tx) => {
+      const [box] = await tx
+        .select()
+        .from(schema.receivingBoxes)
+        .where(eq(schema.receivingBoxes.id, boxId));
+      if (!box) throw Object.assign(new Error("Box not found"), { status: 404 });
+      if (box.sampledAt) throw Object.assign(new Error("Box already sampled"), { status: 409 });
+
+      const [record] = await tx
+        .select()
+        .from(schema.receivingRecords)
+        .where(eq(schema.receivingRecords.id, box.receivingRecordId));
+      if (!record) throw Object.assign(new Error("Receiving record not found"), { status: 404 });
+
+      // Mark this box sampled
+      await tx
+        .update(schema.receivingBoxes)
+        .set({ sampledAt: new Date(), sampledById: userId })
+        .where(eq(schema.receivingBoxes.id, boxId));
+
+      // Count total sampled boxes for this record (including the one just marked)
+      const [{ count }] = await tx
+        .select({ count: sql<number>`COUNT(*)::int` })
+        .from(schema.receivingBoxes)
+        .where(
+          and(
+            eq(schema.receivingBoxes.receivingRecordId, record.id),
+            isNotNull(schema.receivingBoxes.sampledAt),
+          ),
+        );
+
+      let currentStatus = record.status;
+
+      // QUARANTINED → SAMPLING on first scan
+      if (currentStatus === "QUARANTINED") {
+        assertValidTransition("receiving_record", currentStatus, "SAMPLING");
+        await tx
+          .update(schema.receivingRecords)
+          .set({ status: "SAMPLING", updatedAt: new Date() })
+          .where(eq(schema.receivingRecords.id, record.id));
+        currentStatus = "SAMPLING";
+      }
+
+      // SAMPLING → PENDING_QC when sampledCount >= sampleSize (only if samplingPlan exists)
+      if (
+        currentStatus === "SAMPLING" &&
+        record.samplingPlan !== null &&
+        count >= record.samplingPlan.sampleSize
+      ) {
+        assertValidTransition("receiving_record", currentStatus, "PENDING_QC");
+        const [updated] = await tx
+          .update(schema.receivingRecords)
+          .set({ status: "PENDING_QC", updatedAt: new Date() })
+          .where(eq(schema.receivingRecords.id, record.id))
+          .returning();
+        return updated!;
+      }
+
+      // Return the current record state
+      const [updated] = await tx
+        .select()
+        .from(schema.receivingRecords)
+        .where(eq(schema.receivingRecords.id, record.id));
+      return updated!;
+    });
   }
 
   async getNextReceivingIdentifier(): Promise<string> {
