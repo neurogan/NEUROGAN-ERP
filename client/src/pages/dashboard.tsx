@@ -29,6 +29,7 @@ import { formatQty } from "@/lib/formatQty";
 import { formatDate } from "@/lib/formatDate";
 import { Link } from "wouter";
 import { DashboardTasks } from "@/components/DashboardTasks";
+import { QcQueueCard } from "@/components/QcQueueCard";
 import type {
   Equipment,
   CalibrationSchedule,
@@ -508,6 +509,9 @@ export default function Dashboard() {
           </CardContent>
         </Card>
       </div>
+
+      {/* QC Queue — incoming materials pipeline */}
+      <QcQueueCard />
 
       {/* Bottom row: Supply Chain + Recent Transactions */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

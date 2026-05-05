@@ -1050,6 +1050,21 @@ function ReceivingDetail({
             ) : (
               // QC review form
               <div className="space-y-3">
+                {record.requiresQualification && (
+                  <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 space-y-1">
+                    <div className="flex items-center gap-2 text-sm font-medium text-amber-600 dark:text-amber-400">
+                      <AlertTriangle className="h-4 w-4 shrink-0" />
+                      First-time supplier approval
+                    </div>
+                    <p className="text-xs text-amber-700 dark:text-amber-300/80 leading-relaxed">
+                      <strong>{record.supplierName ?? "This supplier"}</strong> has not previously been approved
+                      for <strong>{record.productName}</strong>. Selecting{" "}
+                      <em>Approved</em> will add them to the Approved Materials list and qualify them for
+                      future receipts of this material. Verify COA, specification compliance, and lab
+                      results before proceeding.
+                    </p>
+                  </div>
+                )}
                 <div className="space-y-1.5">
                   <Label className="text-sm">QC Disposition</Label>
                   <Select value={qcDisposition} onValueChange={setQcDisposition}>
