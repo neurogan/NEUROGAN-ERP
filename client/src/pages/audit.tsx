@@ -224,7 +224,7 @@ export default function AuditTrail() {
             Tamper-evident record of all regulated actions. 21 CFR Part 11 §11.10(e).
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             size="sm"
             variant="outline"
