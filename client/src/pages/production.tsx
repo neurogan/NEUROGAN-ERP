@@ -68,7 +68,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Plus, Trash2, Beaker, Play, CheckCircle, Pause, RotateCcw, Pencil, XCircle, AlertTriangle, Info, MessageSquare, Send, ClipboardCheck, Printer } from "lucide-react";
+import { Plus, Trash2, Beaker, Play, CheckCircle, Pause, RotateCcw, Pencil, XCircle, AlertTriangle, Info, MessageSquare, Send, ClipboardCheck, Printer, ListChecks } from "lucide-react";
 import { LocationSelectWithAdd } from "@/components/LocationSelectWithAdd";
 import { Link, useLocation } from "wouter";
 import { BprStartModal } from "./bpr/start-modal";
@@ -78,6 +78,7 @@ import { formatDateTime } from "@/lib/formatDate";
 import { IssueLabelsModal } from "@/components/labeling/IssueLabelsModal";
 import { PrintLabelsModal } from "@/components/labeling/PrintLabelsModal";
 import { ReconcileLabelsForm } from "@/components/labeling/ReconcileLabelsForm";
+import { BprExecutionSheet } from "@/components/bpr/BprExecutionSheet";
 import type {
   ProductionBatchWithDetails,
   Product,
@@ -1458,6 +1459,21 @@ function BatchDetail({
   onScrap: () => void;
   isUpdating: boolean;
 }) {
+  const [executionOpen, setExecutionOpen] = useState(false);
+
+  const { data: bprForExecution } = useQuery<BprWithDetails | null>({
+    queryKey: ["/api/batch-production-records/by-batch", batch.id],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/batch-production-records/by-batch/${batch.id}`);
+      if (res.status === 404) return null;
+      return res.json() as Promise<BprWithDetails>;
+    },
+    enabled: batch.status === "IN_PROGRESS",
+  });
+
+  const completedSteps = (bprForExecution?.steps ?? []).filter(s => s.status === "COMPLETED").length;
+  const totalSteps = (bprForExecution?.steps ?? []).length;
+
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
@@ -1600,6 +1616,17 @@ function BatchDetail({
         )}
         {batch.status === "IN_PROGRESS" && (
           <>
+            {bprForExecution && (
+              <Button
+                onClick={() => setExecutionOpen(true)}
+                size="sm"
+                variant="outline"
+                data-testid="button-execute-steps"
+              >
+                <ListChecks className="h-3.5 w-3.5 mr-1.5" />
+                Execute Steps ({completedSteps} / {totalSteps})
+              </Button>
+            )}
             <Button
               onClick={onCompleteBatch}
               disabled={isUpdating}
@@ -1734,6 +1761,16 @@ function BatchDetail({
             batchStatus={batch.status}
           />
         </>
+      )}
+
+      {batch.status === "IN_PROGRESS" && (
+        <BprExecutionSheet
+          batchId={batch.id}
+          batchNumber={batch.batchNumber}
+          productName={batch.productName}
+          open={executionOpen}
+          onOpenChange={setExecutionOpen}
+        />
       )}
     </div>
   );
