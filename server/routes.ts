@@ -752,6 +752,9 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Missing required fields: lineItemId, quantity, locationId" });
       }
       const parsedBoxCount = typeof boxCount === "number" ? boxCount : parseInt(boxCount ?? "0", 10) || 0;
+      if (parsedBoxCount > 999) {
+        return res.status(400).json({ message: "boxCount cannot exceed 999" });
+      }
       const result = await storage.receivePOLineItem(
         lineItemId,
         parseFloat(quantity),

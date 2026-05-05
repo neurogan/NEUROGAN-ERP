@@ -1151,12 +1151,14 @@ function ReceiveSheet({
   onOpenChange,
   locations,
   products,
+  onReceiveComplete,
 }: {
   po: PurchaseOrderWithDetails;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   locations: Location[];
   products: Product[];
+  onReceiveComplete: (jobs: PrintJob[]) => void;
 }) {
   const { toast } = useToast();
 
@@ -1184,7 +1186,7 @@ function ReceiveSheet({
         lotNumber: z.string().optional().default(""),
         locationId: z.string().min(1, "Location is required"),
         expirationDate: z.string().optional(),
-        boxCount: z.coerce.number().int().min(1, "At least 1 box required").default(1),
+        boxCount: z.coerce.number().int().min(1, "At least 1 box required").max(999, "Maximum 999 boxes").default(1),
       })
     ),
   });
@@ -1218,8 +1220,6 @@ function ReceiveSheet({
   });
 
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [printJobs, setPrintJobs] = useState<PrintJob[]>([]);
-  const [labelDrawerOpen, setLabelDrawerOpen] = useState(false);
 
   // Helper to check if a product is secondary packaging
   function isSecondaryPackaging(productId: string) {
@@ -1277,8 +1277,7 @@ function ReceiveSheet({
       queryClient.invalidateQueries({ queryKey: ["/api/lots"] });
 
       if (jobs.length > 0) {
-        setPrintJobs(jobs);
-        setLabelDrawerOpen(true);
+        onReceiveComplete(jobs);
       } else {
         toast({
           title: "Items received",
@@ -1421,6 +1420,7 @@ function ReceiveSheet({
                                   {...field}
                                   type="number"
                                   min={1}
+                                  max={999}
                                   step={1}
                                   data-testid={`input-receive-boxcount-${index}`}
                                 />
@@ -1449,14 +1449,6 @@ function ReceiveSheet({
           </Form>
         </div>
       </SheetContent>
-      <ReceivingLabelDrawer
-        open={labelDrawerOpen}
-        onOpenChange={(open) => {
-          setLabelDrawerOpen(open);
-          if (!open) onOpenChange(false);
-        }}
-        jobs={printJobs}
-      />
     </Sheet>
   );
 }
@@ -1468,6 +1460,8 @@ export default function PurchaseOrders({ initialSelectedId, initialOpenCreate, i
   const [statusFilter, setStatusFilter] = useState("");
   const [createSheetOpen, setCreateSheetOpen] = useState(initialOpenCreate ?? false);
   const [receiveSheetOpen, setReceiveSheetOpen] = useState(false);
+  const [printJobs, setPrintJobs] = useState<PrintJob[]>([]);
+  const [labelDrawerOpen, setLabelDrawerOpen] = useState(false);
   const { toast } = useToast();
 
   // Build query string for filtering
@@ -1634,8 +1628,20 @@ export default function PurchaseOrders({ initialSelectedId, initialOpenCreate, i
           onOpenChange={setReceiveSheetOpen}
           locations={locations}
           products={products}
+          onReceiveComplete={(jobs) => {
+            setPrintJobs(jobs);
+            setReceiveSheetOpen(false);
+            setLabelDrawerOpen(true);
+          }}
         />
       )}
+      <ReceivingLabelDrawer
+        open={labelDrawerOpen}
+        onOpenChange={(open) => {
+          setLabelDrawerOpen(open);
+        }}
+        jobs={printJobs}
+      />
     </div>
   );
 }
