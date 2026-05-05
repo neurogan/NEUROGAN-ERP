@@ -13,6 +13,7 @@ import {
   jsonb,
   boolean,
   unique,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -114,7 +115,9 @@ export const receivingBoxes = pgTable("erp_receiving_boxes", {
   boxNumber: integer("box_number").notNull(),
   boxLabel: text("box_label").notNull(),
   createdAt: timestamp("created_at").defaultNow(),
-});
+}, (t) => ({
+  uniqRecordBox: uniqueIndex("erp_receiving_boxes_record_box_uq").on(t.receivingRecordId, t.boxNumber),
+}));
 
 // Locations
 export const locations = pgTable("erp_locations", {

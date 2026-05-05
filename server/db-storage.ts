@@ -1891,7 +1891,16 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createReceivingBoxes(receivingRecordId: string, boxCount: number, uniqueIdentifier: string): Promise<ReceivingBox[]> {
-    if (boxCount <= 0) return [];
+    if (boxCount < 0) throw Object.assign(new Error("boxCount must be non-negative"), { status: 400 });
+    if (boxCount === 0) return [];
+    const existing = await db.select({ id: schema.receivingBoxes.id })
+      .from(schema.receivingBoxes)
+      .where(eq(schema.receivingBoxes.receivingRecordId, receivingRecordId))
+      .limit(1);
+    if (existing.length > 0) throw Object.assign(
+      new Error("Boxes already exist for this receiving record."),
+      { status: 409 },
+    );
     const rows = Array.from({ length: boxCount }, (_, i) => ({
       receivingRecordId,
       boxNumber: i + 1,

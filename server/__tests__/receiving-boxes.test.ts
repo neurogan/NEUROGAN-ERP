@@ -139,6 +139,24 @@ describeIfDb("createReceivingBoxes", () => {
     expect(boxes[0]!.boxNumber).toBe(1);
     expect(boxes[2]!.boxNumber).toBe(3);
   });
+
+  it("returns empty array when boxCount is 0", async () => {
+    const uniqueId = "RCV-99990101-004";
+    const [rcv] = await db.insert(schema.receivingRecords).values({
+      purchaseOrderId: poId,
+      lotId: "00000000-0000-0000-0000-000000000001",
+      uniqueIdentifier: uniqueId,
+      dateReceived: "2026-05-05",
+      quantityReceived: "5",
+      uom: "kg",
+      supplierLotNumber: "TESTLOT-004",
+      status: "QUARANTINED",
+    }).returning();
+    seededReceivingIds.push(rcv!.id);
+
+    const boxes = await storage.createReceivingBoxes(rcv!.id, 0, uniqueId);
+    expect(boxes).toHaveLength(0);
+  });
 });
 
 describeIfDb("getReceivingBoxes", () => {
