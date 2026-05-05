@@ -6,6 +6,16 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Printer, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
@@ -58,6 +68,8 @@ export function ReceivingLabelDrawer({ open, onOpenChange, jobs }: Props) {
   const [printing, setPrinting] = useState(false);
   const [progress, setProgress] = useState(0);
   const [qrUrls, setQrUrls] = useState<Record<string, string>>({});
+  const [hasPrinted, setHasPrinted] = useState(false);
+  const [confirmClose, setConfirmClose] = useState(false);
 
   const totalLabels = jobs.reduce((sum, j) => sum + j.boxes.length, 0);
 
@@ -73,6 +85,7 @@ export function ReceivingLabelDrawer({ open, onOpenChange, jobs }: Props) {
 
   useEffect(() => {
     if (!open || jobs.length === 0) return;
+    setHasPrinted(false);
     setDetecting(true);
     setPrinter(null);
     setProgress(0);
@@ -116,6 +129,7 @@ export function ReceivingLabelDrawer({ open, onOpenChange, jobs }: Props) {
 
     try {
       await printLabels(printer, allLabels, (n) => setProgress(n));
+      setHasPrinted(true);
       toast({
         title: `${totalLabels} label${totalLabels > 1 ? "s" : ""} printed`,
       });
@@ -132,10 +146,36 @@ export function ReceivingLabelDrawer({ open, onOpenChange, jobs }: Props) {
     }
   }
 
+  function requestClose() {
+    if (!hasPrinted) {
+      setConfirmClose(true);
+    } else {
+      onOpenChange(false);
+    }
+  }
+
   if (jobs.length === 0) return null;
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
+    <>
+    <AlertDialog open={confirmClose} onOpenChange={setConfirmClose}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Labels not printed</AlertDialogTitle>
+          <AlertDialogDescription>
+            You haven't printed the labels yet. Box labels are required for quarantine
+            tracking. Are you sure you want to close without printing?
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Go back</AlertDialogCancel>
+          <AlertDialogAction onClick={() => onOpenChange(false)}>
+            Close without printing
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    <Sheet open={open} onOpenChange={(o) => { if (!o) requestClose(); else onOpenChange(true); }}>
       <SheetContent className="sm:max-w-md">
         <style>{labelPrintStyles}</style>
         <SheetHeader className="no-print">
@@ -252,7 +292,7 @@ export function ReceivingLabelDrawer({ open, onOpenChange, jobs }: Props) {
         <div className="no-print flex justify-end gap-2 mt-6">
           <Button
             variant="outline"
-            onClick={() => onOpenChange(false)}
+            onClick={requestClose}
             disabled={printing}
           >
             Done
@@ -286,5 +326,6 @@ export function ReceivingLabelDrawer({ open, onOpenChange, jobs }: Props) {
         </div>
       </SheetContent>
     </Sheet>
+    </>
   );
 }
