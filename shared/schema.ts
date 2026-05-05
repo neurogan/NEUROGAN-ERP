@@ -107,6 +107,15 @@ export const receivingRecords = pgTable("erp_receiving_records", {
   } | null>(),
 });
 
+// Per-box tracking — one row per physical container in a receiving record
+export const receivingBoxes = pgTable("erp_receiving_boxes", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  receivingRecordId: varchar("receiving_record_id").notNull().references(() => receivingRecords.id, { onDelete: "cascade" }),
+  boxNumber: integer("box_number").notNull(),
+  boxLabel: text("box_label").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 // Locations
 export const locations = pgTable("erp_locations", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -572,6 +581,7 @@ export const insertReceivingRecordSchema = createInsertSchema(receivingRecords).
   qcReviewedBy: true,
   samplingPlan: true,
 });
+export const insertReceivingBoxSchema = createInsertSchema(receivingBoxes).omit({ id: true, createdAt: true });
 export const insertCoaDocumentSchema = createInsertSchema(coaDocuments).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertSupplierQualificationSchema = createInsertSchema(supplierQualifications).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertBprSchema = createInsertSchema(batchProductionRecords).omit({ id: true, createdAt: true, updatedAt: true });
@@ -626,6 +636,8 @@ export type SupplierDocument = typeof supplierDocuments.$inferSelect;
 export type InsertSupplierDocument = z.infer<typeof insertSupplierDocumentSchema>;
 export type ReceivingRecord = typeof receivingRecords.$inferSelect;
 export type InsertReceivingRecord = z.infer<typeof insertReceivingRecordSchema>;
+export type ReceivingBox = typeof receivingBoxes.$inferSelect;
+export type InsertReceivingBox = z.infer<typeof insertReceivingBoxSchema>;
 
 export type ReceivingRecordWithDetails = ReceivingRecord & {
   productName: string;
