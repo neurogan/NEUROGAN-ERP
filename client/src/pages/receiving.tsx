@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -523,8 +523,9 @@ function ReceivingDetail({
   const [scanError, setScanError] = useState<string | undefined>();
   const qcReviewRef = useRef<HTMLDivElement>(null);
 
-  const { data: boxes = [] } = useQuery<ReceivingBoxWithSampler[]>({
+  const { data: boxes = [] } = useQuery<{ boxes: ReceivingBoxWithSampler[] }, Error, ReceivingBoxWithSampler[]>({
     queryKey: [`/api/receiving/${record.id}/boxes`],
+    select: (data) => data.boxes,
     enabled: isSamplingActive || record.status === "PENDING_QC",
   });
 
@@ -1049,6 +1050,21 @@ function ReceivingDetail({
             ) : (
               // QC review form
               <div className="space-y-3">
+                {record.requiresQualification && (
+                  <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 space-y-1">
+                    <div className="flex items-center gap-2 text-sm font-medium text-amber-600 dark:text-amber-400">
+                      <AlertTriangle className="h-4 w-4 shrink-0" />
+                      First-time supplier approval
+                    </div>
+                    <p className="text-xs text-amber-700 dark:text-amber-300/80 leading-relaxed">
+                      <strong>{record.supplierName ?? "This supplier"}</strong> has not previously been approved
+                      for <strong>{record.productName}</strong>. Selecting{" "}
+                      <em>Approved</em> will add them to the Approved Materials list and qualify them for
+                      future receipts of this material. Verify COA, specification compliance, and lab
+                      results before proceeding.
+                    </p>
+                  </div>
+                )}
                 <div className="space-y-1.5">
                   <Label className="text-sm">QC Disposition</Label>
                   <Select value={qcDisposition} onValueChange={setQcDisposition}>
@@ -1123,9 +1139,10 @@ function ReceivingDetail({
 // ── Main page ──
 
 export default function Receiving() {
-  // Read record ID from URL params (hash routing: /#/receiving?record=xxx)
+  // Read record ID / PO ID from URL params (hash routing: /#/receiving?record=xxx or ?po=xxx)
   const searchParams = new URLSearchParams(window.location.hash.split("?")[1] || "");
   const urlRecordId = searchParams.get("record");
+  const urlPoId = searchParams.get("po");
 
   const [selectedId, setSelectedId] = useState<string | null>(urlRecordId);
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
@@ -1153,6 +1170,16 @@ export default function Receiving() {
     () => (allPOs ?? []).filter((po) => po.status === "SUBMITTED" || po.status === "PARTIALLY_RECEIVED"),
     [allPOs],
   );
+
+  // Auto-open ReceiveSheet when navigated from dashboard with ?po=xxx
+  useEffect(() => {
+    if (!urlPoId || !allPOs) return;
+    const po = allPOs.find((p) => p.id === urlPoId);
+    if (po) {
+      setReceiveSheetPo(po);
+      setReceiveSheetOpen(true);
+    }
+  }, [urlPoId, allPOs]);
 
   const filteredRecords = useMemo(() => {
     let result = records;

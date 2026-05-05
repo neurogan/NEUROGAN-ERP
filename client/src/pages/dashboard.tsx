@@ -29,6 +29,7 @@ import { formatQty } from "@/lib/formatQty";
 import { formatDate } from "@/lib/formatDate";
 import { Link } from "wouter";
 import { DashboardTasks } from "@/components/DashboardTasks";
+import { QcQueueCard } from "@/components/QcQueueCard";
 import type {
   Equipment,
   CalibrationSchedule,
@@ -471,7 +472,7 @@ export default function Dashboard() {
                     <div
                       key={po.id}
                       className="px-4 py-3 cursor-pointer hover:bg-muted/50 transition-colors"
-                      onClick={() => { window.location.hash = `#/suppliers?po=${po.id}`; }}
+                      onClick={() => { window.location.hash = `#/procurement/receiving?po=${po.id}`; }}
                       data-testid={`row-po-${po.id}`}
                     >
                       <div className="flex items-center justify-between mb-2">
@@ -508,6 +509,9 @@ export default function Dashboard() {
           </CardContent>
         </Card>
       </div>
+
+      {/* QC Queue — incoming materials pipeline */}
+      <QcQueueCard />
 
       {/* Bottom row: Supply Chain + Recent Transactions */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

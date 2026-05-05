@@ -519,7 +519,7 @@ export class DatabaseStorage implements IStorage {
           qcWorkflowType: "EXEMPT",
           requiresQualification: false,
         }).returning();
-        const boxes = await this.createReceivingBoxes(rcvRecord!.id, boxCount, rcvId);
+        const boxes = await this.createReceivingBoxes(rcvRecord!.id, boxCount, rcvId, tx);
         const transaction = await this.createTransaction({
           lotId: existingLot.id,
           locationId,
@@ -1890,10 +1890,11 @@ export class DatabaseStorage implements IStorage {
     return outerTx ? run(outerTx) : db.transaction(run);
   }
 
-  async createReceivingBoxes(receivingRecordId: string, boxCount: number, uniqueIdentifier: string): Promise<ReceivingBox[]> {
+  async createReceivingBoxes(receivingRecordId: string, boxCount: number, uniqueIdentifier: string, outerTx?: Tx): Promise<ReceivingBox[]> {
+    const conn = outerTx ?? db;
     if (boxCount < 0) throw Object.assign(new Error("boxCount must be non-negative"), { status: 400 });
     if (boxCount === 0) return [];
-    const existing = await db.select({ id: schema.receivingBoxes.id })
+    const existing = await conn.select({ id: schema.receivingBoxes.id })
       .from(schema.receivingBoxes)
       .where(eq(schema.receivingBoxes.receivingRecordId, receivingRecordId))
       .limit(1);
@@ -1906,7 +1907,7 @@ export class DatabaseStorage implements IStorage {
       boxNumber: i + 1,
       boxLabel: `${uniqueIdentifier}-BOX-${String(i + 1).padStart(2, "0")}`,
     }));
-    return db.insert(schema.receivingBoxes).values(rows).returning();
+    return conn.insert(schema.receivingBoxes).values(rows).returning();
   }
 
   async getReceivingBoxes(receivingRecordId: string): Promise<schema.ReceivingBoxWithSampler[]> {
