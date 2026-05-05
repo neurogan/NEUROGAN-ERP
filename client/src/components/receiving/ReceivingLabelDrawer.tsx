@@ -16,6 +16,24 @@ import {
 } from "@/lib/zebra-print";
 import { useToast } from "@/hooks/use-toast";
 
+const labelPrintStyles = `
+  @page {
+    size: 5in 7in;
+    margin: 10mm;
+  }
+  @media print {
+    .no-print {
+      display: none !important;
+    }
+    body {
+      background: #fff !important;
+      color: #000 !important;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+  }
+`;
+
 export interface PrintJob {
   componentName: string;
   supplierLotNumber: string;
@@ -48,6 +66,9 @@ export function ReceivingLabelDrawer({ open, onOpenChange, jobs }: Props) {
     setProgress(0);
     getZebraPrinter().then((device) => {
       setPrinter(device);
+    }).catch(() => {
+      // BrowserPrint SDK error — remain in not-detected state
+    }).finally(() => {
       setDetecting(false);
     });
   }, [open]);
@@ -55,9 +76,12 @@ export function ReceivingLabelDrawer({ open, onOpenChange, jobs }: Props) {
   async function retryDetect() {
     setDetecting(true);
     setPrinter(null);
-    const device = await getZebraPrinter();
-    setPrinter(device);
-    setDetecting(false);
+    try {
+      const device = await getZebraPrinter();
+      setPrinter(device);
+    } finally {
+      setDetecting(false);
+    }
   }
 
   async function handlePrint() {
@@ -101,7 +125,8 @@ export function ReceivingLabelDrawer({ open, onOpenChange, jobs }: Props) {
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="sm:max-w-md">
-        <SheetHeader>
+        <style>{labelPrintStyles}</style>
+        <SheetHeader className="no-print">
           <SheetTitle>
             Print Labels — {totalLabels} label{totalLabels > 1 ? "s" : ""}
           </SheetTitle>
@@ -109,7 +134,7 @@ export function ReceivingLabelDrawer({ open, onOpenChange, jobs }: Props) {
 
         <div className="mt-4 space-y-4">
           {/* Printer status */}
-          <div className="flex items-center gap-2 min-h-[28px]">
+          <div className="no-print flex items-center gap-2 min-h-[28px]">
             {detecting ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
@@ -138,7 +163,7 @@ export function ReceivingLabelDrawer({ open, onOpenChange, jobs }: Props) {
           </div>
 
           {!printer && !detecting && (
-            <p className="text-xs text-muted-foreground">
+            <p className="no-print text-xs text-muted-foreground">
               Run the <strong>Zebra Browser Print</strong> app on the warehouse
               workstation, then{" "}
               <button
@@ -195,7 +220,7 @@ export function ReceivingLabelDrawer({ open, onOpenChange, jobs }: Props) {
           {/* Progress */}
           {printing && (
             <p
-              className="text-sm text-muted-foreground"
+              className="no-print text-sm text-muted-foreground"
               data-testid="text-print-progress"
             >
               Printing label {progress} of {totalLabels}…
@@ -203,7 +228,7 @@ export function ReceivingLabelDrawer({ open, onOpenChange, jobs }: Props) {
           )}
         </div>
 
-        <div className="flex justify-end gap-2 mt-6">
+        <div className="no-print flex justify-end gap-2 mt-6">
           <Button
             variant="outline"
             onClick={() => onOpenChange(false)}
