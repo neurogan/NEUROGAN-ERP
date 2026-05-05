@@ -523,8 +523,9 @@ function ReceivingDetail({
   const [scanError, setScanError] = useState<string | undefined>();
   const qcReviewRef = useRef<HTMLDivElement>(null);
 
-  const { data: boxes = [] } = useQuery<ReceivingBoxWithSampler[]>({
+  const { data: boxes = [] } = useQuery<{ boxes: ReceivingBoxWithSampler[] }, Error, ReceivingBoxWithSampler[]>({
     queryKey: [`/api/receiving/${record.id}/boxes`],
+    select: (data) => data.boxes,
     enabled: isSamplingActive || record.status === "PENDING_QC",
   });
 
