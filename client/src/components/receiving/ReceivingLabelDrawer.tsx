@@ -209,9 +209,7 @@ export function ReceivingLabelDrawer({ open, onOpenChange, jobs }: Props) {
                   <div className="text-muted-foreground">
                     Box 1 of {job.boxes.length}
                   </div>
-                  <div className="font-bold text-destructive text-center">
-                    ⚠ QUARANTINE — DO NOT USE ⚠
-                  </div>
+
                 </div>
               );
             })}

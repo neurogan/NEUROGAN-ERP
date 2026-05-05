@@ -43,7 +43,11 @@ import type {
   ReceivingRecordWithDetails,
   CoaDocumentWithDetails,
   PurchaseOrderWithDetails,
+  Product,
+  Location,
 } from "@shared/schema";
+import { ReceiveSheet } from "./purchase-orders";
+import { ReceivingLabelDrawer, type PrintJob } from "@/components/receiving/ReceivingLabelDrawer";
 
 // ── Identity snapshot helper ──
 // visualExamBy and qcReviewedBy are stored as jsonb { userId, fullName, title }
@@ -939,6 +943,9 @@ export default function Receiving() {
   const [selectedId, setSelectedId] = useState<string | null>(urlRecordId);
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
   const [searchQuery, setSearchQuery] = useState("");
+  const [receiveSheetPo, setReceiveSheetPo] = useState<PurchaseOrderWithDetails | null>(null);
+  const [receiveSheetOpen, setReceiveSheetOpen] = useState(false);
+  const [printJobs, setPrintJobs] = useState<PrintJob[]>([]);
 
   const { data: records = [], isLoading } = useQuery<ReceivingRecordWithDetails[]>({
     queryKey: ["/api/receiving"],
@@ -952,6 +959,9 @@ export default function Receiving() {
     refetchOnWindowFocus: true,
     staleTime: 0,
   });
+
+  const { data: products = [] } = useQuery<Product[]>({ queryKey: ["/api/products"] });
+  const { data: locations = [] } = useQuery<Location[]>({ queryKey: ["/api/locations"] });
   const submittedPOs = useMemo(
     () => (allPOs ?? []).filter((po) => po.status === "SUBMITTED" || po.status === "PARTIALLY_RECEIVED"),
     [allPOs],
@@ -1069,7 +1079,7 @@ export default function Receiving() {
                     <button
                       key={po.id}
                       className="w-full text-left px-3 py-2.5 border-b border-border/50 hover:bg-muted/50 transition-colors"
-                      onClick={() => { window.location.hash = `#/suppliers?po=${po.id}`; }}
+                      onClick={() => { setReceiveSheetPo(po); setReceiveSheetOpen(true); }}
                       data-testid={`item-open-po-${po.id}`}
                     >
                       <div className="flex items-center justify-between">
@@ -1123,6 +1133,29 @@ export default function Receiving() {
           </div>
         )}
       </div>
+
+      {receiveSheetPo && (
+        <ReceiveSheet
+          po={receiveSheetPo}
+          open={receiveSheetOpen}
+          onOpenChange={(open) => {
+            setReceiveSheetOpen(open);
+            if (!open) setReceiveSheetPo(null);
+          }}
+          locations={locations}
+          products={products}
+          onReceiveComplete={(jobs) => {
+            setReceiveSheetOpen(false);
+            setReceiveSheetPo(null);
+            setPrintJobs(jobs);
+          }}
+        />
+      )}
+      <ReceivingLabelDrawer
+        jobs={printJobs}
+        open={printJobs.length > 0}
+        onOpenChange={(open) => { if (!open) setPrintJobs([]); }}
+      />
     </div>
   );
 }

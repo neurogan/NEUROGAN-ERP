@@ -1145,7 +1145,7 @@ function CreatePOSheet({
 
 // ── Receiving Sheet ──
 
-function ReceiveSheet({
+export function ReceiveSheet({
   po,
   open,
   onOpenChange,
