@@ -40,7 +40,6 @@ import {
   type OosInvestigationDetail,
   type OosInvestigationSummary,
   type ReceivingBox,
-  type ReceivingBoxWithSampler,
 } from "@shared/schema";
 import type {
   IStorage,

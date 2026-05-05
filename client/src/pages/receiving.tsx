@@ -629,7 +629,11 @@ function ReceivingDetail({
 
   const sampleBoxMutation = useMutation({
     mutationFn: async (boxId: string) => {
-      const res = await apiRequest("PATCH", `/api/receiving/boxes/${boxId}/sample`, {});
+      const res = await fetch(`/api/receiving/boxes/${boxId}/sample`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+      });
       if (!res.ok) {
         const body = await res.json().catch(() => ({})) as { message?: string };
         throw new Error(body.message ?? "Failed to mark box sampled");
@@ -651,7 +655,9 @@ function ReceivingDetail({
   async function handleLabScan(label: string) {
     setScanError(undefined);
     try {
-      const res = await apiRequest("GET", `/api/receiving/boxes/by-label/${encodeURIComponent(label)}`, undefined);
+      const res = await fetch(`/api/receiving/boxes/by-label/${encodeURIComponent(label)}`, {
+        credentials: "include",
+      });
       if (!res.ok) {
         const body = await res.json().catch(() => ({})) as { message?: string };
         setScanError(body.message ?? "Box not found — check the label and try again");
@@ -664,7 +670,7 @@ function ReceivingDetail({
       }
       if (box.sampledAt) {
         const byName = box.sampledByName ?? "unknown";
-        const atDate = new Date(box.sampledAt as unknown as string).toLocaleDateString();
+        const atDate = new Date(String(box.sampledAt)).toLocaleDateString();
         setScanError(`Already marked as sampled by ${byName} on ${atDate}`);
         return;
       }
@@ -677,7 +683,9 @@ function ReceivingDetail({
   async function handleQcScan(label: string) {
     setScanError(undefined);
     try {
-      const res = await apiRequest("GET", `/api/receiving/boxes/by-label/${encodeURIComponent(label)}`, undefined);
+      const res = await fetch(`/api/receiving/boxes/by-label/${encodeURIComponent(label)}`, {
+        credentials: "include",
+      });
       if (!res.ok) {
         const body = await res.json().catch(() => ({})) as { message?: string };
         setScanError(body.message ?? "Box not found — check the label and try again");
