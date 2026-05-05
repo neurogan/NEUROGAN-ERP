@@ -1,8 +1,9 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/lib/auth";
 import { ToastAction } from "@/components/ui/toast";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -35,6 +36,7 @@ import {
   Send,
   Save,
   FileText,
+  QrCode,
 } from "lucide-react";
 import { formatQty } from "@/lib/formatQty";
 import { formatDate, formatDateTime } from "@/lib/formatDate";
@@ -45,9 +47,11 @@ import type {
   PurchaseOrderWithDetails,
   Product,
   Location,
+  ReceivingBoxWithSampler,
 } from "@shared/schema";
 import { ReceiveSheet } from "./purchase-orders";
 import { ReceivingLabelDrawer, type PrintJob } from "@/components/receiving/ReceivingLabelDrawer";
+import { BoxScanner } from "@/components/receiving/BoxScanner";
 
 // ── Identity snapshot helper ──
 // visualExamBy and qcReviewedBy are stored as jsonb { userId, fullName, title }
@@ -499,12 +503,30 @@ function CoaStatusSection({ lotId, receivingRecordId }: { lotId: string; receivi
 function ReceivingDetail({
   record,
   onUpdated,
+  onNavigateTo,
 }: {
   record: ReceivingRecordWithDetails;
   onUpdated: () => void;
+  onNavigateTo: (id: string) => void;
 }) {
   const { toast } = useToast();
   const [, setLocation] = useLocation();
+  const { user } = useAuth();
+  const userRoles = user?.roles ?? [];
+  const canSampleBox = userRoles.some((r) => ["WAREHOUSE", "LAB_TECH", "QA"].includes(r));
+  const canQcScan = userRoles.includes("QA");
+  const isSamplingActive = record.status === "QUARANTINED" || record.status === "SAMPLING";
+
+  const [scannerOpen, setScannerOpen] = useState(false);
+  const [scannerTitle, setScannerTitle] = useState("");
+  const [scannerMode, setScannerMode] = useState<"lab" | "qc">("lab");
+  const [scanError, setScanError] = useState<string | undefined>();
+  const qcReviewRef = useRef<HTMLDivElement>(null);
+
+  const { data: boxes = [] } = useQuery<ReceivingBoxWithSampler[]>({
+    queryKey: [`/api/receiving/${record.id}/boxes`],
+    enabled: isSamplingActive || record.status === "PENDING_QC",
+  });
 
   // Visual inspection form state
   const [containerOk, setContainerOk] = useState(record.containerConditionOk === "true");
@@ -604,6 +626,78 @@ function ReceivingDetail({
       toast({ title: "Error", description: err.message, variant: "destructive" });
     },
   });
+
+  const sampleBoxMutation = useMutation({
+    mutationFn: async (boxId: string) => {
+      const res = await apiRequest("PATCH", `/api/receiving/boxes/${boxId}/sample`, {});
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({})) as { message?: string };
+        throw new Error(body.message ?? "Failed to mark box sampled");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      setScannerOpen(false);
+      setScanError(undefined);
+      queryClient.invalidateQueries({ queryKey: ["/api/receiving"] });
+      queryClient.invalidateQueries({ queryKey: [`/api/receiving/${record.id}/boxes`] });
+      onUpdated();
+    },
+    onError: (err: Error) => {
+      setScanError(err.message);
+    },
+  });
+
+  async function handleLabScan(label: string) {
+    setScanError(undefined);
+    try {
+      const res = await apiRequest("GET", `/api/receiving/boxes/by-label/${encodeURIComponent(label)}`, undefined);
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({})) as { message?: string };
+        setScanError(body.message ?? "Box not found — check the label and try again");
+        return;
+      }
+      const { box, receivingRecord } = await res.json() as { box: ReceivingBoxWithSampler; receivingRecord: { id: string } };
+      if (receivingRecord.id !== record.id) {
+        setScanError("This box belongs to a different lot");
+        return;
+      }
+      if (box.sampledAt) {
+        const byName = box.sampledByName ?? "unknown";
+        const atDate = new Date(box.sampledAt as unknown as string).toLocaleDateString();
+        setScanError(`Already marked as sampled by ${byName} on ${atDate}`);
+        return;
+      }
+      sampleBoxMutation.mutate(box.id);
+    } catch {
+      setScanError("Network error — please try again");
+    }
+  }
+
+  async function handleQcScan(label: string) {
+    setScanError(undefined);
+    try {
+      const res = await apiRequest("GET", `/api/receiving/boxes/by-label/${encodeURIComponent(label)}`, undefined);
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({})) as { message?: string };
+        setScanError(body.message ?? "Box not found — check the label and try again");
+        return;
+      }
+      const { receivingRecord } = await res.json() as { receivingRecord: { id: string; status: string } };
+      if (receivingRecord.status !== "PENDING_QC") {
+        setScanError(`This lot is not ready for QC review (status: ${receivingRecord.status})`);
+        return;
+      }
+      setScannerOpen(false);
+      if (receivingRecord.id !== record.id) {
+        onNavigateTo(receivingRecord.id);
+      } else {
+        qcReviewRef.current?.scrollIntoView({ behavior: "smooth" });
+      }
+    } catch {
+      setScanError("Network error — please try again");
+    }
+  }
 
   const isQuarantined = record.status === "QUARANTINED";
   const isPendingQc = record.status === "PENDING_QC";
@@ -821,11 +915,87 @@ function ReceivingDetail({
         </div>
       </div>
 
+      {/* Box Sampling */}
+      {(isSamplingActive || record.status === "PENDING_QC") && (
+        <>
+          <Separator />
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                <QrCode className="h-4 w-4 text-muted-foreground" />
+                Boxes
+                {record.samplingPlan && (
+                  <span className="text-xs font-normal text-muted-foreground">
+                    ({boxes.filter((b) => b.sampledAt).length} / {record.samplingPlan.sampleSize} sampled)
+                  </span>
+                )}
+              </h3>
+              <div className="flex gap-2">
+                {canSampleBox && isSamplingActive && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      setScannerTitle("Mark Box Sampled");
+                      setScannerMode("lab");
+                      setScanError(undefined);
+                      setScannerOpen(true);
+                    }}
+                    data-testid="button-mark-box-sampled"
+                  >
+                    <QrCode className="h-3.5 w-3.5 mr-1.5" />
+                    Mark Box Sampled
+                  </Button>
+                )}
+                {canQcScan && record.status === "PENDING_QC" && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      setScannerTitle("Scan Box for QC");
+                      setScannerMode("qc");
+                      setScanError(undefined);
+                      setScannerOpen(true);
+                    }}
+                    data-testid="button-scan-box-qc"
+                  >
+                    <QrCode className="h-3.5 w-3.5 mr-1.5" />
+                    Scan Box
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            {boxes.length > 0 ? (
+              <div className="space-y-1">
+                {boxes.map((box) => (
+                  <div
+                    key={box.id}
+                    className="flex items-center justify-between rounded border border-border px-3 py-2 text-xs"
+                  >
+                    <span className="font-mono text-foreground">{box.boxLabel}</span>
+                    {box.sampledAt ? (
+                      <span className="text-emerald-600 dark:text-emerald-400">
+                        ✓ Sampled {box.sampledByName ? `by ${box.sampledByName}` : ""}
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">Not sampled</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">No boxes recorded for this lot.</p>
+            )}
+          </div>
+        </>
+      )}
+
       {/* QC Review section */}
       {showQcSection && (
         <>
           <Separator />
-          <div data-tour="receiving-qc-review">
+          <div data-tour="receiving-qc-review" ref={qcReviewRef}>
             <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
               <Shield className="h-4 w-4 text-muted-foreground" />
               QC Review
@@ -929,6 +1099,15 @@ function ReceivingDetail({
         </h3>
         <StatusTimeline record={record} />
       </div>
+
+      <BoxScanner
+        open={scannerOpen}
+        onOpenChange={setScannerOpen}
+        title={scannerTitle}
+        onScan={scannerMode === "lab" ? handleLabScan : handleQcScan}
+        error={scanError}
+        isPending={sampleBoxMutation.isPending}
+      />
     </div>
   );
 }
@@ -1084,14 +1263,14 @@ export default function Receiving() {
                     >
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
-                          <span className="text-sm font-medium font-mono">{po.poNumber}</span>
+                          <span className="text-base font-medium font-mono">{po.poNumber}</span>
                           <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 border-0 text-[10px]">
                             {po.status === "PARTIALLY_RECEIVED" ? "Partial" : "Submitted"}
                           </Badge>
                         </div>
                         <span className="text-xs text-muted-foreground">{formatDate(po.orderDate)}</span>
                       </div>
-                      <p className="text-xs text-muted-foreground mt-0.5">{po.supplierName ?? "—"}</p>
+                      <p className="text-sm text-muted-foreground mt-0.5">{po.supplierName ?? "—"}</p>
                     </button>
                   ))}
                 </>
@@ -1123,6 +1302,7 @@ export default function Receiving() {
             key={selectedRecord.id + ":" + selectedRecord.status}
             record={selectedRecord}
             onUpdated={handleUpdated}
+            onNavigateTo={(id) => setSelectedId(id)}
           />
         ) : (
           <div className="flex flex-col items-center justify-center h-full text-center px-6">
