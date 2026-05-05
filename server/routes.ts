@@ -1238,6 +1238,35 @@ export async function registerRoutes(
     }
   });
 
+  app.patch<{ id: string }>(
+    "/api/receiving/boxes/:id/sample",
+    requireAuth,
+    requireRole("WAREHOUSE", "LAB_TECH", "QA"),
+    async (req, res, next) => {
+      try {
+        const record = await storage.sampleBox(req.params.id, req.user!.id);
+        res.json(record);
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
+
+  app.get<{ label: string }>(
+    "/api/receiving/boxes/by-label/:label",
+    requireAuth,
+    async (req, res, next) => {
+      try {
+        const label = decodeURIComponent(req.params.label);
+        const result = await storage.getBoxByLabel(label);
+        if (!result) return res.status(404).json({ message: "Box not found — check the label and try again" });
+        res.json(result);
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
+
   app.get("/api/receiving/:id", async (req, res) => {
     try {
       const record = await storage.getReceivingRecord(req.params.id);

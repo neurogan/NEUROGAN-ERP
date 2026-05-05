@@ -257,6 +257,8 @@ export interface IStorage {
   receivePOLineItem(lineItemId: string, quantity: number, lotNumber: string | undefined, locationId: string, supplierName?: string, expirationDate?: string, receivedDate?: string, boxCount?: number): Promise<{ lot: Lot; transaction: Transaction; receivingRecordId: string; receivingUniqueId: string; boxes: ReceivingBox[] }>;
   createReceivingBoxes(receivingRecordId: string, boxCount: number, uniqueIdentifier: string): Promise<ReceivingBox[]>;
   getReceivingBoxes(receivingRecordId: string): Promise<ReceivingBox[]>;
+  sampleBox(boxId: string, userId: string): Promise<ReceivingRecord>;
+  getBoxByLabel(label: string): Promise<{ box: ReceivingBox; receivingRecord: ReceivingRecord } | undefined>;
 
   // Production Batches
   getProductionBatches(filters?: { status?: string }): Promise<ProductionBatchWithDetails[]>;
