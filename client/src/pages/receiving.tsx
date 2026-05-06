@@ -301,6 +301,27 @@ function ReceivingDetail({
   const [qcNotes, setQcNotes] = useState("");
   const [sigOpen, setSigOpen] = useState(false);
 
+  // Inline COA state (workflow-type-aware)
+  type InlineCoaData = {
+    sourceType?: string;
+    documentNumber?: string;
+    overallResult?: string;
+    identityConfirmed?: boolean;
+    identityTestMethod?: string;
+    labName?: string;
+    analystName?: string;
+    analysisDate?: string;
+  };
+  const [coaSourceType, setCoaSourceType] = useState<string>("");
+  const [coaDocumentNumber, setCoaDocumentNumber] = useState<string>("");
+  const [coaOverallResult, setCoaOverallResult] = useState<string>("");
+  const [coaIdentityConfirmed, setCoaIdentityConfirmed] = useState<boolean>(false);
+  const [coaIdentityTestMethod, setCoaIdentityTestMethod] = useState<string>("");
+  const [coaLabName, setCoaLabName] = useState<string>("");
+  const [coaAnalystName, setCoaAnalystName] = useState<string>("");
+  const [coaAnalysisDate, setCoaAnalysisDate] = useState<string>("");
+  const [coaExpanded, setCoaExpanded] = useState<boolean>(false);
+
   // Reset form when record changes
   const recordId = record.id;
   useMemo(() => {
@@ -311,6 +332,15 @@ function ReceivingDetail({
     setExamNotes(record.visualExamNotes ?? "");
     setQcDisposition("");
     setQcNotes("");
+    setCoaSourceType("");
+    setCoaDocumentNumber("");
+    setCoaOverallResult("");
+    setCoaIdentityConfirmed(false);
+    setCoaIdentityTestMethod("");
+    setCoaLabName("");
+    setCoaAnalystName("");
+    setCoaAnalysisDate("");
+    setCoaExpanded(false);
   }, [recordId]);
 
   // Save inspection mutation
@@ -361,11 +391,41 @@ function ReceivingDetail({
   // QC review mutation
   const submitQcReview = useMutation({
     mutationFn: async ({ password, commentary }: { password: string; commentary: string }) => {
+      const wf = record.qcWorkflowType;
+
+      // Build inlineCoa payload based on workflow type
+      let inlineCoa: InlineCoaData | undefined;
+      if (wf === "IDENTITY_CHECK" || wf === "FULL_LAB_TEST") {
+        inlineCoa = {
+          sourceType: coaSourceType || undefined,
+          documentNumber: coaDocumentNumber || undefined,
+          identityConfirmed: coaIdentityConfirmed,
+          identityTestMethod: coaIdentityTestMethod || undefined,
+          ...(wf === "FULL_LAB_TEST" && {
+            labName: coaLabName || undefined,
+            analystName: coaAnalystName || undefined,
+            analysisDate: coaAnalysisDate || undefined,
+            overallResult: coaOverallResult || undefined,
+          }),
+        };
+      } else if (wf === "COA_REVIEW") {
+        // Only include if user filled in something
+        const hasAny = coaSourceType || coaDocumentNumber || coaOverallResult;
+        if (hasAny) {
+          inlineCoa = {
+            sourceType: coaSourceType || undefined,
+            documentNumber: coaDocumentNumber || undefined,
+            overallResult: coaOverallResult || undefined,
+          };
+        }
+      }
+
       const res = await apiRequest("POST", `/api/receiving/${record.id}/qc-review`, {
         disposition: qcDisposition,
         notes: qcNotes || undefined,
         password,
         commentary: commentary || undefined,
+        inlineCoa,
       });
       return res.json();
     },
@@ -860,6 +920,215 @@ function ReceivingDetail({
                     </SelectContent>
                   </Select>
                 </div>
+
+                {/* COA_REVIEW: optional collapsible inline COA fields */}
+                {record.qcWorkflowType === "COA_REVIEW" && (
+                  <div className="space-y-2">
+                    <button
+                      type="button"
+                      className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                      onClick={() => setCoaExpanded((v) => !v)}
+                      data-testid="toggle-coa-section"
+                    >
+                      <ClipboardCheck className="h-3.5 w-3.5" />
+                      {coaExpanded ? "Hide COA details" : "Add COA details (optional)"}
+                    </button>
+                    {coaExpanded && (
+                      <div className="rounded-md border border-border bg-muted/20 p-3 space-y-2.5">
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground">COA Source</Label>
+                          <Select value={coaSourceType} onValueChange={setCoaSourceType}>
+                            <SelectTrigger className="text-xs h-8" data-testid="select-coa-source-type">
+                              <SelectValue placeholder="Select source…" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="SUPPLIER">Supplier</SelectItem>
+                              <SelectItem value="INTERNAL">Internal</SelectItem>
+                              <SelectItem value="THIRD_PARTY_LAB">Third-party Lab</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground">Document Number (optional)</Label>
+                          <Input
+                            className="text-xs h-8"
+                            placeholder="e.g. COA-2024-001"
+                            value={coaDocumentNumber}
+                            onChange={(e) => setCoaDocumentNumber(e.target.value)}
+                            data-testid="input-coa-document-number"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground">Overall Result</Label>
+                          <Select value={coaOverallResult} onValueChange={setCoaOverallResult}>
+                            <SelectTrigger className="text-xs h-8" data-testid="select-coa-overall-result">
+                              <SelectValue placeholder="Select result…" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="PASS">Pass</SelectItem>
+                              <SelectItem value="FAIL">Fail</SelectItem>
+                              <SelectItem value="CONDITIONAL">Conditional</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* IDENTITY_CHECK: required identity block */}
+                {record.qcWorkflowType === "IDENTITY_CHECK" && (
+                  <div className="rounded-md border border-border bg-muted/20 p-3 space-y-2.5">
+                    <p className="text-xs font-medium text-foreground flex items-center gap-1.5">
+                      <Search className="h-3.5 w-3.5" />
+                      Identity Verification
+                    </p>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">COA Source</Label>
+                      <Select value={coaSourceType} onValueChange={setCoaSourceType}>
+                        <SelectTrigger className="text-xs h-8" data-testid="select-identity-source-type">
+                          <SelectValue placeholder="Select source…" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="SUPPLIER">Supplier</SelectItem>
+                          <SelectItem value="INTERNAL">Internal</SelectItem>
+                          <SelectItem value="THIRD_PARTY_LAB">Third-party Lab</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Document Number (optional)</Label>
+                      <Input
+                        className="text-xs h-8"
+                        placeholder="e.g. COA-2024-001"
+                        value={coaDocumentNumber}
+                        onChange={(e) => setCoaDocumentNumber(e.target.value)}
+                        data-testid="input-identity-document-number"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Identity Test Method</Label>
+                      <Input
+                        className="text-xs h-8"
+                        placeholder="FTIR / HPTLC / Organoleptic / Other"
+                        value={coaIdentityTestMethod}
+                        onChange={(e) => setCoaIdentityTestMethod(e.target.value)}
+                        data-testid="input-identity-test-method"
+                      />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Checkbox
+                        id="identity-confirmed"
+                        checked={coaIdentityConfirmed}
+                        onCheckedChange={(v) => setCoaIdentityConfirmed(v === true)}
+                        data-testid="checkbox-identity-confirmed"
+                      />
+                      <label htmlFor="identity-confirmed" className="text-xs cursor-pointer select-none">
+                        Identity confirmed — material matches specification
+                      </label>
+                    </div>
+                  </div>
+                )}
+
+                {/* FULL_LAB_TEST: identity block + lab details */}
+                {record.qcWorkflowType === "FULL_LAB_TEST" && (
+                  <div className="rounded-md border border-border bg-muted/20 p-3 space-y-2.5">
+                    <p className="text-xs font-medium text-foreground flex items-center gap-1.5">
+                      <ClipboardCheck className="h-3.5 w-3.5" />
+                      Lab Test Results
+                    </p>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">COA Source</Label>
+                      <Select value={coaSourceType} onValueChange={setCoaSourceType}>
+                        <SelectTrigger className="text-xs h-8" data-testid="select-lab-source-type">
+                          <SelectValue placeholder="Select source…" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="SUPPLIER">Supplier</SelectItem>
+                          <SelectItem value="INTERNAL">Internal</SelectItem>
+                          <SelectItem value="THIRD_PARTY_LAB">Third-party Lab</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Document Number (optional)</Label>
+                      <Input
+                        className="text-xs h-8"
+                        placeholder="e.g. COA-2024-001"
+                        value={coaDocumentNumber}
+                        onChange={(e) => setCoaDocumentNumber(e.target.value)}
+                        data-testid="input-lab-document-number"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Identity Test Method</Label>
+                      <Input
+                        className="text-xs h-8"
+                        placeholder="FTIR / HPTLC / Organoleptic / Other"
+                        value={coaIdentityTestMethod}
+                        onChange={(e) => setCoaIdentityTestMethod(e.target.value)}
+                        data-testid="input-lab-identity-test-method"
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="space-y-1">
+                        <Label className="text-xs text-muted-foreground">Lab Name</Label>
+                        <Input
+                          className="text-xs h-8"
+                          placeholder="e.g. Eurofins"
+                          value={coaLabName}
+                          onChange={(e) => setCoaLabName(e.target.value)}
+                          data-testid="input-lab-name"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs text-muted-foreground">Analyst Name</Label>
+                        <Input
+                          className="text-xs h-8"
+                          placeholder="e.g. J. Smith"
+                          value={coaAnalystName}
+                          onChange={(e) => setCoaAnalystName(e.target.value)}
+                          data-testid="input-lab-analyst-name"
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Analysis Date</Label>
+                      <Input
+                        type="date"
+                        className="text-xs h-8"
+                        value={coaAnalysisDate}
+                        onChange={(e) => setCoaAnalysisDate(e.target.value)}
+                        data-testid="input-lab-analysis-date"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Overall Result</Label>
+                      <Select value={coaOverallResult} onValueChange={setCoaOverallResult}>
+                        <SelectTrigger className="text-xs h-8" data-testid="select-lab-overall-result">
+                          <SelectValue placeholder="Select result…" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="PASS">Pass</SelectItem>
+                          <SelectItem value="FAIL">Fail</SelectItem>
+                          <SelectItem value="CONDITIONAL">Conditional</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Checkbox
+                        id="lab-identity-confirmed"
+                        checked={coaIdentityConfirmed}
+                        onCheckedChange={(v) => setCoaIdentityConfirmed(v === true)}
+                        data-testid="checkbox-lab-identity-confirmed"
+                      />
+                      <label htmlFor="lab-identity-confirmed" className="text-xs cursor-pointer select-none">
+                        Identity confirmed — material matches specification
+                      </label>
+                    </div>
+                  </div>
+                )}
+
                 <div className="space-y-1.5">
                   <Label className="text-sm">QC Notes</Label>
                   <Textarea
@@ -873,7 +1142,11 @@ function ReceivingDetail({
                 <Button
                   size="sm"
                   onClick={() => setSigOpen(true)}
-                  disabled={!qcDisposition}
+                  disabled={
+                    !qcDisposition ||
+                    (record.qcWorkflowType === "IDENTITY_CHECK" && !coaIdentityConfirmed) ||
+                    (record.qcWorkflowType === "FULL_LAB_TEST" && (!coaIdentityConfirmed || !coaOverallResult))
+                  }
                   data-testid="button-submit-qc-review"
                 >
                   <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />
