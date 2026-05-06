@@ -1119,17 +1119,6 @@ function ReceivingDetail({
                         </SelectContent>
                       </Select>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <Checkbox
-                        id="lab-identity-confirmed"
-                        checked={coaIdentityConfirmed}
-                        onCheckedChange={(v) => setCoaIdentityConfirmed(v === true)}
-                        data-testid="checkbox-lab-identity-confirmed"
-                      />
-                      <label htmlFor="lab-identity-confirmed" className="text-xs cursor-pointer select-none">
-                        Identity confirmed — material matches specification
-                      </label>
-                    </div>
                   </div>
                 )}
 
