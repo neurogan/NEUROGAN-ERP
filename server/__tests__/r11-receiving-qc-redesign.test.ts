@@ -82,7 +82,7 @@ async function loginAs(app: Express, email: string) {
 describeIfDb("R-11 — Receiving QC Redesign", () => {
   let app: Express;
   let adminId: string;
-  let adminCookie: string;
+  let _adminCookie: string;
   let qaCookie: string;
 
   beforeAll(async () => { app = await buildTestApp(); });
@@ -96,12 +96,12 @@ describeIfDb("R-11 — Receiving QC Redesign", () => {
       roles: ["ADMIN"], createdByUserId: null, grantedByUserId: null,
     });
     adminId = admin.id;
-    const qa = await storage.createUser({
+    const _qa = await storage.createUser({
       email: "qa@r11.test", fullName: "QC Manager", title: "QC Manager",
       passwordHash: await hashPassword("Neurogan1!Secure"),
       roles: ["QA"], createdByUserId: adminId, grantedByUserId: adminId,
     });
-    adminCookie = await loginAs(app, "admin@r11.test");
+    _adminCookie = await loginAs(app, "admin@r11.test");
     qaCookie = await loginAs(app, "qa@r11.test");
   });
 

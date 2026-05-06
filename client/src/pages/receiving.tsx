@@ -3,7 +3,6 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { useAuth } from "@/lib/auth";
 import { ToastAction } from "@/components/ui/toast";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -27,7 +26,6 @@ import {
   Clock,
   Package,
   AlertTriangle,
-  FileCheck,
   CheckCircle2,
   XCircle,
   Shield,
@@ -284,11 +282,11 @@ function StatusTimeline({ record }: { record: ReceivingRecordWithDetails }) {
 function ReceivingDetail({
   record,
   onUpdated,
-  onNavigateTo,
+  _onNavigateTo,
 }: {
   record: ReceivingRecordWithDetails;
   onUpdated: () => void;
-  onNavigateTo: (id: string) => void;
+  _onNavigateTo: (id: string) => void;
 }) {
   const { toast } = useToast();
   const [, setLocation] = useLocation();
@@ -1133,7 +1131,7 @@ export default function Receiving() {
             key={selectedRecord.id + ":" + selectedRecord.status}
             record={selectedRecord}
             onUpdated={handleUpdated}
-            onNavigateTo={(id) => setSelectedId(id)}
+            _onNavigateTo={(id: string) => setSelectedId(id)}
           />
         ) : (
           <div className="flex flex-col items-center justify-center h-full text-center px-6">

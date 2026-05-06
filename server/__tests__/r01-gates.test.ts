@@ -114,8 +114,8 @@ describeIfDb("R-01 — state machine gates", () => {
     const { record, lot, product, supplier } = await seedReceivingRecord(adminId, "PENDING_QC");
     await db.update(schema.lots).set({ quarantineStatus: "PENDING_QC" }).where(eq(schema.lots.id, lot.id));
 
-    // Attach a COA to satisfy gate 3 (identityConfirmed required for FULL_LAB_TEST workflow)
-    await db.insert(schema.coaDocuments).values({ lotId: lot.id, sourceType: "INTERNAL_LAB", overallResult: "PASS", identityConfirmed: "true" });
+    // Attach a COA to satisfy gate 3 (linked to this receiving record)
+    await db.insert(schema.coaDocuments).values({ lotId: lot.id, receivingRecordId: record.id, sourceType: "INTERNAL_LAB", overallResult: "PASS", identityConfirmed: "true" });
 
     const res = await request(app)
       .post(`/api/receiving/${record.id}/qc-review`)
@@ -134,7 +134,7 @@ describeIfDb("R-01 — state machine gates", () => {
   it("F-06: qcReviewedBy is stored as identity snapshot with title", async () => {
     const { record, lot } = await seedReceivingRecord(adminId, "PENDING_QC");
     await db.update(schema.lots).set({ quarantineStatus: "PENDING_QC" }).where(eq(schema.lots.id, lot.id));
-    await db.insert(schema.coaDocuments).values({ lotId: lot.id, sourceType: "INTERNAL_LAB", overallResult: "PASS", identityConfirmed: "true" });
+    await db.insert(schema.coaDocuments).values({ lotId: lot.id, receivingRecordId: record.id, sourceType: "INTERNAL_LAB", overallResult: "PASS", identityConfirmed: "true" });
 
     await request(app)
       .post(`/api/receiving/${record.id}/qc-review`)
