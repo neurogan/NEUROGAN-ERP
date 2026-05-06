@@ -143,3 +143,32 @@ describeIfDb("R10 — inline identity data gate", () => {
     expect(result?.status).toBe("APPROVED");
   });
 });
+
+describeIfDb("R10 — lot deduplication: APPROVED lot partial receipt", () => {
+  it("partial receipt creates new receiving record with status APPROVED when lot is APPROVED", async () => {
+    const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    // Simulate an already-approved lot (as would exist after first receipt + QC)
+    const [lot] = await db.insert(schema.lots).values({
+      productId: productPackaging,
+      lotNumber: `R10-DEDUP-${suffix}`,
+      quarantineStatus: "APPROVED",
+    }).returning();
+    seededLotIds.push(lot!.id);
+
+    // This is what receivePOLineItem's existingLot branch now does for an APPROVED lot
+    const [record] = await db.insert(schema.receivingRecords).values({
+      lotId: lot!.id,
+      uniqueIdentifier: `R10-DUP-${suffix}`,
+      status: "APPROVED",
+      qcWorkflowType: "EXEMPT",
+      requiresQualification: false,
+      dateReceived: "2026-05-05",
+      quantityReceived: "5",
+      uom: "pcs",
+    }).returning();
+    seededRecordIds.push(record!.id);
+
+    expect(record!.status).toBe("APPROVED");
+    expect(record!.qcWorkflowType).toBe("EXEMPT");
+  });
+});

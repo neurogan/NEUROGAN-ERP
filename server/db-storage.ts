@@ -507,14 +507,22 @@ export class DatabaseStorage implements IStorage {
           { status: 422 },
         );
       }
-      // Lot in-progress or approved — attach to existing lot, no new QC work needed.
-      // Insert directly (bypassing createReceivingRecord) to force qcWorkflowType=EXEMPT,
-      // since createReceivingRecord always re-derives the workflow from the category matrix.
+      // Lot in-progress or approved — attach to existing lot.
+      // §111.3: same supplier lot = same lot. If QC was already approved, inherit that status
+      // so the new receiving record enters APPROVED/EXEMPT directly. If in-progress, derive
+      // the proper workflow type so the new record enters QC correctly.
       // We intentionally do NOT sync lots.quarantineStatus here: for an APPROVED lot we must
-      // not regress it back to QUARANTINED, and for an in-progress lot the new EXEMPT receipt
-      // must not override the active workflow state. The existing lot's status is authoritative.
+      // not regress it back to QUARANTINED. The existing lot's status is authoritative.
       return db.transaction(async (tx) => {
         const rcvId = await this.getNextReceivingIdentifier();
+
+        const isApproved = existingLot.quarantineStatus === "APPROVED";
+        let qcWorkflowType: QcWorkflowType = "EXEMPT";
+        if (!isApproved) {
+          const derived = await deriveWorkflowType(lineItem.productId, po.supplierId ?? null, tx);
+          qcWorkflowType = derived.qcWorkflowType;
+        }
+
         const [rcvRecord] = await tx.insert(schema.receivingRecords).values({
           purchaseOrderId: po.id,
           lotId: existingLot.id,
@@ -523,8 +531,8 @@ export class DatabaseStorage implements IStorage {
           quantityReceived: String(quantity),
           uom: lineItem.uom,
           supplierLotNumber: lotNumber,
-          status: "QUARANTINED",
-          qcWorkflowType: "EXEMPT",
+          status: isApproved ? "APPROVED" : "QUARANTINED",
+          qcWorkflowType,
           requiresQualification: false,
         }).returning();
         const boxes = await this.createReceivingBoxes(rcvRecord!.id, boxCount, rcvId, tx);
