@@ -798,6 +798,12 @@ export class DatabaseStorage implements IStorage {
     for (const input of batchInputs) {
       const lot = await this.getLot(input.lotId);
       if (lot && lot.quarantineStatus && lot.quarantineStatus !== "APPROVED") {
+        // NO-LOT is a placeholder for SECONDARY_PACKAGING items that bypass lot tracking.
+        // Patch it to APPROVED here to handle lots created before this fix was deployed.
+        if (lot.lotNumber === "NO-LOT") {
+          await db.update(schema.lots).set({ quarantineStatus: "APPROVED" }).where(eq(schema.lots.id, lot.id));
+          continue;
+        }
         throw Object.assign(
           new Error(`Lot ${lot.lotNumber} is ${lot.quarantineStatus} and cannot be used in production. Only APPROVED lots can be used.`),
           { status: 400, code: "LOT_NOT_APPROVED" },

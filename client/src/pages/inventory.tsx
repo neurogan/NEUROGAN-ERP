@@ -1369,7 +1369,7 @@ function CategoryManager({
             />
             <CommandList>
               <CommandEmpty>
-                {showCreateOption ? null : "No categories found."}
+                {showCreateOption ? null : "Type a name to create one."}
               </CommandEmpty>
               <CommandGroup>
                 {filteredCategories.map((cat) => (
@@ -1475,7 +1475,7 @@ function ProductDetailPanel({
           size="sm"
           className="w-full justify-start"
           onClick={() => {
-            window.location.hash = `#/manufacturing/mmr?productId=${product.id}`;
+            window.location.hash = `#/operations/mmr?productId=${product.id}`;
           }}
           data-testid="button-view-mmr"
         >
