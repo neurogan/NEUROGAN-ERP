@@ -274,6 +274,27 @@
       "when": 1778630400000,
       "tag": "0038_reset_signed_validation_docs_retry",
       "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1778716800000,
+      "tag": "0039_receiving_boxes",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1778803200000,
+      "tag": "0040_receiving_boxes_sampling",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1778889600000,
+      "tag": "0041_mmr_consolidation",
+      "breakpoints": true
     }
   ]
 }

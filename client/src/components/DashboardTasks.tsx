@@ -65,7 +65,7 @@ const TASK_CONFIG: Record<UserTask["taskType"], { label: string; icon: Component
 
 function getTaskRoute(task: UserTask): string {
   if (task.sourceModule === "RECEIVING") {
-    return `/receiving?highlight=${task.sourceRecordId}`;
+    return `/procurement/receiving?record=${task.sourceRecordId}`;
   }
   switch (task.taskType) {
     case "SAER_DUE_SOON":

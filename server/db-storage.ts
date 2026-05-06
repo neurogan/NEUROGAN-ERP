@@ -16,9 +16,6 @@ import {
   type ProductionBatch, type InsertProductionBatch,
   type InsertProductionInput,
   type ProductionBatchWithDetails, type ProductionInputWithDetails,
-  type Recipe, type InsertRecipe,
-  type InsertRecipeLine,
-  type RecipeWithDetails, type RecipeLineWithDetails,
   type AppSettings, type InsertAppSettings,
   type ProductCategory, type InsertProductCategory,
   type ProductCategoryAssignment,
@@ -39,6 +36,7 @@ import {
   type ApprovedMaterial,
   type OosInvestigationDetail,
   type OosInvestigationSummary,
+  type ReceivingBox,
 } from "@shared/schema";
 import type {
   IStorage,
@@ -64,8 +62,6 @@ import { getMmrByProduct } from "./storage/mmr";
 // ─── QC Workflow type derivation ──────────────────────────────────────────────
 
 type QcWorkflowType = "FULL_LAB_TEST" | "IDENTITY_CHECK" | "COA_REVIEW" | "EXEMPT";
-
-const IDENTITY_REQUIRED_WORKFLOWS: QcWorkflowType[] = ["FULL_LAB_TEST", "IDENTITY_CHECK"];
 
 // ─── Visual inspection gate ───────────────────────────────────────────────────
 
@@ -458,7 +454,8 @@ export class DatabaseStorage implements IStorage {
     supplierName?: string,
     expirationDate?: string,
     receivedDate?: string,
-  ): Promise<{ lot: Lot; transaction: Transaction }> {
+    boxCount = 0,
+  ): Promise<{ lot: Lot; transaction: Transaction; receivingRecordId: string; receivingUniqueId: string; boxes: ReceivingBox[] }> {
     const [lineItem] = await db.select().from(schema.poLineItems).where(eq(schema.poLineItems.id, lineItemId));
     if (!lineItem) throw new Error("Line item not found");
 
@@ -497,15 +494,21 @@ export class DatabaseStorage implements IStorage {
           { status: 422 },
         );
       }
-      // Lot in-progress or approved — attach to existing lot, no new QC work needed.
-      // Insert directly (bypassing createReceivingRecord) to force qcWorkflowType=EXEMPT,
-      // since createReceivingRecord always re-derives the workflow from the category matrix.
+      // Lot in-progress or approved — attach to existing lot.
+      // §111.3: same supplier lot = same lot. If QC was already approved, inherit that status
+      // so the new receiving record enters APPROVED/EXEMPT directly. If in-progress, derive
+      // the proper workflow type so the new record enters QC correctly.
       // We intentionally do NOT sync lots.quarantineStatus here: for an APPROVED lot we must
-      // not regress it back to QUARANTINED, and for an in-progress lot the new EXEMPT receipt
-      // must not override the active workflow state. The existing lot's status is authoritative.
+      // not regress it back to QUARANTINED. The existing lot's status is authoritative.
       return db.transaction(async (tx) => {
         const rcvId = await this.getNextReceivingIdentifier();
-        await tx.insert(schema.receivingRecords).values({
+        const isApproved = existingLot.quarantineStatus === "APPROVED";
+        let qcWorkflowType: QcWorkflowType = "EXEMPT";
+        if (!isApproved) {
+          const derived = await deriveWorkflowType(lineItem.productId, po.supplierId ?? null, tx);
+          qcWorkflowType = derived.qcWorkflowType;
+        }
+        const [rcvRecord] = await tx.insert(schema.receivingRecords).values({
           purchaseOrderId: po.id,
           lotId: existingLot.id,
           uniqueIdentifier: rcvId,
@@ -513,10 +516,11 @@ export class DatabaseStorage implements IStorage {
           quantityReceived: String(quantity),
           uom: lineItem.uom,
           supplierLotNumber: lotNumber,
-          status: "QUARANTINED",
-          qcWorkflowType: "EXEMPT",
+          status: isApproved ? "APPROVED" : "QUARANTINED",
+          qcWorkflowType,
           requiresQualification: false,
-        });
+        }).returning();
+        const boxes = await this.createReceivingBoxes(rcvRecord!.id, boxCount, rcvId, tx);
         const transaction = await this.createTransaction({
           lotId: existingLot.id,
           locationId,
@@ -538,7 +542,7 @@ export class DatabaseStorage implements IStorage {
           await this.updatePurchaseOrderStatus(po.id, "PARTIALLY_RECEIVED");
         }
         const [fullLot] = await tx.select().from(schema.lots).where(eq(schema.lots.id, existingLot.id));
-        return { lot: fullLot! as Lot, transaction };
+        return { lot: fullLot! as Lot, transaction, receivingRecordId: rcvRecord!.id, receivingUniqueId: rcvId, boxes };
       });
     }
 
@@ -568,7 +572,7 @@ export class DatabaseStorage implements IStorage {
 
     // Auto-create receiving record
     const rcvId = await this.getNextReceivingIdentifier();
-    await this.createReceivingRecord({
+    const rcvRecord = await this.createReceivingRecord({
       purchaseOrderId: po.id,
       lotId: lot.id,
       uniqueIdentifier: rcvId,
@@ -578,6 +582,8 @@ export class DatabaseStorage implements IStorage {
       supplierLotNumber: lotNumber,
       status: "QUARANTINED",
     });
+
+    const boxes = await this.createReceivingBoxes(rcvRecord.id, boxCount, rcvId);
 
     // Update line item received quantity
     const newReceived = parseFloat(lineItem.quantityReceived) + Math.abs(quantity);
@@ -598,7 +604,7 @@ export class DatabaseStorage implements IStorage {
       await this.updatePurchaseOrderStatus(po.id, "PARTIALLY_RECEIVED");
     }
 
-    return { lot, transaction };
+    return { lot, transaction, receivingRecordId: rcvRecord.id, receivingUniqueId: rcvId, boxes };
   }
 
   // ─── Production Batches ──────────────────────────────
@@ -830,17 +836,11 @@ export class DatabaseStorage implements IStorage {
         .set({ status: "IN_PROGRESS", updatedAt: new Date() })
         .where(eq(schema.productionBatches.id, batchId))
         .returning();
-      const recipeRows = await tx
-        .select()
-        .from(schema.recipes)
-        .where(eq(schema.recipes.productId, updated!.productId));
-      const recipe = recipeRows[0];
       const bpr = await this.createBpr({
         productionBatchId: batchId,
         batchNumber: updated!.batchNumber,
         lotNumber: updated!.outputLotNumber ?? null,
         productId: updated!.productId,
-        recipeId: recipe?.id ?? null,
         status: "IN_PROGRESS",
         theoreticalYield: updated!.plannedQuantity,
         startedAt: new Date(),
@@ -1244,72 +1244,6 @@ export class DatabaseStorage implements IStorage {
     };
   }
 
-  // ─── Recipes ─────────────────────────────────────────
-
-  private async enrichRecipe(recipe: Recipe): Promise<RecipeWithDetails> {
-    const product = await this.getProduct(recipe.productId);
-    const lineRows = await db.select().from(schema.recipeLines).where(eq(schema.recipeLines.recipeId, recipe.id));
-    const lines: RecipeLineWithDetails[] = [];
-    for (const line of lineRows) {
-      const mat = await this.getProduct(line.productId);
-      lines.push({
-        ...line,
-        productName: mat?.name ?? "Unknown",
-        productSku: mat?.sku ?? "",
-        productCategory: mat?.category ?? "",
-      });
-    }
-    return {
-      ...recipe,
-      productName: product?.name ?? "Unknown",
-      productSku: product?.sku ?? "",
-      lines,
-    };
-  }
-
-  async getRecipes(productId?: string): Promise<RecipeWithDetails[]> {
-    const conditions: SQL[] = [];
-    if (productId) conditions.push(eq(schema.recipes.productId, productId));
-    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
-    const rows = await db.select().from(schema.recipes).where(whereClause);
-    return Promise.all(rows.map(r => this.enrichRecipe(r)));
-  }
-
-  async getRecipe(id: string): Promise<RecipeWithDetails | undefined> {
-    const [recipe] = await db.select().from(schema.recipes).where(eq(schema.recipes.id, id));
-    if (!recipe) return undefined;
-    return this.enrichRecipe(recipe);
-  }
-
-  async createRecipe(data: InsertRecipe, lines: Omit<InsertRecipeLine, "recipeId">[]): Promise<RecipeWithDetails> {
-    const [recipe] = await db.insert(schema.recipes).values(data).returning();
-    for (const line of lines) {
-      await db.insert(schema.recipeLines).values({ ...line, recipeId: recipe.id });
-    }
-    return this.enrichRecipe(recipe);
-  }
-
-  async updateRecipe(id: string, data: Partial<InsertRecipe>, lines?: Omit<InsertRecipeLine, "recipeId">[]): Promise<RecipeWithDetails | undefined> {
-    const [existing] = await db.select().from(schema.recipes).where(eq(schema.recipes.id, id));
-    if (!existing) return undefined;
-    const [updated] = await db.update(schema.recipes).set({ ...data, updatedAt: new Date() }).where(eq(schema.recipes.id, id)).returning();
-    if (lines) {
-      await db.delete(schema.recipeLines).where(eq(schema.recipeLines.recipeId, id));
-      for (const line of lines) {
-        await db.insert(schema.recipeLines).values({ ...line, recipeId: id });
-      }
-    }
-    return this.enrichRecipe(updated);
-  }
-
-  async deleteRecipe(id: string): Promise<boolean> {
-    const [existing] = await db.select().from(schema.recipes).where(eq(schema.recipes.id, id));
-    if (!existing) return false;
-    await db.delete(schema.recipeLines).where(eq(schema.recipeLines.recipeId, id));
-    await db.delete(schema.recipes).where(eq(schema.recipes.id, id));
-    return true;
-  }
-
   // ─── Product Categories ──────────────────────────────
 
   async getProductCategories(): Promise<ProductCategory[]> {
@@ -1457,9 +1391,20 @@ export class DatabaseStorage implements IStorage {
     const allCategories = await db.select().from(schema.productCategories);
     const catMap = new Map(allCategories.map(c => [c.id, c]));
 
-    // All recipes and recipe lines
-    const allRecipes = await db.select().from(schema.recipes);
-    const allRecipeLines = await db.select().from(schema.recipeLines);
+    // Approved MMR components per product (BOM source of truth)
+    const allApprovedMmrs = await db
+      .select()
+      .from(schema.mmrs)
+      .where(eq(schema.mmrs.status, "APPROVED"));
+    const allMmrComponents = await db.select().from(schema.mmrComponents);
+
+    // Map: productId → approved MMR id (highest version)
+    const approvedMmrByProduct = new Map<string, string>();
+    for (const mmr of allApprovedMmrs.sort((a, b) => b.version - a.version)) {
+      if (!approvedMmrByProduct.has(mmr.productId)) {
+        approvedMmrByProduct.set(mmr.productId, mmr.id);
+      }
+    }
 
     const results: ProductCapacity[] = [];
 
@@ -1477,8 +1422,8 @@ export class DatabaseStorage implements IStorage {
       const inProductionUnits = fgActiveBatches.reduce((sum, b) => sum + parseFloat(b.plannedQuantity), 0);
       const activeBatchCount = fgActiveBatches.length;
 
-      const recipe = allRecipes.find(r => r.productId === fg.id);
-      if (!recipe) {
+      const approvedMmrId = approvedMmrByProduct.get(fg.id);
+      if (!approvedMmrId) {
         results.push({
           productId: fg.id,
           productName: fg.name,
@@ -1491,13 +1436,13 @@ export class DatabaseStorage implements IStorage {
           activeBatchCount,
           totalPotential: currentFGStock + inProductionUnits,
           bottleneckMaterial: null,
-          hasRecipe: false,
+          hasMmr: false,
           materials: [],
         });
         continue;
       }
 
-      const lines = allRecipeLines.filter(l => l.recipeId === recipe.id);
+      const lines = allMmrComponents.filter(c => c.mmrId === approvedMmrId);
       if (lines.length === 0) {
         results.push({
           productId: fg.id,
@@ -1511,7 +1456,7 @@ export class DatabaseStorage implements IStorage {
           activeBatchCount,
           totalPotential: currentFGStock + inProductionUnits,
           bottleneckMaterial: null,
-          hasRecipe: true,
+          hasMmr: true,
           materials: [],
         });
         continue;
@@ -1576,7 +1521,7 @@ export class DatabaseStorage implements IStorage {
         activeBatchCount,
         totalPotential: currentFGStock + producibleUnits + inboundProducibleUnits + inProductionUnits,
         bottleneckMaterial: bottleneckName,
-        hasRecipe: true,
+        hasMmr: true,
         materials,
       });
     }
@@ -1592,7 +1537,7 @@ export class DatabaseStorage implements IStorage {
     const materialBottleneckCount = new Map<string, { materialId: string; materialName: string; materialSku: string; count: number; inStock: number; uom: string }>();
 
     for (const product of capacity) {
-      if (!product.hasRecipe || product.materials.length === 0) continue;
+      if (!product.hasMmr || product.materials.length === 0) continue;
       for (const mat of product.materials) {
         if (mat.isBottleneck) {
           const existing = materialBottleneckCount.get(mat.productId);
@@ -1618,7 +1563,7 @@ export class DatabaseStorage implements IStorage {
       .slice(0, 5);
 
     const lowestCapacityProducts: LowestCapacityProduct[] = capacity
-      .filter(p => p.hasRecipe)
+      .filter(p => p.hasMmr)
       .sort((a, b) => a.totalPotential - b.totalPotential)
       .slice(0, 5)
       .map(p => ({
@@ -1637,12 +1582,18 @@ export class DatabaseStorage implements IStorage {
   private async enrichReceivingRecord(r: ReceivingRecord): Promise<ReceivingRecordWithDetails> {
     const lot = await this.getLot(r.lotId);
     const product = lot ? await this.getProduct(lot.productId) : undefined;
+    const coaDocuments = await db
+      .select()
+      .from(schema.coaDocuments)
+      .where(eq(schema.coaDocuments.receivingRecordId, r.id))
+      .orderBy(schema.coaDocuments.createdAt);
     return {
       ...r,
       productName: product?.name ?? "Unknown",
       productSku: product?.sku ?? "",
       lotNumber: lot?.lotNumber ?? "",
       supplierName: lot?.supplierName ?? null,
+      coaDocuments,
     };
   }
 
@@ -1785,47 +1736,31 @@ export class DatabaseStorage implements IStorage {
         disposition === "APPROVED" || disposition === "APPROVED_WITH_CONDITIONS" ? "APPROVED" : "REJECTED";
       assertValidTransition("receiving_record", existing.status, newStatus);
 
-      // Gate 3: require at least one COA; reject if any lab-linked COA references a non-ACTIVE lab
-      if (newStatus === "APPROVED") {
+      // Gate 3: COA-required workflows must have an uploaded COA before sign-off
+      if (existing.qcWorkflowType !== "EXEMPT") {
         const coas = await tx
           .select({
             id: schema.coaDocuments.id,
             labId: schema.coaDocuments.labId,
-            identityConfirmed: schema.coaDocuments.identityConfirmed,
           })
           .from(schema.coaDocuments)
-          .where(eq(schema.coaDocuments.lotId, existing.lotId));
+          .where(eq(schema.coaDocuments.receivingRecordId, id));
         if (coas.length === 0) {
           throw Object.assign(
-            new Error("Cannot approve: no COA document is linked to this lot. Attach a COA before approving."),
+            new Error("Cannot sign off: upload a COA document before submitting QC review."),
             { status: 422 },
           );
         }
+        // Gate 3b: reject if any lab-linked COA references a non-ACTIVE lab
         for (const coa of coas) {
-          // Supplier COAs (labId = null) are not required to reference the lab registry.
-          // Lab-linked COAs must come from an ACTIVE lab.
-          if (!coa.labId) continue; // supplier COA — no lab registry entry required
+          if (!coa.labId) continue;
           const [lab] = await tx
             .select({ status: schema.labs.status })
             .from(schema.labs)
             .where(eq(schema.labs.id, coa.labId));
           if (lab && lab.status !== "ACTIVE") {
             throw Object.assign(
-              new Error(`Cannot approve: a COA on this lot is linked to a lab with status "${lab.status}". Update the lab status in Settings or remove the COA before approving.`),
-              { status: 422 },
-            );
-          }
-        }
-
-        // Gate 3b: identity workflows require that at least one COA on this lot has identityConfirmed = "true"
-        if (IDENTITY_REQUIRED_WORKFLOWS.includes(existing.qcWorkflowType as QcWorkflowType)) {
-          const identityConfirmed = coas.some((c) => c.identityConfirmed === "true");
-          if (!identityConfirmed) {
-            throw Object.assign(
-              new Error(
-                "Cannot approve: this workflow requires identity testing but no COA on this lot has identity confirmed. " +
-                "Update the COA to mark identity as confirmed before approving.",
-              ),
+              new Error(`Cannot sign off: a COA on this record is linked to a lab with status "${lab.status}". Update the lab status in Settings before approving.`),
               { status: 422 },
             );
           }
@@ -1883,6 +1818,163 @@ export class DatabaseStorage implements IStorage {
       return updated!;
     };
     return outerTx ? run(outerTx) : db.transaction(run);
+  }
+
+  async uploadCoaForReceivingRecord(
+    receivingRecordId: string,
+    data: { fileData: string; fileName: string; sourceType: string; overallResult: string; documentNumber?: string },
+    outerTx?: Tx,
+  ): Promise<schema.CoaDocument> {
+    const run = async (tx: Tx) => {
+      const [record] = await tx
+        .select()
+        .from(schema.receivingRecords)
+        .where(eq(schema.receivingRecords.id, receivingRecordId));
+      if (!record) throw Object.assign(new Error("Receiving record not found"), { status: 404 });
+      if (record.status !== "PENDING_QC") {
+        throw Object.assign(new Error("COA can only be uploaded when status is PENDING_QC"), { status: 422 });
+      }
+      if (record.qcWorkflowType === "EXEMPT") {
+        throw Object.assign(new Error("EXEMPT records do not require a COA upload"), { status: 422 });
+      }
+      if (record.requiresQualification && data.sourceType === "SUPPLIER") {
+        throw Object.assign(
+          new Error("First-time supplier approval requires independent testing. Use Internal Lab or Third-party Lab as the source."),
+          { status: 422 },
+        );
+      }
+      const [doc] = await tx
+        .insert(schema.coaDocuments)
+        .values({
+          lotId: record.lotId,
+          receivingRecordId,
+          sourceType: data.sourceType,
+          overallResult: data.overallResult,
+          documentNumber: data.documentNumber ?? null,
+          fileName: data.fileName,
+          fileData: data.fileData,
+        })
+        .returning();
+      return doc!;
+    };
+    return outerTx ? run(outerTx) : db.transaction(run);
+  }
+
+  async createReceivingBoxes(receivingRecordId: string, boxCount: number, uniqueIdentifier: string, outerTx?: Tx): Promise<ReceivingBox[]> {
+    const conn = outerTx ?? db;
+    if (boxCount < 0) throw Object.assign(new Error("boxCount must be non-negative"), { status: 400 });
+    if (boxCount === 0) return [];
+    const existing = await conn.select({ id: schema.receivingBoxes.id })
+      .from(schema.receivingBoxes)
+      .where(eq(schema.receivingBoxes.receivingRecordId, receivingRecordId))
+      .limit(1);
+    if (existing.length > 0) throw Object.assign(
+      new Error("Boxes already exist for this receiving record."),
+      { status: 409 },
+    );
+    const rows = Array.from({ length: boxCount }, (_, i) => ({
+      receivingRecordId,
+      boxNumber: i + 1,
+      boxLabel: `${uniqueIdentifier}-BOX-${String(i + 1).padStart(2, "0")}`,
+    }));
+    return conn.insert(schema.receivingBoxes).values(rows).returning();
+  }
+
+  async getReceivingBoxes(receivingRecordId: string): Promise<schema.ReceivingBoxWithSampler[]> {
+    const rows = await db
+      .select({
+        ...getTableColumns(schema.receivingBoxes),
+        sampledByName: schema.users.fullName,
+      })
+      .from(schema.receivingBoxes)
+      .leftJoin(schema.users, eq(schema.receivingBoxes.sampledById, schema.users.id))
+      .where(eq(schema.receivingBoxes.receivingRecordId, receivingRecordId))
+      .orderBy(schema.receivingBoxes.boxNumber);
+    return rows.map((r) => ({ ...r, sampledByName: r.sampledByName ?? null }));
+  }
+
+  async getBoxByLabel(label: string): Promise<{ box: schema.ReceivingBox; receivingRecord: schema.ReceivingRecord } | undefined> {
+    const [box] = await db
+      .select()
+      .from(schema.receivingBoxes)
+      .where(eq(schema.receivingBoxes.boxLabel, label));
+    if (!box) return undefined;
+
+    const [receivingRecord] = await db
+      .select()
+      .from(schema.receivingRecords)
+      .where(eq(schema.receivingRecords.id, box.receivingRecordId));
+    if (!receivingRecord) return undefined;
+
+    return { box, receivingRecord };
+  }
+
+  async sampleBox(boxId: string, userId: string): Promise<schema.ReceivingRecord> {
+    return db.transaction(async (tx) => {
+      const [box] = await tx
+        .select()
+        .from(schema.receivingBoxes)
+        .where(eq(schema.receivingBoxes.id, boxId));
+      if (!box) throw Object.assign(new Error("Box not found"), { status: 404 });
+      if (box.sampledAt) throw Object.assign(new Error("Box already sampled"), { status: 409 });
+
+      const [record] = await tx
+        .select()
+        .from(schema.receivingRecords)
+        .where(eq(schema.receivingRecords.id, box.receivingRecordId));
+      if (!record) throw Object.assign(new Error("Receiving record not found"), { status: 404 });
+
+      // Mark this box sampled
+      await tx
+        .update(schema.receivingBoxes)
+        .set({ sampledAt: new Date(), sampledById: userId })
+        .where(eq(schema.receivingBoxes.id, boxId));
+
+      // Count total sampled boxes for this record (including the one just marked)
+      const [{ count }] = await tx
+        .select({ count: sql<number>`COUNT(*)::int` })
+        .from(schema.receivingBoxes)
+        .where(
+          and(
+            eq(schema.receivingBoxes.receivingRecordId, record.id),
+            isNotNull(schema.receivingBoxes.sampledAt),
+          ),
+        );
+
+      let currentStatus = record.status;
+
+      // QUARANTINED → SAMPLING on first scan
+      if (currentStatus === "QUARANTINED") {
+        assertValidTransition("receiving_record", currentStatus, "SAMPLING");
+        await tx
+          .update(schema.receivingRecords)
+          .set({ status: "SAMPLING", updatedAt: new Date() })
+          .where(eq(schema.receivingRecords.id, record.id));
+        currentStatus = "SAMPLING";
+      }
+
+      // SAMPLING → PENDING_QC when sampledCount >= sampleSize (only if samplingPlan exists)
+      if (
+        currentStatus === "SAMPLING" &&
+        record.samplingPlan !== null &&
+        count >= record.samplingPlan.sampleSize
+      ) {
+        assertValidTransition("receiving_record", currentStatus, "PENDING_QC");
+        const [updated] = await tx
+          .update(schema.receivingRecords)
+          .set({ status: "PENDING_QC", updatedAt: new Date() })
+          .where(eq(schema.receivingRecords.id, record.id))
+          .returning();
+        return updated!;
+      }
+
+      // Return the current record state
+      const [updated] = await tx
+        .select()
+        .from(schema.receivingRecords)
+        .where(eq(schema.receivingRecords.id, record.id));
+      return updated!;
+    });
   }
 
   async getNextReceivingIdentifier(): Promise<string> {
@@ -3460,36 +3552,6 @@ export class DatabaseStorage implements IStorage {
     }
 
     if (isWarehouse) {
-      const identityCheckRows = await db
-        .select(baseSelect)
-        .from(schema.receivingRecords)
-        .leftJoin(schema.lots, eq(schema.receivingRecords.lotId, schema.lots.id))
-        .leftJoin(schema.products, eq(schema.lots.productId, schema.products.id))
-        .leftJoin(schema.suppliers, eq(schema.receivingRecords.supplierId, schema.suppliers.id))
-        .where(
-          and(
-            eq(schema.receivingRecords.qcWorkflowType, "IDENTITY_CHECK"),
-            eq(schema.receivingRecords.status, "QUARANTINED"),
-          ),
-        );
-
-      for (const row of identityCheckRows) {
-        tasks.push({
-          id: `id-check-${row.id}`,
-          taskType: "IDENTITY_CHECK_REQUIRED",
-          sourceModule: "RECEIVING",
-          sourceRecordId: row.id,
-          sourceIdentifier: row.receivingIdentifier,
-          primaryLabel: row.materialName ?? null,
-          secondaryLabel: row.supplierName ?? null,
-          quantityReceived: row.quantityReceived ?? null,
-          uom: row.uom ?? null,
-          dateReceived: row.dateReceived ?? null,
-          isUrgent: false,
-          dueAt: null,
-        });
-      }
-
       const rejectedRows = await db
         .select(baseSelect)
         .from(schema.receivingRecords)

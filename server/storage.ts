@@ -11,9 +11,6 @@ import {
   type ProductionBatch, type InsertProductionBatch,
   type InsertProductionInput,
   type ProductionBatchWithDetails,
-  type InsertRecipe,
-  type InsertRecipeLine,
-  type RecipeWithDetails,
   type AppSettings, type InsertAppSettings,
   type ProductCategory, type InsertProductCategory,
   type ProductCategoryAssignment,
@@ -40,6 +37,7 @@ import {
   type OosStatus,
   type OosRecallClass,
   type OosNoInvestigationReason,
+  type ReceivingBox,
 } from "@shared/schema";
 import type { Tx } from "./db";
 
@@ -253,7 +251,11 @@ export interface IStorage {
   updatePurchaseOrderStatus(id: string, status: string): Promise<PurchaseOrder | undefined>;
 
   // PO Receiving
-  receivePOLineItem(lineItemId: string, quantity: number, lotNumber: string | undefined, locationId: string, supplierName?: string, expirationDate?: string, receivedDate?: string): Promise<{ lot: Lot; transaction: Transaction }>;
+  receivePOLineItem(lineItemId: string, quantity: number, lotNumber: string | undefined, locationId: string, supplierName?: string, expirationDate?: string, receivedDate?: string, boxCount?: number): Promise<{ lot: Lot; transaction: Transaction; receivingRecordId: string; receivingUniqueId: string; boxes: ReceivingBox[] }>;
+  createReceivingBoxes(receivingRecordId: string, boxCount: number, uniqueIdentifier: string): Promise<ReceivingBox[]>;
+  getReceivingBoxes(receivingRecordId: string): Promise<ReceivingBox[]>;
+  sampleBox(boxId: string, userId: string): Promise<ReceivingRecord>;
+  getBoxByLabel(label: string): Promise<{ box: ReceivingBox; receivingRecord: ReceivingRecord } | undefined>;
 
   // Production Batches
   getProductionBatches(filters?: { status?: string }): Promise<ProductionBatchWithDetails[]>;
@@ -271,13 +273,6 @@ export interface IStorage {
   allocateFIFO(productId: string, quantity: number): Promise<FIFOAllocation[]>;
   validateStockForInputs(inputs: { productId: string; quantity: number }[]): Promise<StockShortage[]>;
   deleteCompletedBatch(id: string): Promise<boolean>;
-
-  // Recipes
-  getRecipes(productId?: string): Promise<RecipeWithDetails[]>;
-  getRecipe(id: string): Promise<RecipeWithDetails | undefined>;
-  createRecipe(data: InsertRecipe, lines: Omit<InsertRecipeLine, "recipeId">[]): Promise<RecipeWithDetails>;
-  updateRecipe(id: string, data: Partial<InsertRecipe>, lines?: Omit<InsertRecipeLine, "recipeId">[]): Promise<RecipeWithDetails | undefined>;
-  deleteRecipe(id: string): Promise<boolean>;
 
   // Settings
   getSettings(): Promise<AppSettings>;
@@ -317,6 +312,7 @@ export interface IStorage {
   createReceivingRecord(data: InsertReceivingRecord, tx?: Tx): Promise<ReceivingRecord>;
   updateReceivingRecord(id: string, data: Partial<InsertReceivingRecord>, actorUserId: string, tx?: Tx): Promise<ReceivingRecord | undefined>;
   qcReviewReceivingRecord(id: string, disposition: string, reviewedByUserId: string, notes?: string, tx?: Tx): Promise<ReceivingRecord | undefined>;
+  uploadCoaForReceivingRecord(receivingRecordId: string, data: { fileData: string; fileName: string; sourceType: string; overallResult: string; documentNumber?: string }, tx?: Tx): Promise<CoaDocument>;
   getNextReceivingIdentifier(): Promise<string>;
   getQuarantinedLots(): Promise<ReceivingRecordWithDetails[]>;
 

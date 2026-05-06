@@ -13,6 +13,7 @@ import {
   jsonb,
   boolean,
   unique,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -106,6 +107,19 @@ export const receivingRecords = pgTable("erp_receiving_records", {
     rejectNumber: number;
   } | null>(),
 });
+
+// Per-box tracking — one row per physical container in a receiving record
+export const receivingBoxes = pgTable("erp_receiving_boxes", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  receivingRecordId: varchar("receiving_record_id").notNull().references(() => receivingRecords.id, { onDelete: "cascade" }),
+  boxNumber: integer("box_number").notNull(),
+  boxLabel: text("box_label").notNull(),
+  sampledAt: timestamp("sampled_at", { withTimezone: true }),
+  sampledById: uuid("sampled_by_id").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => ({
+  uniqRecordBox: uniqueIndex("erp_receiving_boxes_record_box_uq").on(t.receivingRecordId, t.boxNumber),
+}));
 
 // Locations
 export const locations = pgTable("erp_locations", {
@@ -231,25 +245,6 @@ export const productionBatches = pgTable("erp_production_batches", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-// Recipes (BOM for finished goods — defines materials per 1 unit of output)
-export const recipes = pgTable("erp_recipes", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  productId: varchar("product_id").notNull(), // the finished good this recipe is for
-  name: text("name").notNull(), // e.g. "Standard Formula"
-  notes: text("notes"),
-  createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow(),
-});
-
-// Recipe Lines (individual material lines in a recipe)
-export const recipeLines = pgTable("erp_recipe_lines", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  recipeId: varchar("recipe_id").notNull(),
-  productId: varchar("product_id").notNull(), // the material/ingredient
-  quantity: decimal("quantity").notNull(), // amount needed per 1 unit of output
-  uom: text("uom").notNull(),
-  notes: text("notes"),
-});
 
 // Product Categories (e.g. "Spermidine", "GHK-Cu", "AHK-Cu")
 export const productCategories = pgTable("erp_product_categories", {
@@ -333,7 +328,6 @@ export const batchProductionRecords = pgTable("erp_batch_production_records", {
   batchNumber: text("batch_number").notNull(),
   lotNumber: text("lot_number"),
   productId: varchar("product_id").notNull(),
-  recipeId: varchar("recipe_id"),
   status: text("status").notNull().default("IN_PROGRESS"), // IN_PROGRESS, PENDING_QC_REVIEW, APPROVED, REJECTED
   // Yield tracking (Sec. 111.260(f))
   theoreticalYield: decimal("theoretical_yield"),
@@ -558,8 +552,7 @@ export const insertPOLineItemSchema = createInsertSchema(poLineItems).omit({ id:
 export const insertProductionBatchSchema = createInsertSchema(productionBatches).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertProductionInputSchema = createInsertSchema(productionInputs).omit({ id: true });
 export const insertAppSettingsSchema = createInsertSchema(appSettings).omit({ id: true, updatedAt: true });
-export const insertRecipeSchema = createInsertSchema(recipes).omit({ id: true, createdAt: true, updatedAt: true });
-export const insertRecipeLineSchema = createInsertSchema(recipeLines).omit({ id: true });
+
 export const insertProductionNoteSchema = createInsertSchema(productionNotes).omit({ id: true, createdAt: true });
 export const insertSupplierDocumentSchema = createInsertSchema(supplierDocuments).omit({ id: true, uploadedAt: true });
 export const insertReceivingRecordSchema = createInsertSchema(receivingRecords).omit({
@@ -572,6 +565,7 @@ export const insertReceivingRecordSchema = createInsertSchema(receivingRecords).
   qcReviewedBy: true,
   samplingPlan: true,
 });
+export const insertReceivingBoxSchema = createInsertSchema(receivingBoxes).omit({ id: true, createdAt: true });
 export const insertCoaDocumentSchema = createInsertSchema(coaDocuments).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertSupplierQualificationSchema = createInsertSchema(supplierQualifications).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertBprSchema = createInsertSchema(batchProductionRecords).omit({ id: true, createdAt: true, updatedAt: true });
@@ -610,10 +604,7 @@ export type ProductionBatch = typeof productionBatches.$inferSelect;
 export type InsertProductionBatch = z.infer<typeof insertProductionBatchSchema>;
 export type ProductionInput = typeof productionInputs.$inferSelect;
 export type InsertProductionInput = z.infer<typeof insertProductionInputSchema>;
-export type Recipe = typeof recipes.$inferSelect;
-export type InsertRecipe = z.infer<typeof insertRecipeSchema>;
-export type RecipeLine = typeof recipeLines.$inferSelect;
-export type InsertRecipeLine = z.infer<typeof insertRecipeLineSchema>;
+
 export type AppSettings = typeof appSettings.$inferSelect;
 export type InsertAppSettings = z.infer<typeof insertAppSettingsSchema>;
 export type ProductCategory = typeof productCategories.$inferSelect;
@@ -626,12 +617,18 @@ export type SupplierDocument = typeof supplierDocuments.$inferSelect;
 export type InsertSupplierDocument = z.infer<typeof insertSupplierDocumentSchema>;
 export type ReceivingRecord = typeof receivingRecords.$inferSelect;
 export type InsertReceivingRecord = z.infer<typeof insertReceivingRecordSchema>;
+export type ReceivingBox = typeof receivingBoxes.$inferSelect;
+export type InsertReceivingBox = z.infer<typeof insertReceivingBoxSchema>;
+export type ReceivingBoxWithSampler = ReceivingBox & {
+  sampledByName: string | null;
+};
 
 export type ReceivingRecordWithDetails = ReceivingRecord & {
   productName: string;
   productSku: string;
   lotNumber: string;
   supplierName: string | null;
+  coaDocuments: CoaDocument[];
 };
 
 export type CoaDocument = typeof coaDocuments.$inferSelect;
@@ -737,17 +734,6 @@ export type ProductionBatchWithDetails = ProductionBatch & {
   yieldPercentage?: string | null;
 };
 
-export type RecipeLineWithDetails = RecipeLine & {
-  productName: string;
-  productSku: string;
-  productCategory: string;
-};
-
-export type RecipeWithDetails = Recipe & {
-  productName: string;
-  productSku: string;
-  lines: RecipeLineWithDetails[];
-};
 
 // Product with category assignments
 export type ProductWithCategories = Product & {
@@ -780,7 +766,7 @@ export type ProductCapacity = {
   activeBatchCount: number;
   totalPotential: number;
   bottleneckMaterial: string | null;
-  hasRecipe: boolean;
+  hasMmr: boolean;
   materials: MaterialCapacity[];
 };
 
@@ -1626,7 +1612,6 @@ export type SpecResultType = z.infer<typeof specResultTypeEnum>;
 export const mmrs = pgTable("erp_mmrs", {
   id:                  uuid("id").primaryKey().defaultRandom(),
   productId:           varchar("product_id").notNull().references(() => products.id),
-  recipeId:            varchar("recipe_id").notNull().references(() => recipes.id),
   version:             integer("version").notNull().default(1),
   status:              text("status").$type<MmrStatus>().notNull().default("DRAFT"),
   yieldMinThreshold:   decimal("yield_min_threshold"),
@@ -1659,10 +1644,30 @@ export type MmrStep = typeof mmrSteps.$inferSelect;
 export const insertMmrStepSchema = createInsertSchema(mmrSteps).omit({ id: true, createdAt: true });
 export type InsertMmrStep = z.infer<typeof insertMmrStepSchema>;
 
+// MMR Components (BOM / formula — ingredients per 1 unit of output)
+export const mmrComponents = pgTable("erp_mmr_components", {
+  id:        uuid("id").primaryKey().defaultRandom(),
+  mmrId:     uuid("mmr_id").notNull().references(() => mmrs.id, { onDelete: "cascade" }),
+  productId: varchar("product_id").notNull().references(() => products.id),
+  quantity:  decimal("quantity").notNull(),
+  uom:       text("uom").notNull(),
+  notes:     text("notes"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type MmrComponent = typeof mmrComponents.$inferSelect;
+export const insertMmrComponentSchema = createInsertSchema(mmrComponents).omit({ id: true, createdAt: true });
+export type InsertMmrComponent = z.infer<typeof insertMmrComponentSchema>;
+
+export type MmrComponentWithDetails = MmrComponent & {
+  productName: string;
+  productSku: string;
+};
+
 export type MmrWithSteps = Mmr & {
   steps: MmrStep[];
+  components: MmrComponentWithDetails[];
   productName: string;
-  recipeName: string;
   createdByName: string;
   approvedByName: string | null;
 };

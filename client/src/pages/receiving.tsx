@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -26,7 +26,6 @@ import {
   Clock,
   Package,
   AlertTriangle,
-  FileCheck,
   CheckCircle2,
   XCircle,
   Shield,
@@ -35,15 +34,21 @@ import {
   Send,
   Save,
   FileText,
+  Upload,
+  RotateCcw,
 } from "lucide-react";
 import { formatQty } from "@/lib/formatQty";
 import { formatDate, formatDateTime } from "@/lib/formatDate";
 import { SignatureCeremony } from "@/components/SignatureCeremony";
 import type {
   ReceivingRecordWithDetails,
-  CoaDocumentWithDetails,
+  CoaDocument,
   PurchaseOrderWithDetails,
+  Product,
+  Location,
 } from "@shared/schema";
+import { ReceiveSheet } from "./purchase-orders";
+import { ReceivingLabelDrawer, type PrintJob } from "@/components/receiving/ReceivingLabelDrawer";
 
 // ── Identity snapshot helper ──
 // visualExamBy and qcReviewedBy are stored as jsonb { userId, fullName, title }
@@ -170,7 +175,10 @@ function ReceivingListItem({
 // ── Status timeline ──
 
 function StatusTimeline({ record }: { record: ReceivingRecordWithDetails }) {
-  const steps = [
+  const isCOAWorkflow = record.qcWorkflowType !== "EXEMPT";
+  const hasCoa = record.coaDocuments.length > 0;
+
+  const baseSteps = [
     {
       label: "Received",
       description: `Quarantined on ${record.dateReceived ?? "unknown date"}`,
@@ -189,31 +197,46 @@ function StatusTimeline({ record }: { record: ReceivingRecordWithDetails }) {
       completed: !!record.visualExamBy,
       icon: ClipboardCheck,
     },
-    {
-      label: "QC Review",
-      description: record.qcReviewedBy
-        ? `${dispositionLabel(record.qcDisposition ?? "")} by ${
-            typeof record.qcReviewedBy === "object"
-              ? `${record.qcReviewedBy.fullName}${record.qcReviewedBy.title ? ` (${record.qcReviewedBy.title})` : ""}`
-              : toDisplayName(record.qcReviewedBy)
-          }${record.qcReviewedAt ? ` on ${formatDate(record.qcReviewedAt)}` : ""}`
-        : record.status === "PENDING_QC"
-        ? "Awaiting QC review"
-        : "Not yet submitted",
-      completed: !!record.qcReviewedBy,
-      icon: Shield,
-    },
-    {
-      label: "Released",
-      description: record.status === "APPROVED"
-        ? "Material released for use"
-        : record.status === "REJECTED"
-        ? "Material rejected"
-        : "Pending release",
-      completed: record.status === "APPROVED" || record.status === "REJECTED",
-      icon: record.status === "REJECTED" ? XCircle : CheckCircle2,
-    },
   ];
+
+  const coaStep = {
+    label: "COA Uploaded",
+    description: hasCoa
+      ? `${record.coaDocuments[record.coaDocuments.length - 1].fileName ?? "COA"} · ${record.coaDocuments[record.coaDocuments.length - 1].sourceType} · ${record.coaDocuments[record.coaDocuments.length - 1].overallResult}`
+      : "Awaiting COA upload",
+    completed: hasCoa,
+    icon: FileText,
+  };
+
+  const signOffStep = {
+    label: "QC Sign-off",
+    description: record.qcReviewedBy
+      ? `${dispositionLabel(record.qcDisposition ?? "")} by ${
+          typeof record.qcReviewedBy === "object"
+            ? `${record.qcReviewedBy.fullName}${record.qcReviewedBy.title ? ` (${record.qcReviewedBy.title})` : ""}`
+            : toDisplayName(record.qcReviewedBy)
+        }${record.qcReviewedAt ? ` on ${formatDate(record.qcReviewedAt)}` : ""}`
+      : record.status === "PENDING_QC"
+      ? "Awaiting QC sign-off"
+      : "Not yet submitted",
+    completed: !!record.qcReviewedBy,
+    icon: Shield,
+  };
+
+  const releasedStep = {
+    label: "Released",
+    description: record.status === "APPROVED"
+      ? "Material released for use"
+      : record.status === "REJECTED"
+      ? "Material rejected"
+      : "Pending release",
+    completed: record.status === "APPROVED" || record.status === "REJECTED",
+    icon: record.status === "REJECTED" ? XCircle : CheckCircle2,
+  };
+
+  const steps = isCOAWorkflow
+    ? [...baseSteps, coaStep, signOffStep, releasedStep]
+    : [...baseSteps, signOffStep, releasedStep];
 
   return (
     <div className="space-y-0">
@@ -253,254 +276,21 @@ function StatusTimeline({ record }: { record: ReceivingRecordWithDetails }) {
   );
 }
 
-// ── COA Status section ──
-
-function CoaStatusSection({ lotId, receivingRecordId }: { lotId: string; receivingRecordId: string }) {
-  const { toast } = useToast();
-  const { data: coaDocs, isLoading } = useQuery<CoaDocumentWithDetails[]>({
-    queryKey: ["/api/coa/by-lot", lotId],
-    queryFn: async () => {
-      const res = await apiRequest("GET", `/api/coa/by-lot/${lotId}`);
-      return res.json();
-    },
-  });
-
-  // Inline COA form state
-  const [showCoaForm, setShowCoaForm] = useState(false);
-  const [coaDocNumber, setCoaDocNumber] = useState("");
-  const [coaSourceType, setCoaSourceType] = useState("SUPPLIER");
-  const [coaOverallResult, setCoaOverallResult] = useState("");
-  const [coaNotes, setCoaNotes] = useState("");
-
-  const createCoa = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/coa", {
-        lotId,
-        receivingRecordId,
-        documentNumber: coaDocNumber || undefined,
-        sourceType: coaSourceType,
-        overallResult: coaOverallResult || undefined,
-        qcNotes: coaNotes || undefined,
-      });
-      return res.json();
-    },
-    onSuccess: () => {
-      toast({ title: "COA record created" });
-      setShowCoaForm(false);
-      setCoaDocNumber("");
-      setCoaSourceType("SUPPLIER");
-      setCoaOverallResult("");
-      setCoaNotes("");
-      queryClient.invalidateQueries({ queryKey: ["/api/coa/by-lot", lotId] });
-    },
-    onError: (err: Error) => {
-      toast({ title: "Error", description: err.message, variant: "destructive" });
-    },
-  });
-
-  if (isLoading) {
-    return (
-      <div>
-        <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
-          <FileText className="h-4 w-4 text-muted-foreground" />
-          COA Status
-        </h3>
-        <Skeleton className="h-12 w-full" />
-      </div>
-    );
-  }
-
-  const docs = coaDocs ?? [];
-  const hasCoaDocs = docs.length > 0;
-  const acceptedDoc = docs.find((d) => d.qcAccepted === "true");
-  const pendingDoc = docs.find((d) => d.qcAccepted !== "true" && d.qcAccepted !== "false");
-
-  const coaForm = (
-    <div className="space-y-2.5 pt-2" data-testid="coa-inline-form">
-      <div className="space-y-1">
-        <Label className="text-xs">Document Number</Label>
-        <Input
-          placeholder="e.g. COA-2026-001"
-          value={coaDocNumber}
-          onChange={(e) => setCoaDocNumber(e.target.value)}
-          className="text-sm h-8"
-          data-testid="input-coa-doc-number"
-        />
-      </div>
-      <div className="grid grid-cols-2 gap-2">
-        <div className="space-y-1">
-          <Label className="text-xs">Source Type</Label>
-          <Select value={coaSourceType} onValueChange={setCoaSourceType}>
-            <SelectTrigger className="text-sm h-8" data-testid="select-coa-source-type">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="SUPPLIER">Supplier</SelectItem>
-              <SelectItem value="INTERNAL_LAB">Internal Lab</SelectItem>
-              <SelectItem value="THIRD_PARTY_LAB">Third-Party Lab</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-1">
-          <Label className="text-xs">Overall Result</Label>
-          <Select value={coaOverallResult} onValueChange={setCoaOverallResult}>
-            <SelectTrigger className="text-sm h-8" data-testid="select-coa-result">
-              <SelectValue placeholder="Select…" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="PASS">Pass</SelectItem>
-              <SelectItem value="FAIL">Fail</SelectItem>
-              <SelectItem value="CONDITIONAL">Conditional</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
-      <div className="space-y-1">
-        <Label className="text-xs">Notes (optional)</Label>
-        <Textarea
-          placeholder="Any notes about this COA…"
-          value={coaNotes}
-          onChange={(e) => setCoaNotes(e.target.value)}
-          className="text-sm min-h-[50px]"
-          data-testid="textarea-coa-notes"
-        />
-      </div>
-      <div className="flex gap-2 pt-1">
-        <Button
-          size="sm"
-          className="h-7 text-xs"
-          onClick={() => createCoa.mutate()}
-          disabled={createCoa.isPending || !coaOverallResult}
-          data-testid="button-submit-coa"
-        >
-          {createCoa.isPending ? (
-            <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-          ) : (
-            <FileCheck className="h-3 w-3 mr-1" />
-          )}
-          Attach COA
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-7 text-xs"
-          onClick={() => setShowCoaForm(false)}
-          data-testid="button-cancel-coa"
-        >
-          Cancel
-        </Button>
-      </div>
-    </div>
-  );
-
-  return (
-    <div>
-      <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
-        <FileText className="h-4 w-4 text-muted-foreground" />
-        COA Status
-      </h3>
-
-      {!hasCoaDocs ? (
-        <div className="rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 p-3" data-testid="coa-status-none">
-          <div className="flex items-center justify-between">
-            <Badge className="bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300 border-0 text-xs" data-testid="badge-coa-status">
-              <XCircle className="h-3 w-3 mr-1" />
-              No COA on file
-            </Badge>
-            {!showCoaForm && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="text-xs h-auto p-0"
-                onClick={() => setShowCoaForm(true)}
-                data-testid="button-add-coa"
-              >
-                <FileCheck className="h-3 w-3 mr-1" />
-                Attach COA
-              </Button>
-            )}
-          </div>
-          {showCoaForm && coaForm}
-        </div>
-      ) : acceptedDoc ? (
-        <div className="rounded-lg border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/20 p-3 space-y-2" data-testid="coa-status-accepted">
-          <Badge className="bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300 border-0 text-xs" data-testid="badge-coa-status">
-            <CheckCircle2 className="h-3 w-3 mr-1" />
-            COA Reviewed ✓
-          </Badge>
-          <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
-            {acceptedDoc.documentNumber && (
-              <div>
-                <span className="text-muted-foreground">Doc #:</span>{" "}
-                <span className="font-mono" data-testid="text-coa-doc-number">{acceptedDoc.documentNumber}</span>
-              </div>
-            )}
-            <div>
-              <span className="text-muted-foreground">Source:</span>{" "}
-              <span data-testid="text-coa-source">{acceptedDoc.sourceType ?? "—"}</span>
-            </div>
-            {acceptedDoc.overallResult && (
-              <div>
-                <span className="text-muted-foreground">Result:</span>{" "}
-                <span data-testid="text-coa-result">{acceptedDoc.overallResult}</span>
-              </div>
-            )}
-            <div>
-              <span className="text-muted-foreground">Review:</span>{" "}
-              <span className="text-emerald-700 dark:text-emerald-400" data-testid="text-coa-review">Accepted</span>
-            </div>
-          </div>
-        </div>
-      ) : (
-        <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 p-3 space-y-2" data-testid="coa-status-pending">
-          <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 border-0 text-xs" data-testid="badge-coa-status">
-            <AlertTriangle className="h-3 w-3 mr-1" />
-            COA Pending Review
-          </Badge>
-          {(() => {
-            const doc = pendingDoc || docs[0];
-            return (
-              <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
-                {doc.documentNumber && (
-                  <div>
-                    <span className="text-muted-foreground">Doc #:</span>{" "}
-                    <span className="font-mono" data-testid="text-coa-doc-number">{doc.documentNumber}</span>
-                  </div>
-                )}
-                <div>
-                  <span className="text-muted-foreground">Source:</span>{" "}
-                  <span data-testid="text-coa-source">{doc.sourceType ?? "—"}</span>
-                </div>
-                {doc.overallResult && (
-                  <div>
-                    <span className="text-muted-foreground">Result:</span>{" "}
-                    <span data-testid="text-coa-result">{doc.overallResult}</span>
-                  </div>
-                )}
-                <div>
-                  <span className="text-muted-foreground">Review:</span>{" "}
-                  <span className="text-amber-700 dark:text-amber-400" data-testid="text-coa-review">Pending</span>
-                </div>
-              </div>
-            );
-          })()}
-        </div>
-      )}
-    </div>
-  );
-}
 
 // ── Detail panel ──
 
 function ReceivingDetail({
   record,
   onUpdated,
+  _onNavigateTo,
 }: {
   record: ReceivingRecordWithDetails;
   onUpdated: () => void;
+  _onNavigateTo: (id: string) => void;
 }) {
   const { toast } = useToast();
   const [, setLocation] = useLocation();
+  const qcReviewRef = useRef<HTMLDivElement>(null);
 
   // Visual inspection form state
   const [containerOk, setContainerOk] = useState(record.containerConditionOk === "true");
@@ -514,6 +304,15 @@ function ReceivingDetail({
   const [qcNotes, setQcNotes] = useState("");
   const [sigOpen, setSigOpen] = useState(false);
 
+  // COA upload state — local copy so we can append on upload without re-fetching
+  const [localCoaDocs, setLocalCoaDocs] = useState<CoaDocument[]>(record.coaDocuments);
+  const [showCoaUploadForm, setShowCoaUploadForm] = useState(false);
+  const [coaFile, setCoaFile] = useState<File | null>(null);
+  const [coaSource, setCoaSource] = useState("SUPPLIER");
+  const [coaResult, setCoaResult] = useState("");
+  const [coaDocNumber, setCoaDocNumber] = useState("");
+  const coaFileRef = useRef<HTMLInputElement>(null);
+
   // Reset form when record changes
   const recordId = record.id;
   useMemo(() => {
@@ -524,6 +323,12 @@ function ReceivingDetail({
     setExamNotes(record.visualExamNotes ?? "");
     setQcDisposition("");
     setQcNotes("");
+    setLocalCoaDocs(record.coaDocuments);
+    setShowCoaUploadForm(false);
+    setCoaFile(null);
+    setCoaSource("SUPPLIER");
+    setCoaResult("");
+    setCoaDocNumber("");
   }, [recordId]);
 
   // Save inspection mutation
@@ -601,10 +406,47 @@ function ReceivingDetail({
     },
   });
 
+  const uploadCoa = useMutation({
+    mutationFn: async () => {
+      if (!coaFile) throw new Error("No file selected");
+      const fileData = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve((reader.result as string).split(",")[1]);
+        reader.onerror = reject;
+        reader.readAsDataURL(coaFile);
+      });
+      const res = await apiRequest("POST", `/api/receiving/${record.id}/coa`, {
+        fileData,
+        fileName: coaFile.name,
+        sourceType: coaSource,
+        overallResult: coaResult,
+        documentNumber: coaDocNumber || undefined,
+      });
+      return res.json() as Promise<CoaDocument>;
+    },
+    onSuccess: (doc) => {
+      toast({ title: "COA uploaded" });
+      setLocalCoaDocs((prev) => [...prev, doc]);
+      setShowCoaUploadForm(false);
+      setCoaFile(null);
+      setCoaSource("SUPPLIER");
+      setCoaResult("");
+      setCoaDocNumber("");
+      if (coaFileRef.current) coaFileRef.current.value = "";
+    },
+    onError: (err: Error) => {
+      toast({ title: "Upload failed", description: err.message, variant: "destructive" });
+    },
+  });
+
   const isQuarantined = record.status === "QUARANTINED";
   const isPendingQc = record.status === "PENDING_QC";
   const isReviewed = record.status === "APPROVED" || record.status === "REJECTED";
-  const showQcSection = isPendingQc || isReviewed;
+  const isInheritedApproval = record.status === "APPROVED" && !record.qcReviewedBy;
+  const showQcSection = (isPendingQc || isReviewed) && !isInheritedApproval;
+  const isCOAWorkflow = record.qcWorkflowType !== "EXEMPT";
+  const hasCoa = localCoaDocs.length > 0;
+  const latestCoa = localCoaDocs[localCoaDocs.length - 1];
 
   return (
     <div className="p-5 space-y-6 overflow-y-auto h-full" data-tour="receiving-detail">
@@ -694,13 +536,6 @@ function ReceivingDetail({
             <span className="font-mono" data-testid="text-detail-supplier-lot">{record.supplierLotNumber ?? "—"}</span>
           </div>
         </div>
-      </div>
-
-      <Separator />
-
-      {/* COA Status */}
-      <div data-tour="receiving-coa">
-        <CoaStatusSection lotId={record.lotId} receivingRecordId={record.id} />
       </div>
 
       <Separator />
@@ -817,98 +652,263 @@ function ReceivingDetail({
         </div>
       </div>
 
+      {/* Inherited approval banner — partial receipts of already-approved lots */}
+      {isInheritedApproval && (
+        <>
+          <Separator />
+          <div data-testid="qc-inherited-banner">
+            <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
+              <Shield className="h-4 w-4 text-muted-foreground" />
+              QC Status
+            </h3>
+            <div className="rounded-lg border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/20 p-3 space-y-1">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                <span className="text-sm font-medium text-emerald-700 dark:text-emerald-300">QC Approved — Inherited</span>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                This receipt shares a lot that was already approved. No additional QC review required per 21 CFR §111.3.
+              </p>
+            </div>
+          </div>
+        </>
+      )}
+
       {/* QC Review section */}
       {showQcSection && (
         <>
           <Separator />
-          <div data-tour="receiving-qc-review">
+          <div data-tour="receiving-qc-review" ref={qcReviewRef}>
             <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
               <Shield className="h-4 w-4 text-muted-foreground" />
               QC Review
             </h3>
 
             {isReviewed ? (
-              // Read-only review details
-              <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-2">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm text-muted-foreground">Disposition:</span>
-                  <Badge
-                    className={`text-xs border-0 ${
-                      record.qcDisposition === "APPROVED" || record.qcDisposition === "APPROVED_WITH_CONDITIONS"
-                        ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300"
-                        : "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300"
-                    }`}
-                    data-testid="text-qc-disposition"
-                  >
-                    {dispositionLabel(record.qcDisposition ?? "")}
-                  </Badge>
-                </div>
-                <div className="text-sm">
-                  <span className="text-muted-foreground">Reviewed By:</span>{" "}
-                  <span data-testid="text-qc-reviewer">
-                    {record.qcReviewedBy && typeof record.qcReviewedBy === "object"
-                      ? `${record.qcReviewedBy.fullName}${record.qcReviewedBy.title ? ` · ${record.qcReviewedBy.title}` : ""}`
-                      : toDisplayName(record.qcReviewedBy) || "—"}
-                  </span>
-                </div>
-                {record.qcReviewedAt && (
-                  <div className="text-sm">
-                    <span className="text-muted-foreground">Reviewed At:</span>{" "}
-                    <span data-testid="text-qc-date">{formatDateTime(record.qcReviewedAt)}</span>
+              // Read-only review summary
+              <div className="space-y-3">
+                {isCOAWorkflow && latestCoa && (
+                  <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-1">
+                    <p className="text-xs font-medium text-foreground flex items-center gap-1.5">
+                      <FileText className="h-3.5 w-3.5 text-muted-foreground" />
+                      Certificate of Analysis
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {latestCoa.fileName} · {latestCoa.sourceType} · {latestCoa.overallResult}
+                      {latestCoa.documentNumber ? ` · ${latestCoa.documentNumber}` : ""}
+                    </p>
                   </div>
                 )}
-                {record.qcNotes && (
-                  <div className="text-sm">
-                    <span className="text-muted-foreground">Notes:</span>{" "}
-                    <span data-testid="text-qc-notes">{record.qcNotes}</span>
+                <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-muted-foreground">Disposition:</span>
+                    <Badge
+                      className={`text-xs border-0 ${
+                        record.qcDisposition === "APPROVED" || record.qcDisposition === "APPROVED_WITH_CONDITIONS"
+                          ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300"
+                          : "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300"
+                      }`}
+                      data-testid="text-qc-disposition"
+                    >
+                      {dispositionLabel(record.qcDisposition ?? "")}
+                    </Badge>
                   </div>
-                )}
+                  <div className="text-sm">
+                    <span className="text-muted-foreground">Reviewed By:</span>{" "}
+                    <span data-testid="text-qc-reviewer">
+                      {record.qcReviewedBy && typeof record.qcReviewedBy === "object"
+                        ? `${record.qcReviewedBy.fullName}${record.qcReviewedBy.title ? ` · ${record.qcReviewedBy.title}` : ""}`
+                        : toDisplayName(record.qcReviewedBy) || "—"}
+                    </span>
+                  </div>
+                  {record.qcReviewedAt && (
+                    <div className="text-sm">
+                      <span className="text-muted-foreground">Reviewed At:</span>{" "}
+                      <span data-testid="text-qc-date">{formatDateTime(record.qcReviewedAt)}</span>
+                    </div>
+                  )}
+                  {record.qcNotes && (
+                    <div className="text-sm">
+                      <span className="text-muted-foreground">Notes:</span>{" "}
+                      <span data-testid="text-qc-notes">{record.qcNotes}</span>
+                    </div>
+                  )}
+                </div>
               </div>
             ) : (
-              // QC review form
-              <div className="space-y-3">
-                <div className="space-y-1.5">
-                  <Label className="text-sm">QC Disposition</Label>
-                  <Select value={qcDisposition} onValueChange={setQcDisposition}>
-                    <SelectTrigger className="text-sm" data-testid="select-qc-disposition">
-                      <SelectValue placeholder="Select disposition…" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="APPROVED">Approved</SelectItem>
-                      <SelectItem value="REJECTED">Rejected</SelectItem>
-                      <SelectItem value="APPROVED_WITH_CONDITIONS">Approved with Conditions</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-sm">QC Notes</Label>
-                  <Textarea
-                    placeholder="Optional notes…"
-                    value={qcNotes}
-                    onChange={(e) => setQcNotes(e.target.value)}
-                    className="text-sm min-h-[60px]"
-                    data-testid="textarea-qc-notes"
+              // QC review form: COA upload (non-EXEMPT) + sign-off
+              <div className="space-y-4">
+                {/* Step 1: COA Upload (COA-required workflows only) */}
+                {isCOAWorkflow && (
+                  <div className="space-y-2" data-testid="coa-upload-section">
+                    {hasCoa && !showCoaUploadForm ? (
+                      // COA uploaded — summary card
+                      <div className="rounded-lg border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/20 p-3 flex items-center justify-between" data-testid="coa-summary-card">
+                        <div>
+                          <p className="text-xs font-medium text-emerald-800 dark:text-emerald-300 flex items-center gap-1.5">
+                            <CheckCircle2 className="h-3.5 w-3.5" />
+                            COA Uploaded
+                          </p>
+                          <p className="text-xs text-emerald-700 dark:text-emerald-400 mt-0.5">
+                            {latestCoa!.fileName} · {latestCoa!.sourceType} · {latestCoa!.overallResult}
+                            {latestCoa!.documentNumber ? ` · ${latestCoa!.documentNumber}` : ""}
+                          </p>
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="text-xs h-7 shrink-0"
+                          onClick={() => setShowCoaUploadForm(true)}
+                          data-testid="button-replace-coa"
+                        >
+                          <RotateCcw className="h-3 w-3 mr-1" />
+                          Replace
+                        </Button>
+                      </div>
+                    ) : (
+                      // COA upload form
+                      <div className="rounded-lg border border-border p-3 space-y-2.5" data-testid="coa-upload-form">
+                        <p className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                          <FileText className="h-3.5 w-3.5 text-muted-foreground" />
+                          {hasCoa ? "Replace COA" : "Upload COA"} <span className="text-muted-foreground font-normal">(Step 1 of 2)</span>
+                        </p>
+                        <div className="space-y-1">
+                          <Label className="text-xs">PDF File <span className="text-destructive">*</span></Label>
+                          <input
+                            ref={coaFileRef}
+                            type="file"
+                            accept=".pdf,application/pdf"
+                            className="block w-full text-xs text-muted-foreground file:mr-2 file:py-1 file:px-2 file:rounded file:border file:border-border file:text-xs file:bg-muted file:text-foreground cursor-pointer"
+                            onChange={(e) => setCoaFile(e.target.files?.[0] ?? null)}
+                            data-testid="input-coa-file"
+                          />
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="space-y-1">
+                            <Label className="text-xs">Source <span className="text-destructive">*</span></Label>
+                            <Select value={coaSource} onValueChange={setCoaSource}>
+                              <SelectTrigger className="text-xs h-8" data-testid="select-coa-source">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="SUPPLIER" disabled={record.requiresQualification ?? false}>
+                                  Supplier{record.requiresQualification ? " (first-time: not allowed)" : ""}
+                                </SelectItem>
+                                <SelectItem value="INTERNAL_LAB">Internal Lab</SelectItem>
+                                <SelectItem value="THIRD_PARTY_LAB">Third-Party Lab</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-xs">Overall Result <span className="text-destructive">*</span></Label>
+                            <Select value={coaResult} onValueChange={setCoaResult}>
+                              <SelectTrigger className="text-xs h-8" data-testid="select-coa-result">
+                                <SelectValue placeholder="Select…" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="PASS">Pass</SelectItem>
+                                <SelectItem value="FAIL">Fail</SelectItem>
+                                <SelectItem value="CONDITIONAL">Conditional</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs">Document Number (optional)</Label>
+                          <Input
+                            placeholder="e.g. COA-2024-001"
+                            value={coaDocNumber}
+                            onChange={(e) => setCoaDocNumber(e.target.value)}
+                            className="text-xs h-8"
+                            data-testid="input-coa-doc-number"
+                          />
+                        </div>
+                        <div className="flex gap-2">
+                          <Button
+                            size="sm"
+                            className="h-7 text-xs"
+                            onClick={() => uploadCoa.mutate()}
+                            disabled={uploadCoa.isPending || !coaFile || !coaResult}
+                            data-testid="button-save-coa"
+                          >
+                            {uploadCoa.isPending ? (
+                              <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                            ) : (
+                              <Upload className="h-3 w-3 mr-1" />
+                            )}
+                            Save COA
+                          </Button>
+                          {hasCoa && (
+                            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setShowCoaUploadForm(false)}>
+                              Cancel
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Step 2: QC Sign-off */}
+                <div className={`space-y-3 ${isCOAWorkflow && !hasCoa ? "opacity-40 pointer-events-none" : ""}`} data-testid="qc-signoff-section">
+                  {isCOAWorkflow && !hasCoa && (
+                    <p className="text-xs text-muted-foreground">Step 2 of 2 — Sign-off <span className="text-muted-foreground/60">🔒 requires COA upload</span></p>
+                  )}
+                  {record.requiresQualification && (
+                    <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 space-y-1">
+                      <div className="flex items-center gap-2 text-sm font-medium text-amber-600 dark:text-amber-400">
+                        <AlertTriangle className="h-4 w-4 shrink-0" />
+                        First-time supplier approval
+                      </div>
+                      <p className="text-xs text-amber-700 dark:text-amber-300/80 leading-relaxed">
+                        <strong>{record.supplierName ?? "This supplier"}</strong> has not previously been approved
+                        for <strong>{record.productName}</strong>. Approving will add them to the Approved Materials list.
+                      </p>
+                    </div>
+                  )}
+                  <div className="space-y-1.5">
+                    <Label className="text-sm">QC Disposition</Label>
+                    <Select value={qcDisposition} onValueChange={setQcDisposition}>
+                      <SelectTrigger className="text-sm" data-testid="select-qc-disposition">
+                        <SelectValue placeholder="Select disposition…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="APPROVED">Approved</SelectItem>
+                        <SelectItem value="REJECTED">Rejected</SelectItem>
+                        <SelectItem value="APPROVED_WITH_CONDITIONS">Approved with Conditions</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-sm">QC Notes</Label>
+                    <Textarea
+                      placeholder="Optional notes…"
+                      value={qcNotes}
+                      onChange={(e) => setQcNotes(e.target.value)}
+                      className="text-sm min-h-[60px]"
+                      data-testid="textarea-qc-notes"
+                    />
+                  </div>
+                  <Button
+                    size="sm"
+                    onClick={() => setSigOpen(true)}
+                    disabled={!qcDisposition || (isCOAWorkflow && !hasCoa)}
+                    data-testid="button-submit-qc-review"
+                  >
+                    <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />
+                    Submit QC Review
+                  </Button>
+                  <SignatureCeremony
+                    open={sigOpen}
+                    onOpenChange={setSigOpen}
+                    entityDescription={`receiving record ${record.uniqueIdentifier}`}
+                    meaning="QC_DISPOSITION"
+                    isPending={submitQcReview.isPending}
+                    onSign={async (password, commentary) => {
+                      await submitQcReview.mutateAsync({ password, commentary });
+                    }}
                   />
                 </div>
-                <Button
-                  size="sm"
-                  onClick={() => setSigOpen(true)}
-                  disabled={!qcDisposition}
-                  data-testid="button-submit-qc-review"
-                >
-                  <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />
-                  Submit QC Review
-                </Button>
-                <SignatureCeremony
-                  open={sigOpen}
-                  onOpenChange={setSigOpen}
-                  entityDescription={`receiving record ${record.uniqueIdentifier}`}
-                  meaning="QC_DISPOSITION"
-                  isPending={submitQcReview.isPending}
-                  onSign={async (password, commentary) => {
-                    await submitQcReview.mutateAsync({ password, commentary });
-                  }}
-                />
               </div>
             )}
           </div>
@@ -923,8 +923,9 @@ function ReceivingDetail({
           <Clock className="h-4 w-4 text-muted-foreground" />
           Status Timeline
         </h3>
-        <StatusTimeline record={record} />
+        <StatusTimeline record={{ ...record, coaDocuments: localCoaDocs }} />
       </div>
+
     </div>
   );
 }
@@ -932,13 +933,17 @@ function ReceivingDetail({
 // ── Main page ──
 
 export default function Receiving() {
-  // Read record ID from URL params (hash routing: /#/receiving?record=xxx)
+  // Read record ID / PO ID from URL params (hash routing: /#/receiving?record=xxx or ?po=xxx)
   const searchParams = new URLSearchParams(window.location.hash.split("?")[1] || "");
   const urlRecordId = searchParams.get("record");
+  const urlPoId = searchParams.get("po");
 
   const [selectedId, setSelectedId] = useState<string | null>(urlRecordId);
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
   const [searchQuery, setSearchQuery] = useState("");
+  const [receiveSheetPo, setReceiveSheetPo] = useState<PurchaseOrderWithDetails | null>(null);
+  const [receiveSheetOpen, setReceiveSheetOpen] = useState(false);
+  const [printJobs, setPrintJobs] = useState<PrintJob[]>([]);
 
   const { data: records = [], isLoading } = useQuery<ReceivingRecordWithDetails[]>({
     queryKey: ["/api/receiving"],
@@ -952,10 +957,23 @@ export default function Receiving() {
     refetchOnWindowFocus: true,
     staleTime: 0,
   });
+
+  const { data: products = [] } = useQuery<Product[]>({ queryKey: ["/api/products"] });
+  const { data: locations = [] } = useQuery<Location[]>({ queryKey: ["/api/locations"] });
   const submittedPOs = useMemo(
     () => (allPOs ?? []).filter((po) => po.status === "SUBMITTED" || po.status === "PARTIALLY_RECEIVED"),
     [allPOs],
   );
+
+  // Auto-open ReceiveSheet when navigated from dashboard with ?po=xxx
+  useEffect(() => {
+    if (!urlPoId || !allPOs) return;
+    const po = allPOs.find((p) => p.id === urlPoId);
+    if (po) {
+      setReceiveSheetPo(po);
+      setReceiveSheetOpen(true);
+    }
+  }, [urlPoId, allPOs]);
 
   const filteredRecords = useMemo(() => {
     let result = records;
@@ -1069,19 +1087,19 @@ export default function Receiving() {
                     <button
                       key={po.id}
                       className="w-full text-left px-3 py-2.5 border-b border-border/50 hover:bg-muted/50 transition-colors"
-                      onClick={() => { window.location.hash = `#/suppliers?po=${po.id}`; }}
+                      onClick={() => { setReceiveSheetPo(po); setReceiveSheetOpen(true); }}
                       data-testid={`item-open-po-${po.id}`}
                     >
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
-                          <span className="text-sm font-medium font-mono">{po.poNumber}</span>
+                          <span className="text-base font-medium font-mono">{po.poNumber}</span>
                           <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 border-0 text-[10px]">
                             {po.status === "PARTIALLY_RECEIVED" ? "Partial" : "Submitted"}
                           </Badge>
                         </div>
                         <span className="text-xs text-muted-foreground">{formatDate(po.orderDate)}</span>
                       </div>
-                      <p className="text-xs text-muted-foreground mt-0.5">{po.supplierName ?? "—"}</p>
+                      <p className="text-sm text-muted-foreground mt-0.5">{po.supplierName ?? "—"}</p>
                     </button>
                   ))}
                 </>
@@ -1113,6 +1131,7 @@ export default function Receiving() {
             key={selectedRecord.id + ":" + selectedRecord.status}
             record={selectedRecord}
             onUpdated={handleUpdated}
+            _onNavigateTo={(id: string) => setSelectedId(id)}
           />
         ) : (
           <div className="flex flex-col items-center justify-center h-full text-center px-6">
@@ -1123,6 +1142,29 @@ export default function Receiving() {
           </div>
         )}
       </div>
+
+      {receiveSheetPo && (
+        <ReceiveSheet
+          po={receiveSheetPo}
+          open={receiveSheetOpen}
+          onOpenChange={(open) => {
+            setReceiveSheetOpen(open);
+            if (!open) setReceiveSheetPo(null);
+          }}
+          locations={locations}
+          products={products}
+          onReceiveComplete={(jobs) => {
+            setReceiveSheetOpen(false);
+            setReceiveSheetPo(null);
+            setPrintJobs(jobs);
+          }}
+        />
+      )}
+      <ReceivingLabelDrawer
+        jobs={printJobs}
+        open={printJobs.length > 0}
+        onOpenChange={(open) => { if (!open) setPrintJobs([]); }}
+      />
     </div>
   );
 }

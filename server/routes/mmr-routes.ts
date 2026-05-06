@@ -18,6 +18,9 @@ import {
   reorderMmrSteps,
   approveMmr,
   reviseMmr,
+  addMmrComponent,
+  updateMmrComponent,
+  deleteMmrComponent,
 } from "../storage/mmr";
 
 const router = Router();
@@ -43,7 +46,6 @@ router.post("/", requireRole("ADMIN", "QA", "PRODUCTION"), async (req, res, next
   try {
     const body = z.object({
       productId: z.string(),
-      recipeId: z.string(),
       notes: z.string().optional(),
     }).parse(req.body);
     const mmr = await createMmr({ ...body, createdByUserId: req.user!.id });
@@ -53,7 +55,7 @@ router.post("/", requireRole("ADMIN", "QA", "PRODUCTION"), async (req, res, next
   }
 });
 
-// GET /api/mmrs/:id — get single MMR with steps
+// GET /api/mmrs/:id — get single MMR with steps and components
 router.get<{ id: string }>("/:id", async (req, res, next) => {
   try {
     const mmr = await getMmr(req.params.id);
@@ -95,14 +97,10 @@ router.post<{ id: string }>("/:id/approve", requireRole("QA", "ADMIN"), async (r
     if (existing.status !== "DRAFT") {
       return res.status(400).json({ message: "Only DRAFT MMRs can be approved" });
     }
-    // 21 CFR Part 111 §111.260: approver must be different from creator
     if (existing.createdByUserId === req.user!.id) {
       return res.status(400).json({ message: "Approver cannot be the same person who created the MMR (21 CFR Part 111 §111.260)" });
     }
 
-    // Perform electronic signature ceremony — records who is approving inside the transaction.
-    // status=APPROVED and signatureId are set together AFTER commit to satisfy the DB constraint
-    // CHECK (status <> 'APPROVED' OR signature_id IS NOT NULL).
     await performSignature(
       {
         userId: req.user!.id,
@@ -123,8 +121,6 @@ router.post<{ id: string }>("/:id/approve", requireRole("QA", "ADMIN"), async (r
       },
     );
 
-    // After transaction commits, find signature row by entityId and link it.
-    // approveMmr sets status=APPROVED + signatureId atomically, satisfying the constraint.
     const [sigRow] = await db
       .select({ id: schema.electronicSignatures.id })
       .from(schema.electronicSignatures)
@@ -160,7 +156,6 @@ router.post<{ id: string }>("/:id/revise", requireRole("ADMIN", "QA", "PRODUCTIO
 
 // ─── MMR Steps ────────────────────────────────────────────────────────────────
 
-// GET /api/mmrs/:id/steps
 router.get<{ id: string }>("/:id/steps", async (req, res, next) => {
   try {
     const mmr = await getMmr(req.params.id);
@@ -171,8 +166,6 @@ router.get<{ id: string }>("/:id/steps", async (req, res, next) => {
   }
 });
 
-// POST /api/mmrs/:id/steps/reorder must come BEFORE /:id/steps/:stepId to avoid routing conflict
-// POST /api/mmrs/:id/steps/reorder — update step_number ordering (DRAFT only)
 router.post<{ id: string }>("/:id/steps/reorder", requireRole("ADMIN", "QA", "PRODUCTION"), async (req, res, next) => {
   try {
     const mmr = await getMmr(req.params.id);
@@ -187,7 +180,6 @@ router.post<{ id: string }>("/:id/steps/reorder", requireRole("ADMIN", "QA", "PR
   }
 });
 
-// POST /api/mmrs/:id/steps — add step (DRAFT only)
 router.post<{ id: string }>("/:id/steps", requireRole("ADMIN", "QA", "PRODUCTION"), async (req, res, next) => {
   try {
     const mmr = await getMmr(req.params.id);
@@ -207,7 +199,6 @@ router.post<{ id: string }>("/:id/steps", requireRole("ADMIN", "QA", "PRODUCTION
   }
 });
 
-// PATCH /api/mmrs/:id/steps/:stepId — update step (DRAFT only)
 router.patch<{ id: string; stepId: string }>("/:id/steps/:stepId", requireRole("ADMIN", "QA", "PRODUCTION"), async (req, res, next) => {
   try {
     const mmr = await getMmr(req.params.id);
@@ -227,13 +218,61 @@ router.patch<{ id: string; stepId: string }>("/:id/steps/:stepId", requireRole("
   }
 });
 
-// DELETE /api/mmrs/:id/steps/:stepId — delete step (DRAFT only)
 router.delete<{ id: string; stepId: string }>("/:id/steps/:stepId", requireRole("ADMIN", "QA", "PRODUCTION"), async (req, res, next) => {
   try {
     const mmr = await getMmr(req.params.id);
     if (!mmr) return next(errors.notFound("MMR"));
     if (mmr.status !== "DRAFT") return res.status(400).json({ message: "MMR is not in DRAFT status" });
     await deleteMmrStep(req.params.stepId);
+    return res.status(204).send();
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// ─── MMR Components (BOM / Formula) ──────────────────────────────────────────
+
+router.post<{ id: string }>("/:id/components", requireRole("ADMIN", "QA", "PRODUCTION"), async (req, res, next) => {
+  try {
+    const mmr = await getMmr(req.params.id);
+    if (!mmr) return next(errors.notFound("MMR"));
+    if (mmr.status !== "DRAFT") return res.status(400).json({ message: "MMR is not in DRAFT status" });
+    const body = z.object({
+      productId: z.string(),
+      quantity: z.string(),
+      uom: z.string().min(1),
+      notes: z.string().nullable().optional(),
+    }).parse(req.body);
+    const component = await addMmrComponent(req.params.id, body);
+    return res.status(201).json(component);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.patch<{ id: string; componentId: string }>("/:id/components/:componentId", requireRole("ADMIN", "QA", "PRODUCTION"), async (req, res, next) => {
+  try {
+    const mmr = await getMmr(req.params.id);
+    if (!mmr) return next(errors.notFound("MMR"));
+    if (mmr.status !== "DRAFT") return res.status(400).json({ message: "MMR is not in DRAFT status" });
+    const body = z.object({
+      quantity: z.string().optional(),
+      uom: z.string().min(1).optional(),
+      notes: z.string().nullable().optional(),
+    }).parse(req.body);
+    const component = await updateMmrComponent(req.params.componentId, body);
+    return res.json(component);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.delete<{ id: string; componentId: string }>("/:id/components/:componentId", requireRole("ADMIN", "QA", "PRODUCTION"), async (req, res, next) => {
+  try {
+    const mmr = await getMmr(req.params.id);
+    if (!mmr) return next(errors.notFound("MMR"));
+    if (mmr.status !== "DRAFT") return res.status(400).json({ message: "MMR is not in DRAFT status" });
+    await deleteMmrComponent(req.params.componentId);
     return res.status(204).send();
   } catch (err) {
     return next(err);

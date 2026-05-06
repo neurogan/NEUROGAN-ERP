@@ -10,7 +10,6 @@ import {
   insertSupplierSchema,
   insertPurchaseOrderSchema,
   insertProductionBatchSchema,
-  insertRecipeSchema,
   insertProductCategorySchema,
   insertProductionNoteSchema,
   insertReceivingRecordSchema,
@@ -747,9 +746,13 @@ export async function registerRoutes(
 
   app.post("/api/purchase-orders/receive", requireAuth, requireRole("WAREHOUSE", "QA", "ADMIN"), async (req, res) => {
     try {
-      const { lineItemId, quantity, lotNumber, locationId, supplierName, expirationDate, receivedDate } = req.body;
+      const { lineItemId, quantity, lotNumber, locationId, supplierName, expirationDate, receivedDate, boxCount } = req.body;
       if (!lineItemId || !quantity || !locationId) {
         return res.status(400).json({ message: "Missing required fields: lineItemId, quantity, locationId" });
+      }
+      const parsedBoxCount = typeof boxCount === "number" ? boxCount : parseInt(boxCount ?? "0", 10) || 0;
+      if (parsedBoxCount > 999) {
+        return res.status(400).json({ message: "boxCount cannot exceed 999" });
       }
       const result = await storage.receivePOLineItem(
         lineItemId,
@@ -759,6 +762,7 @@ export async function registerRoutes(
         supplierName,
         expirationDate,
         receivedDate,
+        parsedBoxCount,
       );
       res.status(201).json(result);
     } catch (err) {
@@ -977,57 +981,6 @@ export async function registerRoutes(
     }
   });
 
-  // ─── Recipes ──────────────────────────────────────────
-
-  app.get("/api/recipes", async (req, res) => {
-    try {
-      const productId = req.query.productId as string | undefined;
-      const recipes = await storage.getRecipes(productId);
-      res.json(recipes);
-    } catch (err) {
-      res.status(500).json({ message: "Failed to fetch recipes" });
-    }
-  });
-
-  app.get("/api/recipes/:id", async (req, res) => {
-    try {
-      const recipe = await storage.getRecipe(req.params.id);
-      if (!recipe) return res.status(404).json({ message: "Recipe not found" });
-      res.json(recipe);
-    } catch (err) {
-      res.status(500).json({ message: "Failed to fetch recipe" });
-    }
-  });
-
-  app.post("/api/recipes", requireAuth, requireRole("ADMIN", "QA", "PRODUCTION"), async (req, res, next) => {
-    try {
-      const { lines, ...recipeData } = req.body;
-      const data = insertRecipeSchema.parse(recipeData);
-      if (!lines || !Array.isArray(lines) || lines.length === 0) {
-        return res.status(400).json({ message: "At least one recipe line is required" });
-      }
-      const recipe = await storage.createRecipe(data, lines);
-      res.status(201).json(recipe);
-    } catch (err) { next(err); }
-  });
-
-  app.patch<{ id: string }>("/api/recipes/:id", requireAuth, requireRole("ADMIN", "QA", "PRODUCTION"), async (req, res, next) => {
-    try {
-      const { lines, ...recipeData } = req.body;
-      const recipe = await storage.updateRecipe(req.params.id, recipeData, lines);
-      if (!recipe) return res.status(404).json({ message: "Recipe not found" });
-      res.json(recipe);
-    } catch (err) { next(err); }
-  });
-
-  app.delete<{ id: string }>("/api/recipes/:id", requireAuth, requireRole("ADMIN"), async (req, res, next) => {
-    try {
-      const deleted = await storage.deleteRecipe(req.params.id);
-      if (!deleted) return res.status(404).json({ message: "Recipe not found" });
-      res.status(204).send();
-    } catch (err) { next(err); }
-  });
-
   // ─── Inventory ─────────────────────────────────────────
 
   app.get("/api/inventory", async (_req, res) => {
@@ -1222,6 +1175,46 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/receiving/:id/boxes", async (req, res) => {
+    try {
+      const record = await storage.getReceivingRecord(req.params.id);
+      if (!record) return res.status(404).json({ message: "Receiving record not found" });
+      const boxes = await storage.getReceivingBoxes(req.params.id);
+      res.json({ boxes });
+    } catch (err) {
+      res.status(500).json({ message: "Failed to fetch boxes" });
+    }
+  });
+
+  app.patch<{ id: string }>(
+    "/api/receiving/boxes/:id/sample",
+    requireAuth,
+    requireRole("WAREHOUSE", "LAB_TECH", "QA"),
+    async (req, res, next) => {
+      try {
+        const record = await storage.sampleBox(req.params.id, req.user!.id);
+        res.json(record);
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
+
+  app.get<{ label: string }>(
+    "/api/receiving/boxes/by-label/:label",
+    requireAuth,
+    async (req, res, next) => {
+      try {
+        const label = decodeURIComponent(req.params.label);
+        const result = await storage.getBoxByLabel(label);
+        if (!result) return res.status(404).json({ message: "Box not found — check the label and try again" });
+        res.json(result);
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
+
   app.get("/api/receiving/:id", async (req, res) => {
     try {
       const record = await storage.getReceivingRecord(req.params.id);
@@ -1290,6 +1283,29 @@ export async function registerRoutes(
       } catch (err) {
         next(err);
       }
+    },
+  );
+
+  app.post<{ id: string }>(
+    "/api/receiving/:id/coa",
+    requireAuth, requireRole("QA", "ADMIN"),
+    async (req, res, next) => {
+      try {
+        const { fileData, fileName, sourceType, overallResult, documentNumber } = req.body as {
+          fileData?: string; fileName?: string; sourceType?: string; overallResult?: string; documentNumber?: string;
+        };
+        if (!fileData) return res.status(400).json({ message: "fileData required" });
+        if (!fileName) return res.status(400).json({ message: "fileName required" });
+        if (!sourceType) return res.status(400).json({ message: "sourceType required" });
+        if (!overallResult) return res.status(400).json({ message: "overallResult required" });
+        const doc = await withAudit(
+          { userId: req.user!.id, action: "CREATE", entityType: "coa_document",
+            entityId: (r) => (r as { id: string }).id, before: null,
+            route: `${req.method} ${req.path}`, requestId: req.requestId },
+          (tx) => storage.uploadCoaForReceivingRecord(req.params.id, { fileData, fileName, sourceType, overallResult, documentNumber }, tx),
+        );
+        res.status(201).json(doc);
+      } catch (err) { next(err); }
     },
   );
 

@@ -4,17 +4,33 @@ import { eq, desc, and } from "drizzle-orm";
 
 // ─── R-07 Master Manufacturing Records ───────────────────────────────────────
 
+async function getComponentsForMmr(mmrId: string): Promise<schema.MmrComponentWithDetails[]> {
+  const rows = await db
+    .select({
+      component: schema.mmrComponents,
+      productName: schema.products.name,
+      productSku: schema.products.sku,
+    })
+    .from(schema.mmrComponents)
+    .innerJoin(schema.products, eq(schema.mmrComponents.productId, schema.products.id))
+    .where(eq(schema.mmrComponents.mmrId, mmrId));
+
+  return rows.map(({ component, productName, productSku }) => ({
+    ...component,
+    productName,
+    productSku,
+  }));
+}
+
 export async function listMmrs(): Promise<schema.MmrWithSteps[]> {
   const rows = await db
     .select({
       mmr: schema.mmrs,
       productName: schema.products.name,
-      recipeName: schema.recipes.name,
       createdByName: schema.users.fullName,
     })
     .from(schema.mmrs)
     .innerJoin(schema.products, eq(schema.mmrs.productId, schema.products.id))
-    .innerJoin(schema.recipes, eq(schema.mmrs.recipeId, schema.recipes.id))
     .innerJoin(schema.users, eq(schema.mmrs.createdByUserId, schema.users.id))
     .orderBy(schema.products.name, desc(schema.mmrs.version));
 
@@ -25,7 +41,15 @@ export async function listMmrs(): Promise<schema.MmrWithSteps[]> {
     .from(schema.mmrSteps)
     .orderBy(schema.mmrSteps.mmrId, schema.mmrSteps.stepNumber);
 
-  // group steps by mmrId
+  const allComponentRows = await db
+    .select({
+      component: schema.mmrComponents,
+      productName: schema.products.name,
+      productSku: schema.products.sku,
+    })
+    .from(schema.mmrComponents)
+    .innerJoin(schema.products, eq(schema.mmrComponents.productId, schema.products.id));
+
   const stepsByMmr = new Map<string, schema.MmrStep[]>();
   for (const step of allSteps) {
     const arr = stepsByMmr.get(step.mmrId) ?? [];
@@ -33,13 +57,20 @@ export async function listMmrs(): Promise<schema.MmrWithSteps[]> {
     stepsByMmr.set(step.mmrId, arr);
   }
 
-  return rows.map(({ mmr, productName, recipeName, createdByName }) => ({
+  const componentsByMmr = new Map<string, schema.MmrComponentWithDetails[]>();
+  for (const { component, productName, productSku } of allComponentRows) {
+    const arr = componentsByMmr.get(component.mmrId) ?? [];
+    arr.push({ ...component, productName, productSku });
+    componentsByMmr.set(component.mmrId, arr);
+  }
+
+  return rows.map(({ mmr, productName, createdByName }) => ({
     ...mmr,
     steps: stepsByMmr.get(mmr.id) ?? [],
+    components: componentsByMmr.get(mmr.id) ?? [],
     productName,
-    recipeName,
     createdByName,
-    approvedByName: null, // resolved in getMmr when needed
+    approvedByName: null,
   }));
 }
 
@@ -48,12 +79,10 @@ export async function getMmr(id: string): Promise<schema.MmrWithSteps | undefine
     .select({
       mmr: schema.mmrs,
       productName: schema.products.name,
-      recipeName: schema.recipes.name,
       createdByName: schema.users.fullName,
     })
     .from(schema.mmrs)
     .innerJoin(schema.products, eq(schema.mmrs.productId, schema.products.id))
-    .innerJoin(schema.recipes, eq(schema.mmrs.recipeId, schema.recipes.id))
     .innerJoin(schema.users, eq(schema.mmrs.createdByUserId, schema.users.id))
     .where(eq(schema.mmrs.id, id));
 
@@ -64,6 +93,8 @@ export async function getMmr(id: string): Promise<schema.MmrWithSteps | undefine
     .from(schema.mmrSteps)
     .where(eq(schema.mmrSteps.mmrId, id))
     .orderBy(schema.mmrSteps.stepNumber);
+
+  const components = await getComponentsForMmr(id);
 
   let approvedByName: string | null = null;
   if (row.mmr.approvedByUserId) {
@@ -77,8 +108,8 @@ export async function getMmr(id: string): Promise<schema.MmrWithSteps | undefine
   return {
     ...row.mmr,
     steps,
+    components,
     productName: row.productName,
-    recipeName: row.recipeName,
     createdByName: row.createdByName,
     approvedByName,
   };
@@ -105,7 +136,6 @@ export async function getMmrByProduct(
 
 export async function createMmr(data: {
   productId: string;
-  recipeId: string;
   notes?: string;
   createdByUserId: string;
 }): Promise<schema.MmrWithSteps> {
@@ -113,7 +143,6 @@ export async function createMmr(data: {
     .insert(schema.mmrs)
     .values({
       productId: data.productId,
-      recipeId: data.recipeId,
       notes: data.notes ?? null,
       createdByUserId: data.createdByUserId,
       version: 1,
@@ -195,6 +224,49 @@ export async function reorderMmrSteps(mmrId: string, orderedStepIds: string[]): 
   });
 }
 
+// ─── MMR Component (BOM) CRUD ─────────────────────────────────────────────────
+
+export async function addMmrComponent(
+  mmrId: string,
+  data: { productId: string; quantity: string; uom: string; notes?: string | null },
+): Promise<schema.MmrComponentWithDetails> {
+  await db.insert(schema.mmrComponents).values({
+    mmrId,
+    productId: data.productId,
+    quantity: data.quantity,
+    uom: data.uom,
+    notes: data.notes ?? null,
+  });
+  const components = await getComponentsForMmr(mmrId);
+  return components[components.length - 1]!;
+}
+
+export async function updateMmrComponent(
+  componentId: string,
+  data: Partial<{ quantity: string; uom: string; notes: string | null }>,
+): Promise<schema.MmrComponentWithDetails> {
+  await db
+    .update(schema.mmrComponents)
+    .set(data as Partial<schema.MmrComponent>)
+    .where(eq(schema.mmrComponents.id, componentId));
+  const [row] = await db
+    .select({
+      component: schema.mmrComponents,
+      productName: schema.products.name,
+      productSku: schema.products.sku,
+    })
+    .from(schema.mmrComponents)
+    .innerJoin(schema.products, eq(schema.mmrComponents.productId, schema.products.id))
+    .where(eq(schema.mmrComponents.id, componentId));
+  return { ...row!.component, productName: row!.productName, productSku: row!.productSku };
+}
+
+export async function deleteMmrComponent(componentId: string): Promise<void> {
+  await db.delete(schema.mmrComponents).where(eq(schema.mmrComponents.id, componentId));
+}
+
+// ─── Approval & Revision ──────────────────────────────────────────────────────
+
 export async function approveMmr(
   id: string,
   data: { approvedByUserId: string; signatureId: string },
@@ -228,7 +300,6 @@ export async function reviseMmr(id: string, createdByUserId: string): Promise<sc
       .insert(schema.mmrs)
       .values({
         productId: current.productId,
-        recipeId: current.recipeId,
         version: current.version + 1,
         status: "DRAFT",
         notes: current.notes,
@@ -258,21 +329,45 @@ export async function reviseMmr(id: string, createdByUserId: string): Promise<sc
       );
     }
 
-    // Return the new MMR with full details (can't use getMmr in transaction, build it directly)
+    // Copy components (BOM) from current MMR
+    const oldComponents = await tx
+      .select()
+      .from(schema.mmrComponents)
+      .where(eq(schema.mmrComponents.mmrId, id));
+
+    if (oldComponents.length > 0) {
+      await tx.insert(schema.mmrComponents).values(
+        oldComponents.map((c) => ({
+          mmrId: newMmr!.id,
+          productId: c.productId,
+          quantity: c.quantity,
+          uom: c.uom,
+          notes: c.notes,
+        })),
+      );
+    }
+
+    // getMmr can't run inside transaction — build the return directly
     const steps = await tx
       .select()
       .from(schema.mmrSteps)
       .where(eq(schema.mmrSteps.mmrId, newMmr!.id))
       .orderBy(schema.mmrSteps.stepNumber);
 
+    const componentRows = await tx
+      .select({
+        component: schema.mmrComponents,
+        productName: schema.products.name,
+        productSku: schema.products.sku,
+      })
+      .from(schema.mmrComponents)
+      .innerJoin(schema.products, eq(schema.mmrComponents.productId, schema.products.id))
+      .where(eq(schema.mmrComponents.mmrId, newMmr!.id));
+
     const [product] = await tx
       .select({ name: schema.products.name })
       .from(schema.products)
       .where(eq(schema.products.id, newMmr!.productId));
-    const [recipe] = await tx
-      .select({ name: schema.recipes.name })
-      .from(schema.recipes)
-      .where(eq(schema.recipes.id, newMmr!.recipeId));
     const [creator] = await tx
       .select({ fullName: schema.users.fullName })
       .from(schema.users)
@@ -281,8 +376,12 @@ export async function reviseMmr(id: string, createdByUserId: string): Promise<sc
     return {
       ...newMmr!,
       steps,
+      components: componentRows.map(({ component, productName, productSku }) => ({
+        ...component,
+        productName,
+        productSku,
+      })),
       productName: product?.name ?? "",
-      recipeName: recipe?.name ?? "",
       createdByName: creator?.fullName ?? "",
       approvedByName: null,
     };
