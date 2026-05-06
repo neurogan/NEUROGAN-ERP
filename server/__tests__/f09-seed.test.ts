@@ -112,16 +112,6 @@ describeIfDb("F-09: seed fixtures", () => {
     expect(row?.overallResult).toBe("FAIL");
   });
 
-  // ── Recipes ────────────────────────────────────────────────────────────────
-
-  it("seeds recipe with 2 lines", async () => {
-    const lines = await db
-      .select({ id: schema.recipeLines.id })
-      .from(schema.recipeLines)
-      .where(eq(schema.recipeLines.recipeId, seedIds.recipes.proUroV1));
-    expect(lines).toHaveLength(2);
-  });
-
   // ── Idempotency ────────────────────────────────────────────────────────────
 
   it("seedOnce() is idempotent — second call does not throw or duplicate", async () => {

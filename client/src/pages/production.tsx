@@ -84,7 +84,7 @@ import type {
   Product,
   Location,
   InventoryGrouped,
-  RecipeWithDetails,
+  MmrWithSteps,
   LabelReconciliation,
   LabelIssuanceLog,
   LabelPrintJob,
@@ -314,41 +314,45 @@ function CreateBatchSheet({
     }
   }, [products]);
 
-  // ── Recipe lookup ──
+  // ── MMR components lookup (BOM) ──
   const selectedProductId = form.watch("productId");
-  const { data: recipesData } = useQuery<RecipeWithDetails[]>({
-    queryKey: ["/api/recipes", selectedProductId],
+  const { data: mmrData } = useQuery<MmrWithSteps[]>({
+    queryKey: ["/api/mmrs", selectedProductId],
     queryFn: async () => {
       if (!selectedProductId) return [];
-      const res = await apiRequest("GET", `/api/recipes?productId=${selectedProductId}`);
+      const res = await apiRequest("GET", `/api/mmrs?productId=${selectedProductId}&status=APPROVED`);
       return res.json();
     },
     enabled: !!selectedProductId,
   });
-  const recipe = recipesData?.[0]; // First recipe for this product
-  const hasRecipe = !!recipe;
+  const mmr = mmrData?.[0]; // Approved MMR for this product
+  const hasRecipe = !!mmr && mmr.components.length > 0;
 
-  // Compute effective quantities for each recipe line based on planned qty and overrides
+  // Compute effective quantities for each MMR component based on planned qty and overrides
   const plannedQuantity = form.watch("plannedQuantity");
   const recipeLines = useMemo(() => {
-    if (!recipe) return [];
+    if (!mmr) return [];
     const plannedQty = parseFloat(plannedQuantity) || 1;
-    return recipe.lines.map((line, idx) => {
-      const recipeQty = String(Math.round(parseFloat(line.quantity) * plannedQty * 1000000) / 1000000);
+    return mmr.components.map((comp, idx) => {
+      const recipeQty = String(Math.round(parseFloat(comp.quantity) * plannedQty * 1000000) / 1000000);
       const overrideQty = overrides.get(idx);
       const effectiveQty = overrideQty !== undefined && overrideQty !== "" ? overrideQty : recipeQty;
       return {
-        ...line,
+        id: comp.id,
+        productId: comp.productId,
+        productName: comp.productName,
+        productSku: comp.productSku,
+        uom: comp.uom,
         recipeQty,
         effectiveQty,
         isOverridden: overrideQty !== undefined && overrideQty !== "",
       };
     });
-  }, [recipe, plannedQuantity, overrides]);
+  }, [mmr, plannedQuantity, overrides]);
 
-  // Trigger FIFO allocations when recipe lines or quantities change
+  // Trigger FIFO allocations when components or quantities change
   useEffect(() => {
-    if (!recipe || recipeLines.length === 0) return;
+    if (!mmr || recipeLines.length === 0) return;
     recipeLines.forEach((line, idx) => {
       if (line.productId && parseFloat(line.effectiveQty) > 0) {
         fetchFIFOAllocation(idx, line.productId, line.effectiveQty);
@@ -356,32 +360,31 @@ function CreateBatchSheet({
     });
   }, [recipeLines.map(l => `${l.productId}:${l.effectiveQty}`).join(",")]);
 
-  // In edit mode, load existing inputs into overrides map if they differ from recipe
+  // In edit mode, load existing inputs into overrides map if they differ from MMR components
   useEffect(() => {
-    if (!isEditMode || !editBatch || !recipe) return;
+    if (!isEditMode || !editBatch || !mmr) return;
     const plannedQty = parseFloat(editBatch.plannedQuantity) || 1;
     const newOverrides = new Map<number, string>();
 
-    // Group edit batch inputs by productId to sum quantities
     const inputQtyByProduct = new Map<string, number>();
     for (const inp of editBatch.inputs) {
       inputQtyByProduct.set(inp.productId, (inputQtyByProduct.get(inp.productId) ?? 0) + parseFloat(inp.quantityUsed));
     }
 
-    recipe.lines.forEach((line, idx) => {
-      const recipeExpected = Math.round(parseFloat(line.quantity) * plannedQty * 1000000) / 1000000;
-      const actualQty = inputQtyByProduct.get(line.productId);
-      if (actualQty !== undefined && Math.abs(actualQty - recipeExpected) > 0.0001) {
+    mmr.components.forEach((comp, idx) => {
+      const expected = Math.round(parseFloat(comp.quantity) * plannedQty * 1000000) / 1000000;
+      const actualQty = inputQtyByProduct.get(comp.productId);
+      if (actualQty !== undefined && Math.abs(actualQty - expected) > 0.0001) {
         newOverrides.set(idx, String(actualQty));
       }
     });
     setOverrides(newOverrides);
-  }, [isEditMode, editBatch?.id, recipe?.id]);
+  }, [isEditMode, editBatch?.id, mmr?.id]);
 
   const createMutation = useMutation({
     mutationFn: async (data: CreateBatchForm) => {
-      if (!recipe) {
-        throw new Error("Cannot create batch without a recipe. Please select a product that has a recipe defined.");
+      if (!hasRecipe) {
+        throw new Error("Cannot create batch without an approved MMR formula. Please define the formula in Manufacturing first.");
       }
 
       // Build final inputs from recipe lines + FIFO allocations
@@ -464,8 +467,8 @@ function CreateBatchSheet({
   function onSubmit(data: CreateBatchForm) {
     if (!hasRecipe) {
       toast({
-        title: "No Recipe Found",
-        description: "Cannot create a batch without a recipe. Please define a recipe for this product first.",
+        title: "No Approved MMR Formula",
+        description: "Cannot create a batch without an approved MMR with formula. Please create one in Manufacturing first.",
         variant: "destructive",
       });
       return;
@@ -549,21 +552,21 @@ function CreateBatchSheet({
               )}
             />
 
-            {/* No recipe warning */}
-            {selectedProductId && !hasRecipe && recipesData !== undefined && (
+            {/* No approved MMR warning */}
+            {selectedProductId && !hasRecipe && mmrData !== undefined && (
               <div className="rounded-md border border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800 px-3 py-2 text-sm text-amber-800 dark:text-amber-300 flex items-center gap-2" data-testid="warning-no-recipe">
                 <AlertTriangle className="h-4 w-4 shrink-0" />
-                <span>No recipe found for this product. </span>
+                <span>No approved MMR with formula found for this product. </span>
                 <a
-                  href={`#/inventory?product=${selectedProductId}&openRecipe=true`}
+                  href={`#/manufacturing/mmr?productId=${selectedProductId}`}
                   className="underline text-primary cursor-pointer"
                   onClick={(e) => {
                     e.preventDefault();
                     onOpenChange(false);
-                    window.location.hash = `#/inventory?product=${selectedProductId}&openRecipe=true`;
+                    window.location.hash = `#/manufacturing/mmr?productId=${selectedProductId}`;
                   }}
                 >
-                  Create one in Inventory →
+                  Create one in Manufacturing →
                 </a>
               </div>
             )}
@@ -629,11 +632,11 @@ function CreateBatchSheet({
               )}
             />
 
-            {/* Recipe Materials Table */}
+            {/* MMR Formula / BOM */}
             {hasRecipe && recipeLines.length > 0 && (
               <div className="space-y-2">
                 <div className="flex items-center gap-2">
-                  <Label className="text-sm font-medium">Recipe: {recipe!.name}</Label>
+                  <Label className="text-sm font-medium">Formula: {mmr!.productName} v{mmr!.version}</Label>
                   <TooltipProvider>
                     <Tooltip>
                       <TooltipTrigger asChild>

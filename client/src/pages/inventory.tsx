@@ -63,7 +63,6 @@ import {
   X,
   ShoppingBag,
   ShoppingCart,
-  FlaskConical,
 } from "lucide-react";
 import { formatQty } from "@/lib/formatQty";
 import { formatDate } from "@/lib/formatDate";
@@ -76,7 +75,6 @@ import type {
   Product,
   ProductWithCategories,
   ProductCategory,
-  RecipeWithDetails,
   Location,
   Lot,
 } from "@shared/schema";
@@ -1214,349 +1212,6 @@ function DeleteProductDialog({
   );
 }
 
-// ─── Recipe CRUD Dialogs ───────────────────────────────────
-
-type RecipeLineInput = {
-  productId: string;
-  quantity: string;
-  uom: string;
-};
-
-function RecipeDialog({
-  open,
-  onOpenChange,
-  productId,
-  existingRecipe,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  productId: string;
-  existingRecipe?: RecipeWithDetails | null;
-}) {
-  const [recipeName, setRecipeName] = useState(
-    existingRecipe?.name ?? "Standard Formula"
-  );
-  const [lines, setLines] = useState<RecipeLineInput[]>(
-    existingRecipe?.lines?.map((l) => ({
-      productId: l.productId,
-      quantity: String(l.quantity),
-      uom: l.uom,
-    })) ?? [{ productId: "", quantity: "", uom: "g" }]
-  );
-  const [createMaterialOpen, setCreateMaterialOpen] = useState(false);
-  const [addingForLineIndex, setAddingForLineIndex] = useState<number | null>(null);
-  const { toast } = useToast();
-
-  // Fetch non-finished-good products for material selector
-  const { data: allProducts } = useQuery<Product[]>({
-    queryKey: ["/api/products"],
-  });
-
-  const materials = useMemo(
-    () => (allProducts ?? []).filter((p) => p.category !== "FINISHED_GOOD"),
-    [allProducts]
-  );
-
-  const addLine = () => {
-    setLines((prev) => [...prev, { productId: "", quantity: "", uom: "g" }]);
-  };
-
-  const removeLine = (idx: number) => {
-    setLines((prev) => prev.filter((_, i) => i !== idx));
-  };
-
-  const updateLine = (
-    idx: number,
-    field: keyof RecipeLineInput,
-    value: string
-  ) => {
-    setLines((prev) =>
-      prev.map((l, i) => (i === idx ? { ...l, [field]: value } : l))
-    );
-  };
-
-  const isValid =
-    recipeName.trim() &&
-    lines.length > 0 &&
-    lines.every((l) => l.productId && l.quantity && parseFloat(l.quantity) > 0);
-
-  const mutation = useMutation({
-    mutationFn: async () => {
-      const payload = {
-        name: recipeName,
-        productId,
-        lines: lines.map((l) => ({
-          productId: l.productId,
-          quantity: l.quantity,
-          uom: l.uom,
-        })),
-      };
-      if (existingRecipe) {
-        const res = await apiRequest(
-          "PATCH",
-          `/api/recipes/${existingRecipe.id}`,
-          payload
-        );
-        return res.json();
-      } else {
-        const res = await apiRequest("POST", "/api/recipes", payload);
-        return res.json();
-      }
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["/api/recipes", productId],
-      });
-      toast({
-        title: existingRecipe ? "Recipe updated" : "Recipe created",
-      });
-      onOpenChange(false);
-    },
-    onError: (err: Error) => {
-      toast({
-        title: "Error",
-        description: err.message,
-        variant: "destructive",
-      });
-    },
-  });
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        className="max-w-2xl"
-        data-testid="dialog-recipe"
-      >
-        <DialogHeader>
-          <DialogTitle>
-            {existingRecipe ? "Edit Recipe" : "Create Recipe"}
-          </DialogTitle>
-          <DialogDescription>
-            Define the materials needed to produce one unit.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="space-y-4 py-2">
-          <div className="space-y-2">
-            <Label htmlFor="recipe-name">Recipe Name</Label>
-            <Input
-              id="recipe-name"
-              value={recipeName}
-              onChange={(e) => setRecipeName(e.target.value)}
-              data-testid="input-recipe-name"
-            />
-          </div>
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <Label>Line Items</Label>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={addLine}
-                data-testid="button-add-recipe-line"
-              >
-                <Plus className="h-3.5 w-3.5 mr-1" />
-                Add Line
-              </Button>
-            </div>
-            <div className="border rounded-md">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="text-xs">Material</TableHead>
-                    <TableHead className="text-xs w-28">Qty / unit</TableHead>
-                    <TableHead className="text-xs w-24">UOM</TableHead>
-                    <TableHead className="text-xs w-10"></TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {lines.map((line, idx) => (
-                    <TableRow key={idx}>
-                      <TableCell className="py-1.5">
-                        <div className="flex items-center gap-1">
-                          <Select
-                            value={line.productId}
-                            onValueChange={(v) =>
-                              updateLine(idx, "productId", v)
-                            }
-                          >
-                            <SelectTrigger
-                              className="h-8 text-sm"
-                              data-testid={`select-recipe-material-${idx}`}
-                            >
-                              <SelectValue placeholder="Select material" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {materials.map((m) => (
-                                <SelectItem key={m.id} value={m.id}>
-                                  {m.name} ({m.sku})
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="h-8 px-2 text-xs shrink-0"
-                            onClick={() => {
-                              setAddingForLineIndex(idx);
-                              setCreateMaterialOpen(true);
-                            }}
-                            data-testid={`button-new-material-${idx}`}
-                          >
-                            <Plus className="h-3 w-3 mr-0.5" />
-                            New
-                          </Button>
-                        </div>
-                      </TableCell>
-                      <TableCell className="py-1.5">
-                        <Input
-                          type="number"
-                          step="any"
-                          min="0"
-                          className="h-8 text-sm"
-                          value={line.quantity}
-                          onChange={(e) =>
-                            updateLine(idx, "quantity", e.target.value)
-                          }
-                          data-testid={`input-recipe-qty-${idx}`}
-                        />
-                      </TableCell>
-                      <TableCell className="py-1.5">
-                        <Select
-                          value={line.uom}
-                          onValueChange={(v) => updateLine(idx, "uom", v)}
-                        >
-                          <SelectTrigger
-                            className="h-8 text-sm"
-                            data-testid={`select-recipe-uom-${idx}`}
-                          >
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {["g", "mg", "L", "mL", "gal", "pcs", "lb", "oz"].map(
-                              (u) => (
-                                <SelectItem key={u} value={u}>
-                                  {u}
-                                </SelectItem>
-                              )
-                            )}
-                          </SelectContent>
-                        </Select>
-                      </TableCell>
-                      <TableCell className="py-1.5">
-                        {lines.length > 1 && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-8 w-8 p-0"
-                            onClick={() => removeLine(idx)}
-                            data-testid={`button-remove-recipe-line-${idx}`}
-                          >
-                            <X className="h-3.5 w-3.5" />
-                          </Button>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          </div>
-        </div>
-        <DialogFooter>
-          <Button
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-            data-testid="button-cancel-recipe"
-          >
-            Cancel
-          </Button>
-          <Button
-            onClick={() => mutation.mutate()}
-            disabled={!isValid || mutation.isPending}
-            data-testid="button-submit-recipe"
-          >
-            {mutation.isPending
-              ? "Saving..."
-              : existingRecipe
-              ? "Save"
-              : "Create"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-      <CreateMaterialDialog
-        open={createMaterialOpen}
-        onOpenChange={setCreateMaterialOpen}
-        onCreated={(newProductId: string) => {
-          if (addingForLineIndex !== null) {
-            updateLine(addingForLineIndex, "productId", newProductId);
-          }
-          setAddingForLineIndex(null);
-        }}
-      />
-    </Dialog>
-  );
-}
-
-function DeleteRecipeDialog({
-  open,
-  onOpenChange,
-  recipe,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  recipe: RecipeWithDetails;
-}) {
-  const { toast } = useToast();
-
-  const mutation = useMutation({
-    mutationFn: async () => {
-      await apiRequest("DELETE", `/api/recipes/${recipe.id}`);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["/api/recipes", recipe.productId],
-      });
-      toast({ title: "Recipe deleted" });
-      onOpenChange(false);
-    },
-    onError: (err: Error) => {
-      toast({
-        title: "Error",
-        description: err.message,
-        variant: "destructive",
-      });
-    },
-  });
-
-  return (
-    <AlertDialog open={open} onOpenChange={onOpenChange}>
-      <AlertDialogContent data-testid="dialog-delete-recipe">
-        <AlertDialogHeader>
-          <AlertDialogTitle>Delete Recipe</AlertDialogTitle>
-          <AlertDialogDescription>
-            Are you sure you want to delete "{recipe.name}"? This cannot be
-            undone.
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel data-testid="button-cancel-delete-recipe">
-            Cancel
-          </AlertDialogCancel>
-          <AlertDialogAction
-            onClick={() => mutation.mutate()}
-            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            data-testid="button-confirm-delete-recipe"
-          >
-            {mutation.isPending ? "Deleting..." : "Delete"}
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
-  );
-}
-
 // ─── Category Management ───────────────────────────────────
 
 function CategoryManager({
@@ -1753,41 +1408,12 @@ function CategoryManager({
 function ProductDetailPanel({
   product,
   onDeleted,
-  initialOpenRecipe,
 }: {
   product: ProductWithCategories;
   onDeleted: () => void;
-  initialOpenRecipe?: boolean;
 }) {
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
-  const [recipeDialogOpen, setRecipeDialogOpen] = useState(false);
-  const [deleteRecipeOpen, setDeleteRecipeOpen] = useState(false);
-  const [editingRecipe, setEditingRecipe] = useState(false);
-
-  const { data: recipes, isLoading: recipesLoading } = useQuery<
-    RecipeWithDetails[]
-  >({
-    queryKey: ["/api/recipes", product.id],
-    queryFn: async () => {
-      const res = await apiRequest(
-        "GET",
-        `/api/recipes?productId=${product.id}`
-      );
-      return res.json();
-    },
-  });
-
-  const recipe = recipes && recipes.length > 0 ? recipes[0] : null;
-
-  useEffect(() => {
-    if (initialOpenRecipe && recipes && !recipe) {
-      const timer = setTimeout(() => {
-        setRecipeDialogOpen(true);
-      }, 500);
-      return () => clearTimeout(timer);
-    }
-  }, [initialOpenRecipe, recipes, recipe]);
 
   // Fetch finished goods lots for this product
   const { data: inventoryData } = useQuery<InventoryGrouped[]>({
@@ -1839,108 +1465,23 @@ function ProductDetailPanel({
         </div>
       </div>
 
-      {/* Recipe Section */}
+      {/* MMR Section */}
       <div>
-        <div className="flex items-center justify-between mb-2">
-          <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-            Recipe
-          </h3>
-          {recipe && (
-            <div className="flex gap-1">
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-7 text-xs"
-                onClick={() => {
-                  setEditingRecipe(true);
-                  setRecipeDialogOpen(true);
-                }}
-                data-testid="button-edit-recipe"
-              >
-                <Pencil className="h-3 w-3 mr-1" />
-                Edit Recipe
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-7 text-xs text-destructive hover:text-destructive"
-                onClick={() => setDeleteRecipeOpen(true)}
-                data-testid="button-delete-recipe"
-              >
-                <Trash2 className="h-3 w-3 mr-1" />
-                Delete
-              </Button>
-            </div>
-          )}
-        </div>
-
-        {recipesLoading ? (
-          <Skeleton className="h-24 w-full" />
-        ) : recipe ? (
-          <Card>
-            <CardContent className="p-0">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="text-xs">Material</TableHead>
-                    <TableHead className="text-xs">SKU</TableHead>
-                    <TableHead className="text-xs text-right">
-                      Qty / unit
-                    </TableHead>
-                    <TableHead className="text-xs">UOM</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {recipe.lines.map((line) => (
-                    <TableRow
-                      key={line.id}
-                      data-testid={`row-recipe-line-${line.id}`}
-                    >
-                      <TableCell className="text-sm font-medium">
-                        <span
-                          className="cursor-pointer hover:underline text-primary"
-                          onClick={(e) => { e.stopPropagation(); window.location.hash = `#/inventory?material=${line.productId}`; }}
-                        >
-                          {line.productName}
-                        </span>
-                      </TableCell>
-                      <TableCell className="text-sm font-mono text-muted-foreground">
-                        {line.productSku}
-                      </TableCell>
-                      <TableCell className="text-sm text-right tabular-nums font-semibold">
-                        {formatQty(line.quantity)}
-                      </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">
-                        {line.uom}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-        ) : (
-          <Card>
-            <CardContent className="py-8 text-center">
-              <FlaskConical className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
-              <p className="text-sm text-muted-foreground mb-3">
-                No recipe defined
-              </p>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  setEditingRecipe(false);
-                  setRecipeDialogOpen(true);
-                }}
-                data-testid="button-create-recipe"
-              >
-                <Plus className="h-3.5 w-3.5 mr-1" />
-                Create Recipe
-              </Button>
-            </CardContent>
-          </Card>
-        )}
+        <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">
+          Master Manufacturing Record
+        </h3>
+        <Button
+          variant="outline"
+          size="sm"
+          className="w-full justify-start"
+          onClick={() => {
+            window.location.hash = `#/manufacturing/mmr?productId=${product.id}`;
+          }}
+          data-testid="button-view-mmr"
+        >
+          <Plus className="h-3.5 w-3.5 mr-1" />
+          View / Create MMR
+        </Button>
       </div>
 
       {/* Finished Goods Lots */}
@@ -1984,21 +1525,6 @@ function ProductDetailPanel({
           onOpenChange={setDeleteOpen}
           product={product}
           onDeleted={onDeleted}
-        />
-      )}
-      {recipeDialogOpen && (
-        <RecipeDialog
-          open={recipeDialogOpen}
-          onOpenChange={setRecipeDialogOpen}
-          productId={product.id}
-          existingRecipe={editingRecipe ? recipe : null}
-        />
-      )}
-      {deleteRecipeOpen && recipe && (
-        <DeleteRecipeDialog
-          open={deleteRecipeOpen}
-          onOpenChange={setDeleteRecipeOpen}
-          recipe={recipe}
         />
       )}
     </div>
@@ -2048,7 +1574,7 @@ function ProductListItem({
 
 // ─── Products Tab ──────────────────────────────────────────
 
-function ProductsTab({ initialSelectedId, initialOpenRecipe }: { initialSelectedId?: string | null; initialOpenRecipe?: boolean }) {
+function ProductsTab({ initialSelectedId }: { initialSelectedId?: string | null }) {
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(initialSelectedId ?? null);
   const [categoryFilter, setCategoryFilter] = useState("all");
@@ -2185,7 +1711,6 @@ function ProductsTab({ initialSelectedId, initialOpenRecipe }: { initialSelected
               key={selectedProduct.id}
               product={selectedProduct}
               onDeleted={() => setSelectedId(null)}
-              initialOpenRecipe={initialOpenRecipe && selectedProduct.id === initialSelectedId}
             />
           </div>
         ) : (
@@ -2218,7 +1743,6 @@ export default function Inventory() {
   const urlMaterial = searchParams.get("material");
   const urlProduct = searchParams.get("product");
   const urlLot = searchParams.get("lot");
-  const urlOpenRecipe = searchParams.get("openRecipe") === "true";
 
   const [activeTab, setActiveTab] = useState<"materials" | "products">(
     urlProduct ? "products" : "materials"
@@ -2277,7 +1801,7 @@ export default function Inventory() {
       </div>
 
       {/* Tab content */}
-      {activeTab === "materials" ? <MaterialsTab initialSelectedId={urlMaterial} initialHighlightLotId={urlLot} /> : <ProductsTab initialSelectedId={urlProduct} initialOpenRecipe={urlOpenRecipe} />}
+      {activeTab === "materials" ? <MaterialsTab initialSelectedId={urlMaterial} initialHighlightLotId={urlLot} /> : <ProductsTab initialSelectedId={urlProduct} />}
     </div>
   );
 }

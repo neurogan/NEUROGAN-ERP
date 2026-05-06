@@ -74,7 +74,7 @@ function ProductListItem({
   isSelected: boolean;
   onClick: () => void;
 }) {
-  const hasNoRecipe = !item.hasRecipe;
+  const hasNoMmr = !item.hasMmr;
 
   return (
     <button
@@ -88,7 +88,7 @@ function ProductListItem({
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
             <span className="text-sm font-medium truncate">{item.productName}</span>
-            {hasNoRecipe && <FlaskConical className="h-3.5 w-3.5 text-muted-foreground shrink-0" />}
+            {hasNoMmr && <FlaskConical className="h-3.5 w-3.5 text-muted-foreground shrink-0" />}
           </div>
           <span className="text-xs text-muted-foreground font-mono">{item.sku}</span>
           {item.categories.length > 0 && (
@@ -181,7 +181,7 @@ function DetailPanel({ item }: { item: ProductCapacity }) {
               <TrendingUp className="h-3.5 w-3.5 text-muted-foreground" />
               <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Producible</span>
             </div>
-            <div className={`text-xl font-bold tabular-nums ${item.hasRecipe && item.producibleUnits === 0 ? "text-amber-600 dark:text-amber-400" : ""}`}>
+            <div className={`text-xl font-bold tabular-nums ${item.hasMmr && item.producibleUnits === 0 ? "text-amber-600 dark:text-amber-400" : ""}`}>
               {formatQty(item.producibleUnits)}
             </div>
             <div className="text-[10px] text-muted-foreground">from uncommitted stock</div>
@@ -216,7 +216,7 @@ function DetailPanel({ item }: { item: ProductCapacity }) {
       </div>
 
       {/* Bottleneck alert */}
-      {item.hasRecipe && item.bottleneckMaterial && item.producibleUnits === 0 && (
+      {item.hasMmr && item.bottleneckMaterial && item.producibleUnits === 0 && (
         <div className="flex items-center gap-2 rounded-md bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 px-3 py-2">
           <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
           <span className="text-xs text-amber-800 dark:text-amber-300">
@@ -231,7 +231,7 @@ function DetailPanel({ item }: { item: ProductCapacity }) {
           </span>
         </div>
       )}
-      {item.hasRecipe && item.bottleneckMaterial && item.producibleUnits > 0 && (
+      {item.hasMmr && item.bottleneckMaterial && item.producibleUnits > 0 && (
         <div className="flex items-center gap-2 rounded-md bg-muted/50 border border-border px-3 py-2">
           <AlertTriangle className="h-4 w-4 text-muted-foreground shrink-0" />
           <span className="text-xs text-muted-foreground">
@@ -250,20 +250,20 @@ function DetailPanel({ item }: { item: ProductCapacity }) {
       {/* Materials breakdown table */}
       <div>
         <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">
-          {item.hasRecipe ? `Recipe Breakdown (${item.materials.length} materials)` : "Recipe"}
+          {item.hasMmr ? `Formula Breakdown (${item.materials.length} materials)` : "Formula"}
         </h3>
-        {!item.hasRecipe ? (
+        {!item.hasMmr ? (
           <Card>
             <CardContent className="py-8 text-center">
               <FlaskConical className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
-              <p className="text-sm text-muted-foreground">No recipe defined</p>
-              <p className="text-xs text-muted-foreground mt-1">Add a recipe in the Inventory tab to see capacity breakdown</p>
+              <p className="text-sm text-muted-foreground">No MMR defined</p>
+              <p className="text-xs text-muted-foreground mt-1">Create an approved MMR in Manufacturing → Master Manufacturing Records to see capacity breakdown</p>
             </CardContent>
           </Card>
         ) : item.materials.length === 0 ? (
           <Card>
             <CardContent className="py-6 text-center">
-              <p className="text-sm text-muted-foreground">Recipe has no material lines</p>
+              <p className="text-sm text-muted-foreground">MMR has no formula components</p>
             </CardContent>
           </Card>
         ) : (

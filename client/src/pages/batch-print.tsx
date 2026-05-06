@@ -5,7 +5,7 @@ import { formatQty } from "@/lib/formatQty";
 import { formatDate } from "@/lib/formatDate";
 import type {
   ProductionBatchWithDetails,
-  RecipeWithDetails,
+  MmrWithSteps,
 } from "@shared/schema";
 
 function formatNumber(n: number): string {
@@ -36,19 +36,19 @@ export default function BatchPrint() {
   });
 
   const {
-    data: recipes,
-    isLoading: recipesLoading,
-  } = useQuery<RecipeWithDetails[]>({
-    queryKey: ["/api/recipes", { productId: batch?.productId }],
+    data: mmrs,
+    isLoading: mmrsLoading,
+  } = useQuery<MmrWithSteps[]>({
+    queryKey: ["/api/mmrs", { productId: batch?.productId, status: "APPROVED" }],
     enabled: !!batch?.productId,
     queryFn: async () => {
-      const res = await apiRequest("GET", `/api/recipes?productId=${batch!.productId}`);
+      const res = await apiRequest("GET", `/api/mmrs?productId=${batch!.productId}&status=APPROVED`);
       return res.json();
     },
   });
 
-  const recipe = recipes && recipes.length > 0 ? recipes[0] : null;
-  const isLoading = batchLoading || recipesLoading;
+  const mmr = mmrs && mmrs.length > 0 ? mmrs[0] : null;
+  const isLoading = batchLoading || mmrsLoading;
 
   const triggerPrint = () => {
     // Clone the print content and open in a new window to bypass iframe restrictions
@@ -99,7 +99,7 @@ export default function BatchPrint() {
   }
 
   const plannedQty = Number(batch.plannedQuantity) || 0;
-  const recipeLines = recipe?.lines ?? [];
+  const recipeLines = mmr?.components ?? [];
   const notesLines = batch.notes
     ? batch.notes.split("\n").filter((line: string) => line.trim() !== "")
     : [];
