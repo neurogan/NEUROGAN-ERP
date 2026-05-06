@@ -3,6 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/lib/auth";
 import { ToastAction } from "@/components/ui/toast";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -36,6 +37,7 @@ import {
   FileText,
   Upload,
   RotateCcw,
+  Trash2,
 } from "lucide-react";
 import { formatQty } from "@/lib/formatQty";
 import { formatDate, formatDateTime } from "@/lib/formatDate";
@@ -282,13 +284,17 @@ function StatusTimeline({ record }: { record: ReceivingRecordWithDetails }) {
 function ReceivingDetail({
   record,
   onUpdated,
+  onDeleted,
   _onNavigateTo,
 }: {
   record: ReceivingRecordWithDetails;
   onUpdated: () => void;
+  onDeleted: () => void;
   _onNavigateTo: (id: string) => void;
 }) {
   const { toast } = useToast();
+  const { user } = useAuth();
+  const isAdmin = user?.roles?.includes("ADMIN") ?? false;
   const [, setLocation] = useLocation();
   const qcReviewRef = useRef<HTMLDivElement>(null);
 
@@ -330,6 +336,22 @@ function ReceivingDetail({
     setCoaResult("");
     setCoaDocNumber("");
   }, [recordId]);
+
+  // Delete mutation (admin only)
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const deleteMutation = useMutation({
+    mutationFn: async () => {
+      await apiRequest("DELETE", `/api/receiving/${record.id}`);
+    },
+    onSuccess: () => {
+      toast({ title: "Record deleted" });
+      queryClient.invalidateQueries({ queryKey: ["/api/receiving"] });
+      onDeleted();
+    },
+    onError: (err: Error) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
 
   // Save inspection mutation
   const saveInspection = useMutation({
@@ -453,10 +475,35 @@ function ReceivingDetail({
       {/* Header */}
       <div>
         <div className="flex items-center gap-3 mb-2">
-          <h2 className="text-lg font-semibold text-foreground" data-testid="text-detail-product-name">
+          <h2 className="text-lg font-semibold text-foreground flex-1" data-testid="text-detail-product-name">
             {record.productName}
           </h2>
           {receivingStatusBadge(record.status)}
+          {isAdmin && !confirmDelete && (
+            <Button
+              variant="ghost" size="icon"
+              className="h-7 w-7 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+              onClick={() => setConfirmDelete(true)}
+              title="Delete record"
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          )}
+          {isAdmin && confirmDelete && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-destructive font-medium">Delete?</span>
+              <Button
+                variant="destructive" size="sm" className="h-7 text-xs"
+                onClick={() => deleteMutation.mutate()}
+                disabled={deleteMutation.isPending}
+              >
+                {deleteMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : "Yes, delete"}
+              </Button>
+              <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setConfirmDelete(false)}>
+                Cancel
+              </Button>
+            </div>
+          )}
         </div>
         <div className="space-y-2 mb-3">
           {/* Qualification banner */}
@@ -1131,6 +1178,7 @@ export default function Receiving() {
             key={selectedRecord.id + ":" + selectedRecord.status}
             record={selectedRecord}
             onUpdated={handleUpdated}
+            onDeleted={() => { setSelectedId(null); handleUpdated(); }}
             _onNavigateTo={(id: string) => setSelectedId(id)}
           />
         ) : (
