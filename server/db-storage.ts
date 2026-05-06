@@ -674,8 +674,12 @@ export class DatabaseStorage implements IStorage {
           const existingNoLots = await db.select().from(schema.lots).where(and(eq(schema.lots.productId, input.productId), eq(schema.lots.lotNumber, "NO-LOT")));
           if (existingNoLots.length > 0) {
             lotId = existingNoLots[0].id;
+            // Ensure existing NO-LOT placeholder is approved (may have been created before this fix)
+            if (existingNoLots[0].quarantineStatus !== "APPROVED") {
+              await db.update(schema.lots).set({ quarantineStatus: "APPROVED" }).where(eq(schema.lots.id, lotId));
+            }
           } else {
-            const noLot = await this.createLot({ productId: input.productId, lotNumber: "NO-LOT" });
+            const noLot = await this.createLot({ productId: input.productId, lotNumber: "NO-LOT", quarantineStatus: "APPROVED" });
             lotId = noLot.id;
           }
         }
@@ -737,8 +741,11 @@ export class DatabaseStorage implements IStorage {
             const existingNoLots = await db.select().from(schema.lots).where(and(eq(schema.lots.productId, input.productId), eq(schema.lots.lotNumber, "NO-LOT")));
             if (existingNoLots.length > 0) {
               lotId = existingNoLots[0].id;
+              if (existingNoLots[0].quarantineStatus !== "APPROVED") {
+                await db.update(schema.lots).set({ quarantineStatus: "APPROVED" }).where(eq(schema.lots.id, lotId));
+              }
             } else {
-              const noLot = await this.createLot({ productId: input.productId, lotNumber: "NO-LOT" });
+              const noLot = await this.createLot({ productId: input.productId, lotNumber: "NO-LOT", quarantineStatus: "APPROVED" });
               lotId = noLot.id;
             }
           }
