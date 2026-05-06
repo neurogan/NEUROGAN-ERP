@@ -474,7 +474,7 @@ function ReceivingDetail({
   // Inherited approval: APPROVED with no QC reviewer = partial receipt that inherited lot approval
   const isInheritedApproval = record.status === "APPROVED" && !record.qcReviewedBy;
   const isExemptWorkflow = record.qcWorkflowType === "EXEMPT";
-  // Show QC section only for non-EXEMPT workflows; EXEMPT records with reviewer show read-only (handled by isReviewed)
+  // EXEMPT records skip the QC section entirely (inherited approval handled by showInheritedBanner)
   const showQcSection = (isPendingQc || isReviewed) && !isExemptWorkflow;
   const showInheritedBanner = isInheritedApproval && isExemptWorkflow;
 
