@@ -311,7 +311,7 @@ export interface IStorage {
   getReceivingRecord(id: string): Promise<ReceivingRecordWithDetails | undefined>;
   createReceivingRecord(data: InsertReceivingRecord, tx?: Tx): Promise<ReceivingRecord>;
   updateReceivingRecord(id: string, data: Partial<InsertReceivingRecord>, actorUserId: string, tx?: Tx): Promise<ReceivingRecord | undefined>;
-  qcReviewReceivingRecord(id: string, disposition: string, reviewedByUserId: string, notes?: string, tx?: Tx): Promise<ReceivingRecord | undefined>;
+  qcReviewReceivingRecord(id: string, disposition: string, reviewedByUserId: string, notes?: string, inlineCoa?: { sourceType?: string; documentNumber?: string; overallResult?: string; identityConfirmed?: boolean; identityTestMethod?: string; labName?: string; analystName?: string; analysisDate?: string } | null, tx?: Tx): Promise<ReceivingRecord | undefined>;
   getNextReceivingIdentifier(): Promise<string>;
   getQuarantinedLots(): Promise<ReceivingRecordWithDetails[]>;
 

@@ -1259,8 +1259,9 @@ export async function registerRoutes(
     requireAuth, requireRole("QA", "ADMIN"), rejectIdentityInBody(["reviewedBy"]),
     async (req, res, next) => {
       try {
-        const { disposition, notes, password, commentary } = req.body as {
+        const { disposition, notes, password, commentary, inlineCoa } = req.body as {
           disposition?: string; notes?: string; password?: string; commentary?: string;
+          inlineCoa?: { sourceType?: string; documentNumber?: string; overallResult?: string; identityConfirmed?: boolean; identityTestMethod?: string; labName?: string; analystName?: string; analysisDate?: string } | null;
         };
         if (!disposition) return res.status(400).json({ message: "disposition required" });
         if (!password) return res.status(400).json({ message: "password required for electronic signature" });
@@ -1276,7 +1277,7 @@ export async function registerRoutes(
             route: `${req.method} ${req.path}`,
             requestId: req.requestId,
           },
-          (tx) => storage.qcReviewReceivingRecord(req.params.id, disposition, req.user!.id, notes, tx),
+          (tx) => storage.qcReviewReceivingRecord(req.params.id, disposition, req.user!.id, notes, inlineCoa ?? null, tx),
         );
         if (!record) return res.status(404).json({ message: "Not found" });
         res.json(record);
