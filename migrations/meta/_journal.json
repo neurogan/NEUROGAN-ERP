@@ -288,6 +288,13 @@
       "when": 1778803200000,
       "tag": "0040_receiving_boxes_sampling",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1778889600000,
+      "tag": "0041_mmr_consolidation",
+      "breakpoints": true
     }
   ]
 }

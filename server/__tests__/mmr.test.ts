@@ -16,7 +16,6 @@ let adminId: string;
 let qaId: string;
 let productionId: string;
 let productId: string;
-let recipeId: string;
 const createdMmrIds: string[] = [];
 
 beforeAll(async () => {
@@ -75,15 +74,6 @@ beforeAll(async () => {
     .returning();
   productId = p!.id;
 
-  // Create a recipe linked to the product
-  const [r] = await db
-    .insert(schema.recipes)
-    .values({
-      productId,
-      name: `R07 TestRecipe ${sfx}`,
-    })
-    .returning();
-  recipeId = r!.id;
 });
 
 afterAll(async () => {
@@ -92,7 +82,6 @@ afterAll(async () => {
   for (const id of createdMmrIds) {
     await db.delete(schema.mmrs).where(eq(schema.mmrs.id, id)).catch(() => {});
   }
-  await db.delete(schema.recipes).where(eq(schema.recipes.id, recipeId)).catch(() => {});
   await db.delete(schema.products).where(eq(schema.products.id, productId)).catch(() => {});
   await db.delete(schema.userRoles).where(eq(schema.userRoles.userId, adminId)).catch(() => {});
   await db.delete(schema.userRoles).where(eq(schema.userRoles.userId, qaId)).catch(() => {});
@@ -117,7 +106,7 @@ describeIfDb("POST /api/mmrs", () => {
     const res = await request(app)
       .post("/api/mmrs")
       .set("x-test-user-id", adminId)
-      .send({ productId, recipeId });
+      .send({ productId });
     expect(res.status).toBe(201);
     expect(res.body.status).toBe("DRAFT");
     expect(res.body.version).toBe(1);
@@ -137,7 +126,7 @@ describeIfDb("POST /api/mmrs", () => {
     const res = await request(app)
       .post("/api/mmrs")
       .set("x-test-user-id", wh!.id)
-      .send({ productId, recipeId });
+      .send({ productId });
     expect(res.status).toBe(403);
 
     await db.delete(schema.userRoles).where(eq(schema.userRoles.userId, wh!.id));
@@ -152,7 +141,7 @@ describeIfDb("MMR lifecycle: DRAFT → APPROVED → SUPERSEDED", () => {
     const res = await request(app)
       .post("/api/mmrs")
       .set("x-test-user-id", adminId)
-      .send({ productId, recipeId, notes: "test mmr" });
+      .send({ productId, notes: "test mmr" });
     expect(res.status).toBe(201);
     mmrId = res.body.id;
     createdMmrIds.push(mmrId);

@@ -11,9 +11,6 @@ import {
   type ProductionBatch, type InsertProductionBatch,
   type InsertProductionInput,
   type ProductionBatchWithDetails,
-  type InsertRecipe,
-  type InsertRecipeLine,
-  type RecipeWithDetails,
   type AppSettings, type InsertAppSettings,
   type ProductCategory, type InsertProductCategory,
   type ProductCategoryAssignment,
@@ -276,13 +273,6 @@ export interface IStorage {
   allocateFIFO(productId: string, quantity: number): Promise<FIFOAllocation[]>;
   validateStockForInputs(inputs: { productId: string; quantity: number }[]): Promise<StockShortage[]>;
   deleteCompletedBatch(id: string): Promise<boolean>;
-
-  // Recipes
-  getRecipes(productId?: string): Promise<RecipeWithDetails[]>;
-  getRecipe(id: string): Promise<RecipeWithDetails | undefined>;
-  createRecipe(data: InsertRecipe, lines: Omit<InsertRecipeLine, "recipeId">[]): Promise<RecipeWithDetails>;
-  updateRecipe(id: string, data: Partial<InsertRecipe>, lines?: Omit<InsertRecipeLine, "recipeId">[]): Promise<RecipeWithDetails | undefined>;
-  deleteRecipe(id: string): Promise<boolean>;
 
   // Settings
   getSettings(): Promise<AppSettings>;
