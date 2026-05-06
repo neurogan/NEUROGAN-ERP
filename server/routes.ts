@@ -1338,6 +1338,29 @@ export async function registerRoutes(
     },
   );
 
+  app.post<{ id: string }>(
+    "/api/receiving/:id/coa",
+    requireAuth, requireRole("QA", "ADMIN"),
+    async (req, res, next) => {
+      try {
+        const { fileData, fileName, sourceType, overallResult, documentNumber } = req.body as {
+          fileData?: string; fileName?: string; sourceType?: string; overallResult?: string; documentNumber?: string;
+        };
+        if (!fileData) return res.status(400).json({ message: "fileData required" });
+        if (!fileName) return res.status(400).json({ message: "fileName required" });
+        if (!sourceType) return res.status(400).json({ message: "sourceType required" });
+        if (!overallResult) return res.status(400).json({ message: "overallResult required" });
+        const doc = await withAudit(
+          { userId: req.user!.id, action: "CREATE", entityType: "coa_document",
+            entityId: (r) => (r as { id: string }).id, before: null,
+            route: `${req.method} ${req.path}`, requestId: req.requestId },
+          (tx) => storage.uploadCoaForReceivingRecord(req.params.id, { fileData, fileName, sourceType, overallResult, documentNumber }, tx),
+        );
+        res.status(201).json(doc);
+      } catch (err) { next(err); }
+    },
+  );
+
   // ─── COA Documents ────────────────────────────────────
 
   app.post("/api/coa", requireAuth, requireRole("WAREHOUSE", "QA", "ADMIN", "LAB_TECH"), async (req, res, next) => {

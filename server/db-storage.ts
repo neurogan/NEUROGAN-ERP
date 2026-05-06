@@ -1642,12 +1642,18 @@ export class DatabaseStorage implements IStorage {
   private async enrichReceivingRecord(r: ReceivingRecord): Promise<ReceivingRecordWithDetails> {
     const lot = await this.getLot(r.lotId);
     const product = lot ? await this.getProduct(lot.productId) : undefined;
+    const coaDocuments = await db
+      .select()
+      .from(schema.coaDocuments)
+      .where(eq(schema.coaDocuments.receivingRecordId, r.id))
+      .orderBy(schema.coaDocuments.createdAt);
     return {
       ...r,
       productName: product?.name ?? "Unknown",
       productSku: product?.sku ?? "",
       lotNumber: lot?.lotNumber ?? "",
       supplierName: lot?.supplierName ?? null,
+      coaDocuments,
     };
   }
 
@@ -1790,47 +1796,31 @@ export class DatabaseStorage implements IStorage {
         disposition === "APPROVED" || disposition === "APPROVED_WITH_CONDITIONS" ? "APPROVED" : "REJECTED";
       assertValidTransition("receiving_record", existing.status, newStatus);
 
-      // Gate 3: require at least one COA; reject if any lab-linked COA references a non-ACTIVE lab
-      if (newStatus === "APPROVED") {
+      // Gate 3: COA-required workflows must have an uploaded COA before sign-off
+      if (existing.qcWorkflowType !== "EXEMPT") {
         const coas = await tx
           .select({
             id: schema.coaDocuments.id,
             labId: schema.coaDocuments.labId,
-            identityConfirmed: schema.coaDocuments.identityConfirmed,
           })
           .from(schema.coaDocuments)
-          .where(eq(schema.coaDocuments.lotId, existing.lotId));
+          .where(eq(schema.coaDocuments.receivingRecordId, id));
         if (coas.length === 0) {
           throw Object.assign(
-            new Error("Cannot approve: no COA document is linked to this lot. Attach a COA before approving."),
+            new Error("Cannot sign off: upload a COA document before submitting QC review."),
             { status: 422 },
           );
         }
+        // Gate 3b: reject if any lab-linked COA references a non-ACTIVE lab
         for (const coa of coas) {
-          // Supplier COAs (labId = null) are not required to reference the lab registry.
-          // Lab-linked COAs must come from an ACTIVE lab.
-          if (!coa.labId) continue; // supplier COA — no lab registry entry required
+          if (!coa.labId) continue;
           const [lab] = await tx
             .select({ status: schema.labs.status })
             .from(schema.labs)
             .where(eq(schema.labs.id, coa.labId));
           if (lab && lab.status !== "ACTIVE") {
             throw Object.assign(
-              new Error(`Cannot approve: a COA on this lot is linked to a lab with status "${lab.status}". Update the lab status in Settings or remove the COA before approving.`),
-              { status: 422 },
-            );
-          }
-        }
-
-        // Gate 3b: identity workflows require that at least one COA on this lot has identityConfirmed = "true"
-        if (IDENTITY_REQUIRED_WORKFLOWS.includes(existing.qcWorkflowType as QcWorkflowType)) {
-          const identityConfirmed = coas.some((c) => c.identityConfirmed === "true");
-          if (!identityConfirmed) {
-            throw Object.assign(
-              new Error(
-                "Cannot approve: this workflow requires identity testing but no COA on this lot has identity confirmed. " +
-                "Update the COA to mark identity as confirmed before approving.",
-              ),
+              new Error(`Cannot sign off: a COA on this record is linked to a lab with status "${lab.status}". Update the lab status in Settings before approving.`),
               { status: 422 },
             );
           }
@@ -1886,6 +1876,46 @@ export class DatabaseStorage implements IStorage {
       }
 
       return updated!;
+    };
+    return outerTx ? run(outerTx) : db.transaction(run);
+  }
+
+  async uploadCoaForReceivingRecord(
+    receivingRecordId: string,
+    data: { fileData: string; fileName: string; sourceType: string; overallResult: string; documentNumber?: string },
+    outerTx?: Tx,
+  ): Promise<schema.CoaDocument> {
+    const run = async (tx: Tx) => {
+      const [record] = await tx
+        .select()
+        .from(schema.receivingRecords)
+        .where(eq(schema.receivingRecords.id, receivingRecordId));
+      if (!record) throw Object.assign(new Error("Receiving record not found"), { status: 404 });
+      if (record.status !== "PENDING_QC") {
+        throw Object.assign(new Error("COA can only be uploaded when status is PENDING_QC"), { status: 422 });
+      }
+      if (record.qcWorkflowType === "EXEMPT") {
+        throw Object.assign(new Error("EXEMPT records do not require a COA upload"), { status: 422 });
+      }
+      if (record.requiresQualification && data.sourceType === "SUPPLIER") {
+        throw Object.assign(
+          new Error("First-time supplier approval requires independent testing. Use Internal Lab or Third-party Lab as the source."),
+          { status: 422 },
+        );
+      }
+      const [doc] = await tx
+        .insert(schema.coaDocuments)
+        .values({
+          lotId: record.lotId,
+          receivingRecordId,
+          sourceType: data.sourceType,
+          overallResult: data.overallResult,
+          documentNumber: data.documentNumber ?? null,
+          fileName: data.fileName,
+          fileData: data.fileData,
+        })
+        .returning();
+      return doc!;
     };
     return outerTx ? run(outerTx) : db.transaction(run);
   }
@@ -3582,36 +3612,6 @@ export class DatabaseStorage implements IStorage {
     }
 
     if (isWarehouse) {
-      const identityCheckRows = await db
-        .select(baseSelect)
-        .from(schema.receivingRecords)
-        .leftJoin(schema.lots, eq(schema.receivingRecords.lotId, schema.lots.id))
-        .leftJoin(schema.products, eq(schema.lots.productId, schema.products.id))
-        .leftJoin(schema.suppliers, eq(schema.receivingRecords.supplierId, schema.suppliers.id))
-        .where(
-          and(
-            eq(schema.receivingRecords.qcWorkflowType, "IDENTITY_CHECK"),
-            eq(schema.receivingRecords.status, "QUARANTINED"),
-          ),
-        );
-
-      for (const row of identityCheckRows) {
-        tasks.push({
-          id: `id-check-${row.id}`,
-          taskType: "IDENTITY_CHECK_REQUIRED",
-          sourceModule: "RECEIVING",
-          sourceRecordId: row.id,
-          sourceIdentifier: row.receivingIdentifier,
-          primaryLabel: row.materialName ?? null,
-          secondaryLabel: row.supplierName ?? null,
-          quantityReceived: row.quantityReceived ?? null,
-          uom: row.uom ?? null,
-          dateReceived: row.dateReceived ?? null,
-          isUrgent: false,
-          dueAt: null,
-        });
-      }
-
       const rejectedRows = await db
         .select(baseSelect)
         .from(schema.receivingRecords)

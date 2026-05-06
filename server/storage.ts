@@ -322,6 +322,7 @@ export interface IStorage {
   createReceivingRecord(data: InsertReceivingRecord, tx?: Tx): Promise<ReceivingRecord>;
   updateReceivingRecord(id: string, data: Partial<InsertReceivingRecord>, actorUserId: string, tx?: Tx): Promise<ReceivingRecord | undefined>;
   qcReviewReceivingRecord(id: string, disposition: string, reviewedByUserId: string, notes?: string, tx?: Tx): Promise<ReceivingRecord | undefined>;
+  uploadCoaForReceivingRecord(receivingRecordId: string, data: { fileData: string; fileName: string; sourceType: string; overallResult: string; documentNumber?: string }, tx?: Tx): Promise<CoaDocument>;
   getNextReceivingIdentifier(): Promise<string>;
   getQuarantinedLots(): Promise<ReceivingRecordWithDetails[]>;
 
