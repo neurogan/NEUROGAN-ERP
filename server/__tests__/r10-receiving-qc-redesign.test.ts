@@ -152,6 +152,7 @@ describeIfDb("R10 — lot deduplication via receivePOLineItem", () => {
   const seededPoLineItemIds: string[] = [];
   const seededLocationIds: string[] = [];
   const seededSupplierIds: string[] = [];
+  const seededTransactionIds: string[] = [];
 
   beforeAll(async () => {
     if (!process.env.DATABASE_URL) return;
@@ -177,6 +178,9 @@ describeIfDb("R10 — lot deduplication via receivePOLineItem", () => {
 
   afterAll(async () => {
     if (!process.env.DATABASE_URL) return;
+    for (const id of seededTransactionIds) {
+      await db.delete(schema.transactions).where(eq(schema.transactions.id, id)).catch(() => {});
+    }
     for (const id of seededPoLineItemIds) await db.delete(schema.poLineItems).where(eq(schema.poLineItems.id, id)).catch(() => {});
     for (const id of seededPoIds) await db.delete(schema.purchaseOrders).where(eq(schema.purchaseOrders.id, id)).catch(() => {});
     for (const id of seededLocationIds) await db.delete(schema.locations).where(eq(schema.locations.id, id)).catch(() => {});
@@ -208,6 +212,7 @@ describeIfDb("R10 — lot deduplication via receivePOLineItem", () => {
     );
     seededLotIds.push(first.lot.id);
     seededRecordIds.push(first.receivingRecordId);
+    if (first.transaction?.id) seededTransactionIds.push(first.transaction.id);
 
     // Mark the lot as APPROVED (simulate QC approval)
     await db.update(schema.lots)
@@ -224,6 +229,7 @@ describeIfDb("R10 — lot deduplication via receivePOLineItem", () => {
       "Test Supplier", undefined, undefined, 0
     );
     seededRecordIds.push(second.receivingRecordId);
+    if (second.transaction?.id) seededTransactionIds.push(second.transaction.id);
 
     const [secondRecord] = await db.select()
       .from(schema.receivingRecords)
@@ -244,6 +250,7 @@ describeIfDb("R10 — lot deduplication via receivePOLineItem", () => {
     );
     seededLotIds.push(first.lot.id);
     seededRecordIds.push(first.receivingRecordId);
+    if (first.transaction?.id) seededTransactionIds.push(first.transaction.id);
 
     // Lot stays QUARANTINED — don't approve it
 
@@ -254,6 +261,7 @@ describeIfDb("R10 — lot deduplication via receivePOLineItem", () => {
       "Test Supplier", undefined, undefined, 0
     );
     seededRecordIds.push(second.receivingRecordId);
+    if (second.transaction?.id) seededTransactionIds.push(second.transaction.id);
 
     const [secondRecord] = await db.select()
       .from(schema.receivingRecords)
