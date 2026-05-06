@@ -47,6 +47,7 @@ beforeAll(async () => {
 afterAll(async () => {
   if (!process.env.DATABASE_URL) return;
   if (seededCoaIds.length) await db.delete(schema.coaDocuments).where(inArray(schema.coaDocuments.id, seededCoaIds));
+  if (seededLotIds.length) await db.delete(schema.coaDocuments).where(inArray(schema.coaDocuments.lotId, seededLotIds)).catch(() => {});
   if (seededRecordIds.length) await db.delete(schema.receivingRecords).where(inArray(schema.receivingRecords.id, seededRecordIds));
   if (seededLotIds.length) await db.delete(schema.lots).where(inArray(schema.lots.id, seededLotIds));
   if (seededProductIds.length) await db.delete(schema.products).where(inArray(schema.products.id, seededProductIds));

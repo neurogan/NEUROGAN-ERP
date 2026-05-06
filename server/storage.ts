@@ -311,7 +311,7 @@ export interface IStorage {
   getReceivingRecord(id: string): Promise<ReceivingRecordWithDetails | undefined>;
   createReceivingRecord(data: InsertReceivingRecord, tx?: Tx): Promise<ReceivingRecord>;
   updateReceivingRecord(id: string, data: Partial<InsertReceivingRecord>, actorUserId: string, tx?: Tx): Promise<ReceivingRecord | undefined>;
-  qcReviewReceivingRecord(id: string, disposition: string, reviewedByUserId: string, notes?: string, inlineCoa?: { sourceType?: string; documentNumber?: string; overallResult?: string; identityConfirmed?: boolean; identityTestMethod?: string; labName?: string; analystName?: string; analysisDate?: string } | null, tx?: Tx): Promise<ReceivingRecord | undefined>;
+  qcReviewReceivingRecord(id: string, disposition: string, reviewedByUserId: string, notes?: string, inlineCoa?: InlineCoaData | null, tx?: Tx): Promise<ReceivingRecord | undefined>;
   getNextReceivingIdentifier(): Promise<string>;
   getQuarantinedLots(): Promise<ReceivingRecordWithDetails[]>;
 
@@ -450,6 +450,7 @@ export interface AuditFilters {
 // implies booting the server should be side-effect-light; this matches.
 
 import { DatabaseStorage } from "./db-storage";
+import type { InlineCoaData } from "./db-storage";
 
 let _instance: IStorage | null = null;
 function getStorage(): IStorage {

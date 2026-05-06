@@ -65,7 +65,7 @@ type QcWorkflowType = "FULL_LAB_TEST" | "IDENTITY_CHECK" | "COA_REVIEW" | "EXEMP
 
 const IDENTITY_REQUIRED_WORKFLOWS: QcWorkflowType[] = ["FULL_LAB_TEST", "IDENTITY_CHECK"];
 
-type InlineCoaData = {
+export type InlineCoaData = {
   sourceType?: string;
   documentNumber?: string;
   overallResult?: string;
@@ -1758,6 +1758,7 @@ export class DatabaseStorage implements IStorage {
               : inlineCoa.identityConfirmed === false ? "false"
               : null,
             identityTestMethod: inlineCoa.identityTestMethod ?? null,
+            identityTestPerformed: inlineCoa.identityTestMethod ? "true" : null,
             labName: inlineCoa.labName ?? null,
             analystName: inlineCoa.analystName ?? null,
             analysisDate: inlineCoa.analysisDate ?? null,

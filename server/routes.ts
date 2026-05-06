@@ -47,6 +47,7 @@ import { registerStabilityRoutes } from "./routes/stability-routes";
 import { registerEmRoutes } from "./routes/em-routes";
 import { checkFgTestsGate } from "./storage/finished-goods-tests";
 import { createNonconformance } from "./storage/capa";
+import type { InlineCoaData } from "./db-storage";
 import { db } from "./db";
 import { eq, and, desc, ne, isNull } from "drizzle-orm";
 import * as equipmentStorage from "./storage/equipment";
@@ -1261,7 +1262,7 @@ export async function registerRoutes(
       try {
         const { disposition, notes, password, commentary, inlineCoa } = req.body as {
           disposition?: string; notes?: string; password?: string; commentary?: string;
-          inlineCoa?: { sourceType?: string; documentNumber?: string; overallResult?: string; identityConfirmed?: boolean; identityTestMethod?: string; labName?: string; analystName?: string; analysisDate?: string } | null;
+          inlineCoa?: InlineCoaData | null;
         };
         if (!disposition) return res.status(400).json({ message: "disposition required" });
         if (!password) return res.status(400).json({ message: "password required for electronic signature" });
