@@ -1860,6 +1860,67 @@ export class DatabaseStorage implements IStorage {
     return outerTx ? run(outerTx) : db.transaction(run);
   }
 
+  async deleteReceivingRecord(id: string, adminUserId: string): Promise<void> {
+    await db.transaction(async (tx) => {
+      const [record] = await tx.select().from(schema.receivingRecords)
+        .where(eq(schema.receivingRecords.id, id));
+      if (!record) throw Object.assign(new Error("Receiving record not found"), { status: 404 });
+
+      // Get lot for productId lookup
+      const [lot] = await tx.select().from(schema.lots).where(eq(schema.lots.id, record.lotId));
+
+      // Delete COA documents linked to this record
+      await tx.delete(schema.coaDocuments)
+        .where(eq(schema.coaDocuments.receivingRecordId, id));
+
+      // Delete the PO_RECEIPT inventory transaction
+      if (record.quantityReceived) {
+        await tx.delete(schema.transactions).where(
+          and(
+            eq(schema.transactions.lotId, record.lotId),
+            eq(schema.transactions.type, "PO_RECEIPT"),
+            eq(schema.transactions.quantity, record.quantityReceived),
+          ),
+        );
+      }
+
+      // Reverse PO line item quantity
+      if (record.purchaseOrderId && lot && record.quantityReceived) {
+        const lineItems = await tx.select().from(schema.poLineItems).where(
+          and(
+            eq(schema.poLineItems.purchaseOrderId, record.purchaseOrderId),
+            eq(schema.poLineItems.productId, lot.productId),
+          ),
+        );
+        if (lineItems.length > 0) {
+          const li = lineItems[0]!;
+          const newQty = Math.max(0, parseFloat(li.quantityReceived) - parseFloat(record.quantityReceived));
+          await tx.update(schema.poLineItems).set({ quantityReceived: String(newQty) })
+            .where(eq(schema.poLineItems.id, li.id));
+          const allLineItems = await tx.select().from(schema.poLineItems)
+            .where(eq(schema.poLineItems.purchaseOrderId, record.purchaseOrderId));
+          const allFull = allLineItems.every(l => parseFloat(l.quantityReceived) >= parseFloat(l.quantityOrdered));
+          const someReceived = allLineItems.some(l => parseFloat(l.quantityReceived) > 0);
+          const newStatus = allFull ? "RECEIVED" : someReceived ? "PARTIALLY_RECEIVED" : "OPEN";
+          await tx.update(schema.purchaseOrders).set({ status: newStatus })
+            .where(eq(schema.purchaseOrders.id, record.purchaseOrderId));
+        }
+      }
+
+      // Write audit trail before deleting
+      await tx.insert(schema.auditTrail).values({
+        userId: adminUserId,
+        action: "RECORD_DELETED",
+        entityType: "receiving_record",
+        entityId: id,
+        before: record as unknown as Record<string, unknown>,
+      });
+
+      // Delete receiving record — boxes cascade via FK
+      await tx.delete(schema.receivingRecords).where(eq(schema.receivingRecords.id, id));
+    });
+  }
+
   async createReceivingBoxes(receivingRecordId: string, boxCount: number, uniqueIdentifier: string, outerTx?: Tx): Promise<ReceivingBox[]> {
     const conn = outerTx ?? db;
     if (boxCount < 0) throw Object.assign(new Error("boxCount must be non-negative"), { status: 400 });

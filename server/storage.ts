@@ -315,6 +315,7 @@ export interface IStorage {
   uploadCoaForReceivingRecord(receivingRecordId: string, data: { fileData: string; fileName: string; sourceType: string; overallResult: string; documentNumber?: string }, tx?: Tx): Promise<CoaDocument>;
   getNextReceivingIdentifier(): Promise<string>;
   getQuarantinedLots(): Promise<ReceivingRecordWithDetails[]>;
+  deleteReceivingRecord(id: string, adminUserId: string): Promise<void>;
 
   // COA Documents
   getCoaDocuments(filters?: { lotId?: string; productionBatchId?: string; sourceType?: string; overallResult?: string }): Promise<CoaDocumentWithDetails[]>;
