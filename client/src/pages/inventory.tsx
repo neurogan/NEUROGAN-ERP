@@ -999,7 +999,15 @@ function CreateProductDialog({
 }) {
   const [name, setName] = useState("");
   const [sku, setSku] = useState("");
+  const [selectedCategories, setSelectedCategories] = useState<Array<{ id?: string; name: string }>>([]);
+  const [catSearch, setCatSearch] = useState("");
+  const [catPopoverOpen, setCatPopoverOpen] = useState(false);
   const { toast } = useToast();
+
+  const { data: allCategories } = useQuery<ProductCategory[]>({
+    queryKey: ["/api/product-categories"],
+    enabled: open,
+  });
 
   const mutation = useMutation({
     mutationFn: async () => {
@@ -1010,20 +1018,44 @@ function CreateProductDialog({
         defaultUom: "pcs",
         status: "ACTIVE",
       });
-      return res.json();
+      const product = await res.json();
+      for (const cat of selectedCategories) {
+        let catId = cat.id;
+        if (!catId) {
+          const catRes = await apiRequest("POST", "/api/product-categories", { name: cat.name });
+          const newCat: ProductCategory = await catRes.json();
+          catId = newCat.id;
+        }
+        await apiRequest("POST", "/api/product-category-assignments", { productId: product.id, categoryId: catId });
+      }
+      return product;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/products-with-categories"] });
       queryClient.invalidateQueries({ queryKey: ["/api/products"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/product-categories"] });
       toast({ title: "Product created" });
       setName("");
       setSku("");
+      setSelectedCategories([]);
+      setCatSearch("");
       onOpenChange(false);
     },
     onError: (err: Error) => {
       toast({ title: "Error", description: err.message, variant: "destructive" });
     },
   });
+
+  const availableCats = useMemo(
+    () => (allCategories ?? []).filter((c) => !selectedCategories.some((s) => s.id === c.id)),
+    [allCategories, selectedCategories],
+  );
+  const filteredCats = catSearch.trim()
+    ? availableCats.filter((c) => c.name.toLowerCase().includes(catSearch.toLowerCase()))
+    : availableCats;
+  const showCatCreate =
+    catSearch.trim() &&
+    !(allCategories ?? []).some((c) => c.name.toLowerCase() === catSearch.trim().toLowerCase());
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -1052,6 +1084,71 @@ function CreateProductDialog({
               placeholder="e.g. US-0001"
               data-testid="input-product-sku"
             />
+          </div>
+          <div className="space-y-2">
+            <Label>Categories <span className="text-xs font-normal text-muted-foreground">(optional)</span></Label>
+            <div className="flex flex-wrap gap-1.5 items-center min-h-[28px]">
+              {selectedCategories.map((cat, i) => (
+                <Badge key={i} variant="secondary" className="text-xs gap-1 pr-1">
+                  {cat.name}
+                  <button
+                    type="button"
+                    onClick={() => setSelectedCategories((prev) => prev.filter((_, j) => j !== i))}
+                    className="ml-0.5 rounded-full hover:bg-muted-foreground/20 p-0.5"
+                  >
+                    <X className="h-2.5 w-2.5" />
+                  </button>
+                </Badge>
+              ))}
+              <Popover open={catPopoverOpen} onOpenChange={setCatPopoverOpen}>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" size="sm" className="h-6 text-xs px-2 gap-1">
+                    <Plus className="h-3 w-3" />
+                    Add
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="p-0 w-56" align="start">
+                  <Command>
+                    <CommandInput
+                      placeholder="Search or create..."
+                      value={catSearch}
+                      onValueChange={setCatSearch}
+                    />
+                    <CommandList>
+                      <CommandEmpty>{catSearch.trim() ? null : "Type to search or create."}</CommandEmpty>
+                      <CommandGroup>
+                        {filteredCats.map((cat) => (
+                          <CommandItem
+                            key={cat.id}
+                            value={cat.name}
+                            onSelect={() => {
+                              setSelectedCategories((prev) => [...prev, { id: cat.id, name: cat.name }]);
+                              setCatSearch("");
+                              setCatPopoverOpen(false);
+                            }}
+                          >
+                            {cat.name}
+                          </CommandItem>
+                        ))}
+                        {showCatCreate && (
+                          <CommandItem
+                            value={`create-${catSearch}`}
+                            onSelect={() => {
+                              setSelectedCategories((prev) => [...prev, { name: catSearch.trim() }]);
+                              setCatSearch("");
+                              setCatPopoverOpen(false);
+                            }}
+                          >
+                            <Plus className="h-3.5 w-3.5 mr-1.5" />
+                            Create "{catSearch.trim()}"
+                          </CommandItem>
+                        )}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+            </div>
           </div>
         </div>
         <DialogFooter>
@@ -1369,7 +1466,7 @@ function CategoryManager({
             />
             <CommandList>
               <CommandEmpty>
-                {showCreateOption ? null : "No categories found."}
+                {showCreateOption ? null : "Type a name to create one."}
               </CommandEmpty>
               <CommandGroup>
                 {filteredCategories.map((cat) => (
@@ -1475,7 +1572,7 @@ function ProductDetailPanel({
           size="sm"
           className="w-full justify-start"
           onClick={() => {
-            window.location.hash = `#/manufacturing/mmr?productId=${product.id}`;
+            window.location.hash = `#/operations/mmr?productId=${product.id}`;
           }}
           data-testid="button-view-mmr"
         >
