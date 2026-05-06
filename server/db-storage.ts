@@ -544,7 +544,7 @@ export class DatabaseStorage implements IStorage {
           uom: lineItem.uom,
           notes: `Received against PO ${po.poNumber} (existing lot)`,
           performedBy: "admin",
-        });
+        }, tx);
         const newReceivedQty = parseFloat(lineItem.quantityReceived) + Math.abs(quantity);
         await tx.update(schema.poLineItems).set({ quantityReceived: String(newReceivedQty) }).where(eq(schema.poLineItems.id, lineItemId));
         // Keep PO status in sync — same logic as normal flow path

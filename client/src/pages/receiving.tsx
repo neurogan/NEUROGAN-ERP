@@ -294,7 +294,7 @@ function CoaIdentityFields({
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="SUPPLIER">Supplier</SelectItem>
-            <SelectItem value="INTERNAL">Internal</SelectItem>
+            <SelectItem value="INTERNAL_LAB">Internal Lab</SelectItem>
             <SelectItem value="THIRD_PARTY_LAB">Third-party Lab</SelectItem>
           </SelectContent>
         </Select>
@@ -1010,7 +1010,7 @@ function ReceivingDetail({
                             </SelectTrigger>
                             <SelectContent>
                               <SelectItem value="SUPPLIER">Supplier</SelectItem>
-                              <SelectItem value="INTERNAL">Internal</SelectItem>
+                              <SelectItem value="INTERNAL_LAB">Internal Lab</SelectItem>
                               <SelectItem value="THIRD_PARTY_LAB">Third-party Lab</SelectItem>
                             </SelectContent>
                           </Select>
