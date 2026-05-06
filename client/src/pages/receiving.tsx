@@ -27,7 +27,6 @@ import {
   Clock,
   Package,
   AlertTriangle,
-  FileCheck,
   CheckCircle2,
   XCircle,
   Shield,
@@ -35,7 +34,6 @@ import {
   Loader2,
   Send,
   Save,
-  FileText,
   QrCode,
 } from "lucide-react";
 import { formatQty } from "@/lib/formatQty";
@@ -43,7 +41,6 @@ import { formatDate, formatDateTime } from "@/lib/formatDate";
 import { SignatureCeremony } from "@/components/SignatureCeremony";
 import type {
   ReceivingRecordWithDetails,
-  CoaDocumentWithDetails,
   PurchaseOrderWithDetails,
   Product,
   Location,
@@ -261,243 +258,6 @@ function StatusTimeline({ record }: { record: ReceivingRecordWithDetails }) {
   );
 }
 
-// ── COA Status section ──
-
-function CoaStatusSection({ lotId, receivingRecordId }: { lotId: string; receivingRecordId: string }) {
-  const { toast } = useToast();
-  const { data: coaDocs, isLoading } = useQuery<CoaDocumentWithDetails[]>({
-    queryKey: ["/api/coa/by-lot", lotId],
-    queryFn: async () => {
-      const res = await apiRequest("GET", `/api/coa/by-lot/${lotId}`);
-      return res.json();
-    },
-  });
-
-  // Inline COA form state
-  const [showCoaForm, setShowCoaForm] = useState(false);
-  const [coaDocNumber, setCoaDocNumber] = useState("");
-  const [coaSourceType, setCoaSourceType] = useState("SUPPLIER");
-  const [coaOverallResult, setCoaOverallResult] = useState("");
-  const [coaNotes, setCoaNotes] = useState("");
-
-  const createCoa = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/coa", {
-        lotId,
-        receivingRecordId,
-        documentNumber: coaDocNumber || undefined,
-        sourceType: coaSourceType,
-        overallResult: coaOverallResult || undefined,
-        qcNotes: coaNotes || undefined,
-      });
-      return res.json();
-    },
-    onSuccess: () => {
-      toast({ title: "COA record created" });
-      setShowCoaForm(false);
-      setCoaDocNumber("");
-      setCoaSourceType("SUPPLIER");
-      setCoaOverallResult("");
-      setCoaNotes("");
-      queryClient.invalidateQueries({ queryKey: ["/api/coa/by-lot", lotId] });
-    },
-    onError: (err: Error) => {
-      toast({ title: "Error", description: err.message, variant: "destructive" });
-    },
-  });
-
-  if (isLoading) {
-    return (
-      <div>
-        <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
-          <FileText className="h-4 w-4 text-muted-foreground" />
-          COA Status
-        </h3>
-        <Skeleton className="h-12 w-full" />
-      </div>
-    );
-  }
-
-  const docs = coaDocs ?? [];
-  const hasCoaDocs = docs.length > 0;
-  const acceptedDoc = docs.find((d) => d.qcAccepted === "true");
-  const pendingDoc = docs.find((d) => d.qcAccepted !== "true" && d.qcAccepted !== "false");
-
-  const coaForm = (
-    <div className="space-y-2.5 pt-2" data-testid="coa-inline-form">
-      <div className="space-y-1">
-        <Label className="text-xs">Document Number</Label>
-        <Input
-          placeholder="e.g. COA-2026-001"
-          value={coaDocNumber}
-          onChange={(e) => setCoaDocNumber(e.target.value)}
-          className="text-sm h-8"
-          data-testid="input-coa-doc-number"
-        />
-      </div>
-      <div className="grid grid-cols-2 gap-2">
-        <div className="space-y-1">
-          <Label className="text-xs">Source Type</Label>
-          <Select value={coaSourceType} onValueChange={setCoaSourceType}>
-            <SelectTrigger className="text-sm h-8" data-testid="select-coa-source-type">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="SUPPLIER">Supplier</SelectItem>
-              <SelectItem value="INTERNAL_LAB">Internal Lab</SelectItem>
-              <SelectItem value="THIRD_PARTY_LAB">Third-Party Lab</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-1">
-          <Label className="text-xs">Overall Result</Label>
-          <Select value={coaOverallResult} onValueChange={setCoaOverallResult}>
-            <SelectTrigger className="text-sm h-8" data-testid="select-coa-result">
-              <SelectValue placeholder="Select…" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="PASS">Pass</SelectItem>
-              <SelectItem value="FAIL">Fail</SelectItem>
-              <SelectItem value="CONDITIONAL">Conditional</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
-      <div className="space-y-1">
-        <Label className="text-xs">Notes (optional)</Label>
-        <Textarea
-          placeholder="Any notes about this COA…"
-          value={coaNotes}
-          onChange={(e) => setCoaNotes(e.target.value)}
-          className="text-sm min-h-[50px]"
-          data-testid="textarea-coa-notes"
-        />
-      </div>
-      <div className="flex gap-2 pt-1">
-        <Button
-          size="sm"
-          className="h-7 text-xs"
-          onClick={() => createCoa.mutate()}
-          disabled={createCoa.isPending || !coaOverallResult}
-          data-testid="button-submit-coa"
-        >
-          {createCoa.isPending ? (
-            <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-          ) : (
-            <FileCheck className="h-3 w-3 mr-1" />
-          )}
-          Attach COA
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-7 text-xs"
-          onClick={() => setShowCoaForm(false)}
-          data-testid="button-cancel-coa"
-        >
-          Cancel
-        </Button>
-      </div>
-    </div>
-  );
-
-  return (
-    <div>
-      <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
-        <FileText className="h-4 w-4 text-muted-foreground" />
-        COA Status
-      </h3>
-
-      {!hasCoaDocs ? (
-        <div className="rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 p-3" data-testid="coa-status-none">
-          <div className="flex items-center justify-between">
-            <Badge className="bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300 border-0 text-xs" data-testid="badge-coa-status">
-              <XCircle className="h-3 w-3 mr-1" />
-              No COA on file
-            </Badge>
-            {!showCoaForm && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="text-xs h-auto p-0"
-                onClick={() => setShowCoaForm(true)}
-                data-testid="button-add-coa"
-              >
-                <FileCheck className="h-3 w-3 mr-1" />
-                Attach COA
-              </Button>
-            )}
-          </div>
-          {showCoaForm && coaForm}
-        </div>
-      ) : acceptedDoc ? (
-        <div className="rounded-lg border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/20 p-3 space-y-2" data-testid="coa-status-accepted">
-          <Badge className="bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300 border-0 text-xs" data-testid="badge-coa-status">
-            <CheckCircle2 className="h-3 w-3 mr-1" />
-            COA Reviewed ✓
-          </Badge>
-          <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
-            {acceptedDoc.documentNumber && (
-              <div>
-                <span className="text-muted-foreground">Doc #:</span>{" "}
-                <span className="font-mono" data-testid="text-coa-doc-number">{acceptedDoc.documentNumber}</span>
-              </div>
-            )}
-            <div>
-              <span className="text-muted-foreground">Source:</span>{" "}
-              <span data-testid="text-coa-source">{acceptedDoc.sourceType ?? "—"}</span>
-            </div>
-            {acceptedDoc.overallResult && (
-              <div>
-                <span className="text-muted-foreground">Result:</span>{" "}
-                <span data-testid="text-coa-result">{acceptedDoc.overallResult}</span>
-              </div>
-            )}
-            <div>
-              <span className="text-muted-foreground">Review:</span>{" "}
-              <span className="text-emerald-700 dark:text-emerald-400" data-testid="text-coa-review">Accepted</span>
-            </div>
-          </div>
-        </div>
-      ) : (
-        <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 p-3 space-y-2" data-testid="coa-status-pending">
-          <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 border-0 text-xs" data-testid="badge-coa-status">
-            <AlertTriangle className="h-3 w-3 mr-1" />
-            COA Pending Review
-          </Badge>
-          {(() => {
-            const doc = pendingDoc || docs[0];
-            return (
-              <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
-                {doc.documentNumber && (
-                  <div>
-                    <span className="text-muted-foreground">Doc #:</span>{" "}
-                    <span className="font-mono" data-testid="text-coa-doc-number">{doc.documentNumber}</span>
-                  </div>
-                )}
-                <div>
-                  <span className="text-muted-foreground">Source:</span>{" "}
-                  <span data-testid="text-coa-source">{doc.sourceType ?? "—"}</span>
-                </div>
-                {doc.overallResult && (
-                  <div>
-                    <span className="text-muted-foreground">Result:</span>{" "}
-                    <span data-testid="text-coa-result">{doc.overallResult}</span>
-                  </div>
-                )}
-                <div>
-                  <span className="text-muted-foreground">Review:</span>{" "}
-                  <span className="text-amber-700 dark:text-amber-400" data-testid="text-coa-review">Pending</span>
-                </div>
-              </div>
-            );
-          })()}
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ── Detail panel ──
 
 function ReceivingDetail({
@@ -711,7 +471,12 @@ function ReceivingDetail({
   const isQuarantined = record.status === "QUARANTINED";
   const isPendingQc = record.status === "PENDING_QC";
   const isReviewed = record.status === "APPROVED" || record.status === "REJECTED";
-  const showQcSection = isPendingQc || isReviewed;
+  // Inherited approval: APPROVED with no QC reviewer = partial receipt that inherited lot approval
+  const isInheritedApproval = record.status === "APPROVED" && !record.qcReviewedBy;
+  const isExemptWorkflow = record.qcWorkflowType === "EXEMPT";
+  // Show QC section only for non-EXEMPT workflows; EXEMPT records with reviewer show read-only (handled by isReviewed)
+  const showQcSection = (isPendingQc || isReviewed) && !isExemptWorkflow;
+  const showInheritedBanner = isInheritedApproval && isExemptWorkflow;
 
   return (
     <div className="p-5 space-y-6 overflow-y-auto h-full" data-tour="receiving-detail">
@@ -801,13 +566,6 @@ function ReceivingDetail({
             <span className="font-mono" data-testid="text-detail-supplier-lot">{record.supplierLotNumber ?? "—"}</span>
           </div>
         </div>
-      </div>
-
-      <Separator />
-
-      {/* COA Status */}
-      <div data-tour="receiving-coa">
-        <CoaStatusSection lotId={record.lotId} receivingRecordId={record.id} />
       </div>
 
       <Separator />
@@ -996,6 +754,30 @@ function ReceivingDetail({
             ) : (
               <p className="text-xs text-muted-foreground">No boxes recorded for this lot.</p>
             )}
+          </div>
+        </>
+      )}
+
+      {/* QC Inherited banner — partial receipts of already-approved lots */}
+      {showInheritedBanner && (
+        <>
+          <Separator />
+          <div data-testid="qc-inherited-banner">
+            <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
+              <Shield className="h-4 w-4 text-muted-foreground" />
+              QC Status
+            </h3>
+            <div className="rounded-lg border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/20 p-3 space-y-1">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                <span className="text-sm font-medium text-emerald-700 dark:text-emerald-300">
+                  QC Approved — Inherited
+                </span>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                This receipt shares lot {record.supplierLotNumber ?? record.lotId} which was already approved. No additional QC testing required per 21 CFR §111.3.
+              </p>
+            </div>
           </div>
         </>
       )}
