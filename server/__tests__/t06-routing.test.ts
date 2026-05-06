@@ -176,7 +176,7 @@ describeIfDb("T06-A — lot-existence routing in receivePOLineItem", () => {
     for (const r of records) seededRecordIds.push(r.id);
   });
 
-  it("second receipt of in-progress lot (QUARANTINED) → attaches to existing lot, EXEMPT workflow", async () => {
+  it("second receipt of in-progress lot (QUARANTINED) → attaches to existing lot, derives proper QC workflow", async () => {
     // Arrange: create a lot still in quarantine (workflow in progress)
     const { product, supplier, lineItem, location } = await seedPOAndLineItem();
     const lotNumber = `T06-INPROG-${Date.now()}`;
@@ -201,16 +201,16 @@ describeIfDb("T06-A — lot-existence routing in receivePOLineItem", () => {
     expect(result.lot.id).toBe(inProgressLot!.id);
     seededTransactionIds.push(result.transaction.id);
 
+    // ACTIVE_INGREDIENT with no approved_materials entry → FULL_LAB_TEST (not hardcoded EXEMPT)
     const records = await db
       .select()
       .from(schema.receivingRecords)
       .where(eq(schema.receivingRecords.lotId, inProgressLot!.id));
-    const exemptRecord = records.find(r => r.qcWorkflowType === "EXEMPT");
-    expect(exemptRecord).toBeDefined();
+    expect(records[0]?.qcWorkflowType).toBe("FULL_LAB_TEST");
     for (const r of records) seededRecordIds.push(r.id);
   });
 
-  it("second receipt of in-progress lot (SAMPLING) → attaches to existing lot, EXEMPT workflow", async () => {
+  it("second receipt of in-progress lot (SAMPLING) → attaches to existing lot, derives proper QC workflow", async () => {
     const { product, supplier, lineItem, location } = await seedPOAndLineItem();
     const lotNumber = `T06-SAMPLING-${Date.now()}`;
 
@@ -227,15 +227,16 @@ describeIfDb("T06-A — lot-existence routing in receivePOLineItem", () => {
     expect(result.lot.id).toBe(samplingLot!.id);
     seededTransactionIds.push(result.transaction.id);
 
+    // ACTIVE_INGREDIENT with no approved_materials entry → FULL_LAB_TEST (not hardcoded EXEMPT)
     const records = await db
       .select()
       .from(schema.receivingRecords)
       .where(eq(schema.receivingRecords.lotId, samplingLot!.id));
-    expect(records.find(r => r.qcWorkflowType === "EXEMPT")).toBeDefined();
+    expect(records[0]?.qcWorkflowType).toBe("FULL_LAB_TEST");
     for (const r of records) seededRecordIds.push(r.id);
   });
 
-  it("second receipt of in-progress lot (PENDING_QC) → attaches to existing lot, EXEMPT workflow", async () => {
+  it("second receipt of in-progress lot (PENDING_QC) → attaches to existing lot, derives proper QC workflow", async () => {
     const { product, supplier, lineItem, location } = await seedPOAndLineItem();
     const lotNumber = `T06-PENDING-${Date.now()}`;
 
@@ -252,11 +253,12 @@ describeIfDb("T06-A — lot-existence routing in receivePOLineItem", () => {
     expect(result.lot.id).toBe(pendingLot!.id);
     seededTransactionIds.push(result.transaction.id);
 
+    // ACTIVE_INGREDIENT with no approved_materials entry → FULL_LAB_TEST (not hardcoded EXEMPT)
     const records = await db
       .select()
       .from(schema.receivingRecords)
       .where(eq(schema.receivingRecords.lotId, pendingLot!.id));
-    expect(records.find(r => r.qcWorkflowType === "EXEMPT")).toBeDefined();
+    expect(records[0]?.qcWorkflowType).toBe("FULL_LAB_TEST");
     for (const r of records) seededRecordIds.push(r.id);
   });
 
