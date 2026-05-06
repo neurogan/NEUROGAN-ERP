@@ -23,8 +23,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Trash2, ArrowUp, ArrowDown, ExternalLink } from "lucide-react";
-import type { MmrWithSteps, Product, RecipeWithDetails, Equipment } from "@shared/schema";
+import { Plus, Trash2, ArrowUp, ArrowDown, ExternalLink, Pencil } from "lucide-react";
+import type { MmrWithSteps, MmrComponentWithDetails, Product, Equipment } from "@shared/schema";
 
 // ── Status badge ──────────────────────────────────────────────────────────────
 
@@ -51,26 +51,18 @@ function CreateMmrDialog({
 }) {
   const { toast } = useToast();
   const [selectedProductId, setSelectedProductId] = useState(productId ?? "");
-  const [selectedRecipeId, setSelectedRecipeId] = useState("");
   const [notes, setNotes] = useState("");
 
   const { data: products } = useQuery<Product[]>({
     queryKey: ["/api/products"],
   });
 
-  const { data: recipes } = useQuery<RecipeWithDetails[]>({
-    queryKey: ["/api/recipes"],
-    enabled: true,
-  });
-
   const finishedGoods = (products ?? []).filter((p) => p.category === "FINISHED_GOOD");
-  const productRecipes = (recipes ?? []).filter((r) => r.productId === selectedProductId);
 
   const mutation = useMutation({
     mutationFn: async () => {
       const res = await apiRequest("POST", "/api/mmrs", {
         productId: selectedProductId,
-        recipeId: selectedRecipeId,
         notes: notes || undefined,
       });
       return res.json() as Promise<MmrWithSteps>;
@@ -80,7 +72,6 @@ function CreateMmrDialog({
       onCreated(mmr);
       onOpenChange(false);
       setSelectedProductId(productId ?? "");
-      setSelectedRecipeId("");
       setNotes("");
     },
     onError: (err) => {
@@ -97,26 +88,13 @@ function CreateMmrDialog({
         <div className="space-y-4 py-2">
           <div>
             <label className="text-sm font-medium">Product</label>
-            <Select value={selectedProductId} onValueChange={(v) => { setSelectedProductId(v); setSelectedRecipeId(""); }}>
+            <Select value={selectedProductId} onValueChange={setSelectedProductId}>
               <SelectTrigger>
                 <SelectValue placeholder="Select finished good..." />
               </SelectTrigger>
               <SelectContent>
                 {finishedGoods.map((p) => (
                   <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div>
-            <label className="text-sm font-medium">Recipe</label>
-            <Select value={selectedRecipeId} onValueChange={setSelectedRecipeId} disabled={!selectedProductId}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select recipe..." />
-              </SelectTrigger>
-              <SelectContent>
-                {productRecipes.map((r) => (
-                  <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -129,7 +107,7 @@ function CreateMmrDialog({
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button
-            disabled={!selectedProductId || !selectedRecipeId || mutation.isPending}
+            disabled={!selectedProductId || mutation.isPending}
             onClick={() => mutation.mutate()}
           >
             {mutation.isPending ? "Creating…" : "Create MMR"}
@@ -142,21 +120,135 @@ function CreateMmrDialog({
 
 // ── Formula tab ───────────────────────────────────────────────────────────────
 
-function FormulaTab({ mmr }: { mmr: MmrWithSteps }) {
-  const { data: recipe } = useQuery<RecipeWithDetails>({
-    queryKey: ["/api/recipes", mmr.recipeId],
-    queryFn: async () => {
-      const res = await fetch(`/api/recipes/${mmr.recipeId}`);
-      if (!res.ok) throw new Error("Failed to load recipe");
+function AddComponentDialog({
+  open,
+  onOpenChange,
+  mmrId,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  mmrId: string;
+}) {
+  const { toast } = useToast();
+  const [selectedProductId, setSelectedProductId] = useState("");
+  const [quantity, setQuantity] = useState("");
+  const [uom, setUom] = useState("g");
+  const [notes, setNotes] = useState("");
+
+  const { data: products } = useQuery<Product[]>({ queryKey: ["/api/products"] });
+  const rawMaterials = (products ?? []).filter((p) => p.category !== "FINISHED_GOOD");
+
+  const mutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/mmrs/${mmrId}/components`, {
+        productId: selectedProductId,
+        quantity,
+        uom,
+        notes: notes || null,
+      });
       return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/mmrs", mmrId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/mmrs"] });
+      onOpenChange(false);
+      setSelectedProductId("");
+      setQuantity("");
+      setUom("g");
+      setNotes("");
+    },
+    onError: (err) => {
+      toast({ title: "Failed to add ingredient", description: err instanceof Error ? err.message : String(err), variant: "destructive" });
     },
   });
 
-  if (!recipe) return <div className="p-4 text-sm text-muted-foreground">Loading formula…</div>;
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader><DialogTitle>Add Ingredient</DialogTitle></DialogHeader>
+        <div className="space-y-3 py-2">
+          <div>
+            <label className="text-sm font-medium">Ingredient *</label>
+            <Select value={selectedProductId} onValueChange={setSelectedProductId}>
+              <SelectTrigger><SelectValue placeholder="Select material…" /></SelectTrigger>
+              <SelectContent>
+                {rawMaterials.map((p) => (
+                  <SelectItem key={p.id} value={p.id}>{p.name} ({p.sku})</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-sm font-medium">Quantity per unit *</label>
+              <Input type="number" step="any" value={quantity} onChange={(e) => setQuantity(e.target.value)} placeholder="e.g. 10.5" />
+            </div>
+            <div>
+              <label className="text-sm font-medium">UOM *</label>
+              <Input value={uom} onChange={(e) => setUom(e.target.value)} placeholder="g, mg, mL…" />
+            </div>
+          </div>
+          <div>
+            <label className="text-sm font-medium">Notes (optional)</label>
+            <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Any notes…" />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button disabled={!selectedProductId || !quantity || !uom || mutation.isPending} onClick={() => mutation.mutate()}>
+            {mutation.isPending ? "Adding…" : "Add Ingredient"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function FormulaTab({ mmr }: { mmr: MmrWithSteps }) {
+  const { toast } = useToast();
+  const [addOpen, setAddOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editQty, setEditQty] = useState("");
+  const [editUom, setEditUom] = useState("");
+  const isDraft = mmr.status === "DRAFT";
+
+  const deleteMutation = useMutation({
+    mutationFn: async (componentId: string) => {
+      await apiRequest("DELETE", `/api/mmrs/${mmr.id}/components/${componentId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/mmrs", mmr.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/mmrs"] });
+    },
+    onError: (err) => {
+      toast({ title: "Failed to remove ingredient", description: err instanceof Error ? err.message : String(err), variant: "destructive" });
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: async ({ id, quantity, uom }: { id: string; quantity: string; uom: string }) => {
+      const res = await apiRequest("PATCH", `/api/mmrs/${mmr.id}/components/${id}`, { quantity, uom });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/mmrs", mmr.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/mmrs"] });
+      setEditingId(null);
+    },
+    onError: (err) => {
+      toast({ title: "Failed to update ingredient", description: err instanceof Error ? err.message : String(err), variant: "destructive" });
+    },
+  });
+
+  function startEdit(c: MmrComponentWithDetails) {
+    setEditingId(c.id);
+    setEditQty(c.quantity);
+    setEditUom(c.uom);
+  }
 
   return (
-    <div className="space-y-2">
-      {mmr.status !== "DRAFT" && (
+    <div className="space-y-3">
+      {!isDraft && (
         <p className="text-xs text-muted-foreground italic">
           Formula locked — MMR is {mmr.status.toLowerCase()}. Click Revise to make changes.
         </p>
@@ -165,23 +257,64 @@ function FormulaTab({ mmr }: { mmr: MmrWithSteps }) {
         <thead>
           <tr className="text-left text-muted-foreground text-xs border-b">
             <th className="py-1 pr-4 font-medium">Ingredient</th>
-            <th className="py-1 pr-4 font-medium w-24">Quantity</th>
-            <th className="py-1 font-medium w-16">UOM</th>
+            <th className="py-1 pr-4 font-medium w-28">Qty / unit</th>
+            <th className="py-1 pr-3 font-medium w-16">UOM</th>
+            {isDraft && <th className="py-1 w-16" />}
           </tr>
         </thead>
         <tbody>
-          {recipe.lines.map((line) => (
-            <tr key={line.id} className="border-b last:border-0">
-              <td className="py-2 pr-4">{line.productName}</td>
-              <td className="py-2 pr-4">{line.quantity}</td>
-              <td className="py-2">{line.uom}</td>
+          {mmr.components.map((c) => (
+            <tr key={c.id} className="border-b last:border-0">
+              <td className="py-2 pr-4">
+                <div className="font-medium">{c.productName}</div>
+                <div className="text-xs text-muted-foreground font-mono">{c.productSku}</div>
+              </td>
+              {editingId === c.id ? (
+                <>
+                  <td className="py-2 pr-3">
+                    <Input type="number" step="any" value={editQty} onChange={(e) => setEditQty(e.target.value)} className="h-7 w-24 text-xs" />
+                  </td>
+                  <td className="py-2 pr-3">
+                    <Input value={editUom} onChange={(e) => setEditUom(e.target.value)} className="h-7 w-16 text-xs" />
+                  </td>
+                  <td className="py-2">
+                    <div className="flex gap-1">
+                      <Button size="sm" className="h-7 px-2 text-xs" disabled={updateMutation.isPending} onClick={() => updateMutation.mutate({ id: c.id, quantity: editQty, uom: editUom })}>Save</Button>
+                      <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => setEditingId(null)}>✕</Button>
+                    </div>
+                  </td>
+                </>
+              ) : (
+                <>
+                  <td className="py-2 pr-3 font-mono">{c.quantity}</td>
+                  <td className="py-2 pr-3">{c.uom}</td>
+                  {isDraft && (
+                    <td className="py-2">
+                      <div className="flex gap-1">
+                        <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => startEdit(c)}>
+                          <Pencil className="h-3 w-3" />
+                        </Button>
+                        <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-destructive hover:text-destructive" onClick={() => deleteMutation.mutate(c.id)}>
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    </td>
+                  )}
+                </>
+              )}
             </tr>
           ))}
-          {recipe.lines.length === 0 && (
-            <tr><td colSpan={3} className="py-4 text-center text-muted-foreground text-xs">No ingredients defined.</td></tr>
+          {mmr.components.length === 0 && (
+            <tr><td colSpan={isDraft ? 4 : 3} className="py-4 text-center text-muted-foreground text-xs">No ingredients defined yet.</td></tr>
           )}
         </tbody>
       </table>
+      {isDraft && (
+        <Button size="sm" variant="outline" onClick={() => setAddOpen(true)}>
+          <Plus className="h-3.5 w-3.5 mr-1.5" /> Add Ingredient
+        </Button>
+      )}
+      <AddComponentDialog open={addOpen} onOpenChange={setAddOpen} mmrId={mmr.id} />
     </div>
   );
 }

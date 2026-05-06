@@ -444,7 +444,8 @@ function ReceivingDetail({
   const isQuarantined = record.status === "QUARANTINED";
   const isPendingQc = record.status === "PENDING_QC";
   const isReviewed = record.status === "APPROVED" || record.status === "REJECTED";
-  const showQcSection = isPendingQc || isReviewed;
+  const isInheritedApproval = record.status === "APPROVED" && !record.qcReviewedBy;
+  const showQcSection = (isPendingQc || isReviewed) && !isInheritedApproval;
   const isCOAWorkflow = record.qcWorkflowType !== "EXEMPT";
   const hasCoa = localCoaDocs.length > 0;
   const latestCoa = localCoaDocs[localCoaDocs.length - 1];
@@ -652,6 +653,28 @@ function ReceivingDetail({
           })()}
         </div>
       </div>
+
+      {/* Inherited approval banner — partial receipts of already-approved lots */}
+      {isInheritedApproval && (
+        <>
+          <Separator />
+          <div data-testid="qc-inherited-banner">
+            <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
+              <Shield className="h-4 w-4 text-muted-foreground" />
+              QC Status
+            </h3>
+            <div className="rounded-lg border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/20 p-3 space-y-1">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                <span className="text-sm font-medium text-emerald-700 dark:text-emerald-300">QC Approved — Inherited</span>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                This receipt shares a lot that was already approved. No additional QC review required per 21 CFR §111.3.
+              </p>
+            </div>
+          </div>
+        </>
+      )}
 
       {/* QC Review section */}
       {showQcSection && (

@@ -16,9 +16,6 @@ import {
   type ProductionBatch, type InsertProductionBatch,
   type InsertProductionInput,
   type ProductionBatchWithDetails, type ProductionInputWithDetails,
-  type Recipe, type InsertRecipe,
-  type InsertRecipeLine,
-  type RecipeWithDetails, type RecipeLineWithDetails,
   type AppSettings, type InsertAppSettings,
   type ProductCategory, type InsertProductCategory,
   type ProductCategoryAssignment,
@@ -835,17 +832,11 @@ export class DatabaseStorage implements IStorage {
         .set({ status: "IN_PROGRESS", updatedAt: new Date() })
         .where(eq(schema.productionBatches.id, batchId))
         .returning();
-      const recipeRows = await tx
-        .select()
-        .from(schema.recipes)
-        .where(eq(schema.recipes.productId, updated!.productId));
-      const recipe = recipeRows[0];
       const bpr = await this.createBpr({
         productionBatchId: batchId,
         batchNumber: updated!.batchNumber,
         lotNumber: updated!.outputLotNumber ?? null,
         productId: updated!.productId,
-        recipeId: recipe?.id ?? null,
         status: "IN_PROGRESS",
         theoreticalYield: updated!.plannedQuantity,
         startedAt: new Date(),
@@ -1249,72 +1240,6 @@ export class DatabaseStorage implements IStorage {
     };
   }
 
-  // ─── Recipes ─────────────────────────────────────────
-
-  private async enrichRecipe(recipe: Recipe): Promise<RecipeWithDetails> {
-    const product = await this.getProduct(recipe.productId);
-    const lineRows = await db.select().from(schema.recipeLines).where(eq(schema.recipeLines.recipeId, recipe.id));
-    const lines: RecipeLineWithDetails[] = [];
-    for (const line of lineRows) {
-      const mat = await this.getProduct(line.productId);
-      lines.push({
-        ...line,
-        productName: mat?.name ?? "Unknown",
-        productSku: mat?.sku ?? "",
-        productCategory: mat?.category ?? "",
-      });
-    }
-    return {
-      ...recipe,
-      productName: product?.name ?? "Unknown",
-      productSku: product?.sku ?? "",
-      lines,
-    };
-  }
-
-  async getRecipes(productId?: string): Promise<RecipeWithDetails[]> {
-    const conditions: SQL[] = [];
-    if (productId) conditions.push(eq(schema.recipes.productId, productId));
-    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
-    const rows = await db.select().from(schema.recipes).where(whereClause);
-    return Promise.all(rows.map(r => this.enrichRecipe(r)));
-  }
-
-  async getRecipe(id: string): Promise<RecipeWithDetails | undefined> {
-    const [recipe] = await db.select().from(schema.recipes).where(eq(schema.recipes.id, id));
-    if (!recipe) return undefined;
-    return this.enrichRecipe(recipe);
-  }
-
-  async createRecipe(data: InsertRecipe, lines: Omit<InsertRecipeLine, "recipeId">[]): Promise<RecipeWithDetails> {
-    const [recipe] = await db.insert(schema.recipes).values(data).returning();
-    for (const line of lines) {
-      await db.insert(schema.recipeLines).values({ ...line, recipeId: recipe.id });
-    }
-    return this.enrichRecipe(recipe);
-  }
-
-  async updateRecipe(id: string, data: Partial<InsertRecipe>, lines?: Omit<InsertRecipeLine, "recipeId">[]): Promise<RecipeWithDetails | undefined> {
-    const [existing] = await db.select().from(schema.recipes).where(eq(schema.recipes.id, id));
-    if (!existing) return undefined;
-    const [updated] = await db.update(schema.recipes).set({ ...data, updatedAt: new Date() }).where(eq(schema.recipes.id, id)).returning();
-    if (lines) {
-      await db.delete(schema.recipeLines).where(eq(schema.recipeLines.recipeId, id));
-      for (const line of lines) {
-        await db.insert(schema.recipeLines).values({ ...line, recipeId: id });
-      }
-    }
-    return this.enrichRecipe(updated);
-  }
-
-  async deleteRecipe(id: string): Promise<boolean> {
-    const [existing] = await db.select().from(schema.recipes).where(eq(schema.recipes.id, id));
-    if (!existing) return false;
-    await db.delete(schema.recipeLines).where(eq(schema.recipeLines.recipeId, id));
-    await db.delete(schema.recipes).where(eq(schema.recipes.id, id));
-    return true;
-  }
-
   // ─── Product Categories ──────────────────────────────
 
   async getProductCategories(): Promise<ProductCategory[]> {
@@ -1462,9 +1387,20 @@ export class DatabaseStorage implements IStorage {
     const allCategories = await db.select().from(schema.productCategories);
     const catMap = new Map(allCategories.map(c => [c.id, c]));
 
-    // All recipes and recipe lines
-    const allRecipes = await db.select().from(schema.recipes);
-    const allRecipeLines = await db.select().from(schema.recipeLines);
+    // Approved MMR components per product (BOM source of truth)
+    const allApprovedMmrs = await db
+      .select()
+      .from(schema.mmrs)
+      .where(eq(schema.mmrs.status, "APPROVED"));
+    const allMmrComponents = await db.select().from(schema.mmrComponents);
+
+    // Map: productId → approved MMR id (highest version)
+    const approvedMmrByProduct = new Map<string, string>();
+    for (const mmr of allApprovedMmrs.sort((a, b) => b.version - a.version)) {
+      if (!approvedMmrByProduct.has(mmr.productId)) {
+        approvedMmrByProduct.set(mmr.productId, mmr.id);
+      }
+    }
 
     const results: ProductCapacity[] = [];
 
@@ -1482,8 +1418,8 @@ export class DatabaseStorage implements IStorage {
       const inProductionUnits = fgActiveBatches.reduce((sum, b) => sum + parseFloat(b.plannedQuantity), 0);
       const activeBatchCount = fgActiveBatches.length;
 
-      const recipe = allRecipes.find(r => r.productId === fg.id);
-      if (!recipe) {
+      const approvedMmrId = approvedMmrByProduct.get(fg.id);
+      if (!approvedMmrId) {
         results.push({
           productId: fg.id,
           productName: fg.name,
@@ -1496,13 +1432,13 @@ export class DatabaseStorage implements IStorage {
           activeBatchCount,
           totalPotential: currentFGStock + inProductionUnits,
           bottleneckMaterial: null,
-          hasRecipe: false,
+          hasMmr: false,
           materials: [],
         });
         continue;
       }
 
-      const lines = allRecipeLines.filter(l => l.recipeId === recipe.id);
+      const lines = allMmrComponents.filter(c => c.mmrId === approvedMmrId);
       if (lines.length === 0) {
         results.push({
           productId: fg.id,
@@ -1516,7 +1452,7 @@ export class DatabaseStorage implements IStorage {
           activeBatchCount,
           totalPotential: currentFGStock + inProductionUnits,
           bottleneckMaterial: null,
-          hasRecipe: true,
+          hasMmr: true,
           materials: [],
         });
         continue;
@@ -1581,7 +1517,7 @@ export class DatabaseStorage implements IStorage {
         activeBatchCount,
         totalPotential: currentFGStock + producibleUnits + inboundProducibleUnits + inProductionUnits,
         bottleneckMaterial: bottleneckName,
-        hasRecipe: true,
+        hasMmr: true,
         materials,
       });
     }
@@ -1597,7 +1533,7 @@ export class DatabaseStorage implements IStorage {
     const materialBottleneckCount = new Map<string, { materialId: string; materialName: string; materialSku: string; count: number; inStock: number; uom: string }>();
 
     for (const product of capacity) {
-      if (!product.hasRecipe || product.materials.length === 0) continue;
+      if (!product.hasMmr || product.materials.length === 0) continue;
       for (const mat of product.materials) {
         if (mat.isBottleneck) {
           const existing = materialBottleneckCount.get(mat.productId);
@@ -1623,7 +1559,7 @@ export class DatabaseStorage implements IStorage {
       .slice(0, 5);
 
     const lowestCapacityProducts: LowestCapacityProduct[] = capacity
-      .filter(p => p.hasRecipe)
+      .filter(p => p.hasMmr)
       .sort((a, b) => a.totalPotential - b.totalPotential)
       .slice(0, 5)
       .map(p => ({

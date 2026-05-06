@@ -10,7 +10,6 @@ import {
   insertSupplierSchema,
   insertPurchaseOrderSchema,
   insertProductionBatchSchema,
-  insertRecipeSchema,
   insertProductCategorySchema,
   insertProductionNoteSchema,
   insertReceivingRecordSchema,
@@ -980,57 +979,6 @@ export async function registerRoutes(
     } catch (err) {
       res.status(500).json({ message: "Failed to validate stock" });
     }
-  });
-
-  // ─── Recipes ──────────────────────────────────────────
-
-  app.get("/api/recipes", async (req, res) => {
-    try {
-      const productId = req.query.productId as string | undefined;
-      const recipes = await storage.getRecipes(productId);
-      res.json(recipes);
-    } catch (err) {
-      res.status(500).json({ message: "Failed to fetch recipes" });
-    }
-  });
-
-  app.get("/api/recipes/:id", async (req, res) => {
-    try {
-      const recipe = await storage.getRecipe(req.params.id);
-      if (!recipe) return res.status(404).json({ message: "Recipe not found" });
-      res.json(recipe);
-    } catch (err) {
-      res.status(500).json({ message: "Failed to fetch recipe" });
-    }
-  });
-
-  app.post("/api/recipes", requireAuth, requireRole("ADMIN", "QA", "PRODUCTION"), async (req, res, next) => {
-    try {
-      const { lines, ...recipeData } = req.body;
-      const data = insertRecipeSchema.parse(recipeData);
-      if (!lines || !Array.isArray(lines) || lines.length === 0) {
-        return res.status(400).json({ message: "At least one recipe line is required" });
-      }
-      const recipe = await storage.createRecipe(data, lines);
-      res.status(201).json(recipe);
-    } catch (err) { next(err); }
-  });
-
-  app.patch<{ id: string }>("/api/recipes/:id", requireAuth, requireRole("ADMIN", "QA", "PRODUCTION"), async (req, res, next) => {
-    try {
-      const { lines, ...recipeData } = req.body;
-      const recipe = await storage.updateRecipe(req.params.id, recipeData, lines);
-      if (!recipe) return res.status(404).json({ message: "Recipe not found" });
-      res.json(recipe);
-    } catch (err) { next(err); }
-  });
-
-  app.delete<{ id: string }>("/api/recipes/:id", requireAuth, requireRole("ADMIN"), async (req, res, next) => {
-    try {
-      const deleted = await storage.deleteRecipe(req.params.id);
-      if (!deleted) return res.status(404).json({ message: "Recipe not found" });
-      res.status(204).send();
-    } catch (err) { next(err); }
   });
 
   // ─── Inventory ─────────────────────────────────────────
