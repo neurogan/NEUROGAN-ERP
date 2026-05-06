@@ -84,11 +84,10 @@ async function seedForWorkflow(
 }
 
 describeIfDb("T03 — identity test gate on qcReviewReceivingRecord", () => {
-  it("FULL_LAB_TEST without identity confirmed → 422", async () => {
+  it("FULL_LAB_TEST with COA (identityConfirmed=false) → APPROVED", async () => {
     const { record } = await seedForWorkflow("FULL_LAB_TEST", "false");
-    await expect(
-      storage.qcReviewReceivingRecord(record.id, "APPROVED", adminId),
-    ).rejects.toMatchObject({ status: 422 });
+    const result = await storage.qcReviewReceivingRecord(record.id, "APPROVED", adminId);
+    expect(result?.status).toBe("APPROVED");
   });
 
   it("FULL_LAB_TEST with identity confirmed → APPROVED", async () => {
@@ -97,11 +96,10 @@ describeIfDb("T03 — identity test gate on qcReviewReceivingRecord", () => {
     expect(result?.status).toBe("APPROVED");
   });
 
-  it("IDENTITY_CHECK without identity confirmed → 422", async () => {
+  it("IDENTITY_CHECK with COA (identityConfirmed=false) → APPROVED", async () => {
     const { record } = await seedForWorkflow("IDENTITY_CHECK", "false");
-    await expect(
-      storage.qcReviewReceivingRecord(record.id, "APPROVED", adminId),
-    ).rejects.toMatchObject({ status: 422 });
+    const result = await storage.qcReviewReceivingRecord(record.id, "APPROVED", adminId);
+    expect(result?.status).toBe("APPROVED");
   });
 
   it("IDENTITY_CHECK with identity confirmed → APPROVED", async () => {
@@ -122,18 +120,16 @@ describeIfDb("T03 — identity test gate on qcReviewReceivingRecord", () => {
     expect(result?.status).toBe("APPROVED");
   });
 
-  it("FULL_LAB_TEST with identityConfirmed never set (null) → 422", async () => {
+  it("FULL_LAB_TEST with COA (identityConfirmed=null) → APPROVED", async () => {
     const { record } = await seedForWorkflow("FULL_LAB_TEST", null);
-    await expect(
-      storage.qcReviewReceivingRecord(record.id, "APPROVED", adminId),
-    ).rejects.toMatchObject({ status: 422 });
+    const result = await storage.qcReviewReceivingRecord(record.id, "APPROVED", adminId);
+    expect(result?.status).toBe("APPROVED");
   });
 
-  it("FULL_LAB_TEST with APPROVED_WITH_CONDITIONS + no identity confirmed → 422", async () => {
+  it("FULL_LAB_TEST with COA + APPROVED_WITH_CONDITIONS → APPROVED", async () => {
     const { record } = await seedForWorkflow("FULL_LAB_TEST", "false");
-    await expect(
-      storage.qcReviewReceivingRecord(record.id, "APPROVED_WITH_CONDITIONS", adminId),
-    ).rejects.toMatchObject({ status: 422 });
+    const result = await storage.qcReviewReceivingRecord(record.id, "APPROVED_WITH_CONDITIONS", adminId);
+    expect(result?.status).toBe("APPROVED");
   });
 
   it("FULL_LAB_TEST with APPROVED_WITH_CONDITIONS + identity confirmed → APPROVED", async () => {

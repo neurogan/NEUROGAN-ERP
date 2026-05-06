@@ -628,6 +628,7 @@ export type ReceivingRecordWithDetails = ReceivingRecord & {
   productSku: string;
   lotNumber: string;
   supplierName: string | null;
+  coaDocuments: CoaDocument[];
 };
 
 export type CoaDocument = typeof coaDocuments.$inferSelect;

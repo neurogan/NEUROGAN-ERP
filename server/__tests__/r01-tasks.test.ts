@@ -96,13 +96,13 @@ describeIfDb("R-01 — tasks endpoint", () => {
     expect(tasks.some((t) => t.taskType === "LAB_TEST_REQUIRED" || t.taskType === "QUALIFICATION_REQUIRED")).toBe(false);
   });
 
-  it("WAREHOUSE user sees IDENTITY_CHECK tasks", async () => {
+  it("WAREHOUSE user does NOT see IDENTITY_CHECK_REQUIRED tasks (R-11: routing removed)", async () => {
     await seedReceivingRecord({ status: "QUARANTINED", qcWorkflowType: "IDENTITY_CHECK", productName: "MCT Oil" });
 
     const res = await request(app).get("/api/tasks").set("x-test-user-id", receivingId);
     expect(res.status).toBe(200);
     const tasks = res.body as Array<{ taskType: string; sourceModule: string }>;
-    expect(tasks.some((t) => t.taskType === "IDENTITY_CHECK_REQUIRED")).toBe(true);
+    expect(tasks.some((t) => t.taskType === "IDENTITY_CHECK_REQUIRED")).toBe(false);
   });
 
   it("PRODUCTION user sees empty tasks", async () => {

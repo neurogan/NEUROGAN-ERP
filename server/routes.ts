@@ -47,7 +47,6 @@ import { registerStabilityRoutes } from "./routes/stability-routes";
 import { registerEmRoutes } from "./routes/em-routes";
 import { checkFgTestsGate } from "./storage/finished-goods-tests";
 import { createNonconformance } from "./storage/capa";
-import type { InlineCoaData } from "./db-storage";
 import { db } from "./db";
 import { eq, and, desc, ne, isNull } from "drizzle-orm";
 import * as equipmentStorage from "./storage/equipment";
@@ -1260,9 +1259,8 @@ export async function registerRoutes(
     requireAuth, requireRole("QA", "ADMIN"), rejectIdentityInBody(["reviewedBy"]),
     async (req, res, next) => {
       try {
-        const { disposition, notes, password, commentary, inlineCoa } = req.body as {
+        const { disposition, notes, password, commentary } = req.body as {
           disposition?: string; notes?: string; password?: string; commentary?: string;
-          inlineCoa?: InlineCoaData | null;
         };
         if (!disposition) return res.status(400).json({ message: "disposition required" });
         if (!password) return res.status(400).json({ message: "password required for electronic signature" });
@@ -1278,13 +1276,36 @@ export async function registerRoutes(
             route: `${req.method} ${req.path}`,
             requestId: req.requestId,
           },
-          (tx) => storage.qcReviewReceivingRecord(req.params.id, disposition, req.user!.id, notes, inlineCoa ?? null, tx),
+          (tx) => storage.qcReviewReceivingRecord(req.params.id, disposition, req.user!.id, notes, tx),
         );
         if (!record) return res.status(404).json({ message: "Not found" });
         res.json(record);
       } catch (err) {
         next(err);
       }
+    },
+  );
+
+  app.post<{ id: string }>(
+    "/api/receiving/:id/coa",
+    requireAuth, requireRole("QA", "ADMIN"),
+    async (req, res, next) => {
+      try {
+        const { fileData, fileName, sourceType, overallResult, documentNumber } = req.body as {
+          fileData?: string; fileName?: string; sourceType?: string; overallResult?: string; documentNumber?: string;
+        };
+        if (!fileData) return res.status(400).json({ message: "fileData required" });
+        if (!fileName) return res.status(400).json({ message: "fileName required" });
+        if (!sourceType) return res.status(400).json({ message: "sourceType required" });
+        if (!overallResult) return res.status(400).json({ message: "overallResult required" });
+        const doc = await withAudit(
+          { userId: req.user!.id, action: "CREATE", entityType: "coa_document",
+            entityId: (r) => (r as { id: string }).id, before: null,
+            route: `${req.method} ${req.path}`, requestId: req.requestId },
+          (tx) => storage.uploadCoaForReceivingRecord(req.params.id, { fileData, fileName, sourceType, overallResult, documentNumber }, tx),
+        );
+        res.status(201).json(doc);
+      } catch (err) { next(err); }
     },
   );
 
