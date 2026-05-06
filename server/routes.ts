@@ -1309,6 +1309,13 @@ export async function registerRoutes(
     },
   );
 
+  app.delete("/api/receiving/:id", requireAuth, requireRole("ADMIN"), async (req, res, next) => {
+    try {
+      await storage.deleteReceivingRecord(req.params.id as string, req.user!.id);
+      res.status(204).send();
+    } catch (err) { next(err); }
+  });
+
   // ─── COA Documents ────────────────────────────────────
 
   app.post("/api/coa", requireAuth, requireRole("WAREHOUSE", "QA", "ADMIN", "LAB_TECH"), async (req, res, next) => {

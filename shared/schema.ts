@@ -985,6 +985,8 @@ export const auditActionEnum = z.enum([
   "EM_EXCURSION_CREATED",
   // R-08 cleanup
   "BPR_DEVIATION_SIGNED",
+  // Admin data cleanup
+  "RECORD_DELETED",
 ]);
 export type AuditAction = z.infer<typeof auditActionEnum>;
 
