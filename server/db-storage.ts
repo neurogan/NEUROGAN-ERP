@@ -65,6 +65,17 @@ type QcWorkflowType = "FULL_LAB_TEST" | "IDENTITY_CHECK" | "COA_REVIEW" | "EXEMP
 
 const IDENTITY_REQUIRED_WORKFLOWS: QcWorkflowType[] = ["FULL_LAB_TEST", "IDENTITY_CHECK"];
 
+export type InlineCoaData = {
+  sourceType?: string;
+  documentNumber?: string;
+  overallResult?: string;
+  identityConfirmed?: boolean;
+  identityTestMethod?: string;
+  labName?: string;
+  analystName?: string;
+  analysisDate?: string;
+};
+
 // ─── Visual inspection gate ───────────────────────────────────────────────────
 
 function assertVisualInspectionComplete(record: {
@@ -496,14 +507,22 @@ export class DatabaseStorage implements IStorage {
           { status: 422 },
         );
       }
-      // Lot in-progress or approved — attach to existing lot, no new QC work needed.
-      // Insert directly (bypassing createReceivingRecord) to force qcWorkflowType=EXEMPT,
-      // since createReceivingRecord always re-derives the workflow from the category matrix.
+      // Lot in-progress or approved — attach to existing lot.
+      // §111.3: same supplier lot = same lot. If QC was already approved, inherit that status
+      // so the new receiving record enters APPROVED/EXEMPT directly. If in-progress, derive
+      // the proper workflow type so the new record enters QC correctly.
       // We intentionally do NOT sync lots.quarantineStatus here: for an APPROVED lot we must
-      // not regress it back to QUARANTINED, and for an in-progress lot the new EXEMPT receipt
-      // must not override the active workflow state. The existing lot's status is authoritative.
+      // not regress it back to QUARANTINED. The existing lot's status is authoritative.
       return db.transaction(async (tx) => {
         const rcvId = await this.getNextReceivingIdentifier();
+
+        const isApproved = existingLot.quarantineStatus === "APPROVED";
+        let qcWorkflowType: QcWorkflowType = "EXEMPT";
+        if (!isApproved) {
+          const derived = await deriveWorkflowType(lineItem.productId, po.supplierId ?? null, tx);
+          qcWorkflowType = derived.qcWorkflowType;
+        }
+
         const [rcvRecord] = await tx.insert(schema.receivingRecords).values({
           purchaseOrderId: po.id,
           lotId: existingLot.id,
@@ -512,8 +531,8 @@ export class DatabaseStorage implements IStorage {
           quantityReceived: String(quantity),
           uom: lineItem.uom,
           supplierLotNumber: lotNumber,
-          status: "QUARANTINED",
-          qcWorkflowType: "EXEMPT",
+          status: isApproved ? "APPROVED" : "QUARANTINED",
+          qcWorkflowType,
           requiresQualification: false,
         }).returning();
         const boxes = await this.createReceivingBoxes(rcvRecord!.id, boxCount, rcvId, tx);
@@ -525,7 +544,7 @@ export class DatabaseStorage implements IStorage {
           uom: lineItem.uom,
           notes: `Received against PO ${po.poNumber} (existing lot)`,
           performedBy: "admin",
-        });
+        }, tx);
         const newReceivedQty = parseFloat(lineItem.quantityReceived) + Math.abs(quantity);
         await tx.update(schema.poLineItems).set({ quantityReceived: String(newReceivedQty) }).where(eq(schema.poLineItems.id, lineItemId));
         // Keep PO status in sync — same logic as normal flow path
@@ -1712,7 +1731,14 @@ export class DatabaseStorage implements IStorage {
     return outerTx ? run(outerTx) : db.transaction(run);
   }
 
-  async qcReviewReceivingRecord(id: string, disposition: string, reviewedByUserId: string, notes?: string, outerTx?: Tx): Promise<ReceivingRecord | undefined> {
+  async qcReviewReceivingRecord(
+    id: string,
+    disposition: string,
+    reviewedByUserId: string,
+    notes?: string,
+    inlineCoa?: InlineCoaData | null,
+    outerTx?: Tx,
+  ): Promise<ReceivingRecord | undefined> {
     const run = async (tx: Tx) => {
       const [existing] = await tx
         .select()
@@ -1726,8 +1752,31 @@ export class DatabaseStorage implements IStorage {
         disposition === "APPROVED" || disposition === "APPROVED_WITH_CONDITIONS" ? "APPROVED" : "REJECTED";
       assertValidTransition("receiving_record", existing.status, newStatus);
 
-      // Gate 3: require at least one COA; reject if any lab-linked COA references a non-ACTIVE lab
       if (newStatus === "APPROVED") {
+        // Create COA document from inline data if provided (before fetching existing COAs,
+        // so it's included in gate checks below)
+        if (inlineCoa) {
+          await tx.insert(schema.coaDocuments).values({
+            lotId: existing.lotId,
+            receivingRecordId: id,
+            sourceType: inlineCoa.sourceType ?? "SUPPLIER",
+            documentNumber: inlineCoa.documentNumber ?? null,
+            overallResult: inlineCoa.overallResult ?? null,
+            identityConfirmed: inlineCoa.identityConfirmed === true ? "true"
+              : inlineCoa.identityConfirmed === false ? "false"
+              : null,
+            identityTestMethod: inlineCoa.identityTestMethod ?? null,
+            identityTestPerformed: inlineCoa.identityTestMethod ? "true" : null,
+            labName: inlineCoa.labName ?? null,
+            analystName: inlineCoa.analystName ?? null,
+            analysisDate: inlineCoa.analysisDate ?? null,
+            qcAccepted: "true",
+            qcReviewedBy: reviewedByUserId,
+            qcReviewedAt: new Date(),
+          });
+        }
+
+        // Fetch all COAs for this lot (includes any just created above)
         const coas = await tx
           .select({
             id: schema.coaDocuments.id,
@@ -1736,16 +1785,10 @@ export class DatabaseStorage implements IStorage {
           })
           .from(schema.coaDocuments)
           .where(eq(schema.coaDocuments.lotId, existing.lotId));
-        if (coas.length === 0) {
-          throw Object.assign(
-            new Error("Cannot approve: no COA document is linked to this lot. Attach a COA before approving."),
-            { status: 422 },
-          );
-        }
+
+        // Lab-status gate: reject if any lab-linked COA references a non-ACTIVE lab
         for (const coa of coas) {
-          // Supplier COAs (labId = null) are not required to reference the lab registry.
-          // Lab-linked COAs must come from an ACTIVE lab.
-          if (!coa.labId) continue; // supplier COA — no lab registry entry required
+          if (!coa.labId) continue;
           const [lab] = await tx
             .select({ status: schema.labs.status })
             .from(schema.labs)
@@ -1758,14 +1801,14 @@ export class DatabaseStorage implements IStorage {
           }
         }
 
-        // Gate 3b: identity workflows require that at least one COA on this lot has identityConfirmed = "true"
+        // Identity gate: identity workflows require at least one confirmed COA
         if (IDENTITY_REQUIRED_WORKFLOWS.includes(existing.qcWorkflowType as QcWorkflowType)) {
           const identityConfirmed = coas.some((c) => c.identityConfirmed === "true");
           if (!identityConfirmed) {
             throw Object.assign(
               new Error(
                 "Cannot approve: this workflow requires identity testing but no COA on this lot has identity confirmed. " +
-                "Update the COA to mark identity as confirmed before approving.",
+                "Confirm identity in the QC sign-off form before approving.",
               ),
               { status: 422 },
             );

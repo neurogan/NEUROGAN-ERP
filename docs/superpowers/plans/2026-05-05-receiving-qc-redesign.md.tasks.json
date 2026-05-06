@@ -1,0 +1,30 @@
+{
+  "planPath": "docs/superpowers/plans/2026-05-05-receiving-qc-redesign.md",
+  "tasks": [
+    {
+      "id": 0,
+      "subject": "Task 1: Server — inline COA creation + remove no-COA gate",
+      "status": "completed",
+      "description": "**Goal:** qcReviewReceivingRecord() accepts optional inline COA data, creates a COA document from it, removes the hard 'no COA' gate, and preserves the lab-status and identity gates.\n\n**Files:**\n- Modify: server/db-storage.ts:1715-1827\n- Modify: server/storage.ts:314\n- Modify: server/routes.ts:1257-1286\n- Create: server/__tests__/r10-receiving-qc-redesign.test.ts\n- Modify: server/__tests__/t03-identity-gate.test.ts\n\n**Acceptance Criteria:**\n- qcReviewReceivingRecord() accepts optional inlineCoa parameter\n- Approving with no pre-existing COA + no inline data succeeds for COA_REVIEW workflow\n- Approving with inline identityConfirmed: true for IDENTITY_CHECK succeeds\n- Approving with inline identityConfirmed: false for IDENTITY_CHECK → 422\n- A erp_coa_documents row is created when inlineCoa is provided\n- Lab-status gate still rejects INACTIVE/DISQUALIFIED lab-linked COAs\n- POST /api/receiving/:id/qc-review accepts inlineCoa in body\n\n**Verify:** cd /Users/frederikhejlskov/Desktop/NEUROGAN-ERP && DATABASE_URL=$DATABASE_URL npx vitest run server/__tests__/r10-receiving-qc-redesign.test.ts server/__tests__/t03-identity-gate.test.ts server/__tests__/t02-lab-gate.test.ts\n\n```json:metadata\n{\"files\": [\"server/db-storage.ts\", \"server/storage.ts\", \"server/routes.ts\", \"server/__tests__/r10-receiving-qc-redesign.test.ts\"], \"verifyCommand\": \"cd /Users/frederikhejlskov/Desktop/NEUROGAN-ERP && DATABASE_URL=$DATABASE_URL npx vitest run server/__tests__/r10-receiving-qc-redesign.test.ts\", \"acceptanceCriteria\": [\"qcReviewReceivingRecord accepts optional inlineCoa parameter\", \"COA_REVIEW approves with no pre-existing COA\", \"IDENTITY_CHECK approves with inline identityConfirmed: true\", \"IDENTITY_CHECK rejects with inline identityConfirmed: false\", \"COA row created when inlineCoa provided\", \"Lab-status gate preserved\"]}\n```"
+    },
+    {
+      "id": 1,
+      "subject": "Task 2: Server — partial receipt inherits APPROVED status",
+      "status": "completed",
+      "description": "**Goal:** receivePOLineItem() sets new receiving record status to APPROVED when the existing lot is already APPROVED, and derives the proper qcWorkflowType for QUARANTINED/PENDING_QC lots instead of hardcoding EXEMPT.\n\n**Files:**\n- Modify: server/db-storage.ts:492-542\n- Modify: server/__tests__/r10-receiving-qc-redesign.test.ts\n\n**Acceptance Criteria:**\n- Second receipt of APPROVED lot → new record has status APPROVED\n- Second receipt of QUARANTINED lot → proper qcWorkflowType (not EXEMPT)\n- REJECTED lot still blocks receipt (422)\n\n**Verify:** cd /Users/frederikhejlskov/Desktop/NEUROGAN-ERP && DATABASE_URL=$DATABASE_URL npx vitest run server/__tests__/r10-receiving-qc-redesign.test.ts\n\n```json:metadata\n{\"files\": [\"server/db-storage.ts\"], \"verifyCommand\": \"cd /Users/frederikhejlskov/Desktop/NEUROGAN-ERP && DATABASE_URL=$DATABASE_URL npx vitest run server/__tests__/r10-receiving-qc-redesign.test.ts\", \"acceptanceCriteria\": [\"APPROVED lot partial receipt produces APPROVED record\", \"QUARANTINED lot partial receipt produces proper workflow type\", \"REJECTED lot still blocks\"]}\n```"
+    },
+    {
+      "id": 2,
+      "subject": "Task 3: Client — remove CoaStatusSection + adaptive QC panel",
+      "status": "completed",
+      "description": "**Goal:** Remove standalone CoaStatusSection. Make QC section adaptive — hide for EXEMPT, show QC Inherited banner for partial receipts of approved lots.\n\n**Files:**\n- Modify: client/src/pages/receiving.tsx\n\n**Acceptance Criteria:**\n- CoaStatusSection component and render removed\n- EXEMPT records with no qcReviewedBy show QC Inherited banner\n- EXEMPT records don't show QC review form\n- COA_REVIEW/IDENTITY_CHECK/FULL_LAB_TEST records still show QC section\n- TypeScript compiles without errors\n\n**Verify:** npx tsc --noEmit + browser test\n\n```json:metadata\n{\"files\": [\"client/src/pages/receiving.tsx\"], \"verifyCommand\": \"cd /Users/frederikhejlskov/Desktop/NEUROGAN-ERP && npx tsc --noEmit\", \"acceptanceCriteria\": [\"CoaStatusSection removed\", \"EXEMPT inherited-approval shows banner\", \"Active workflows still show QC section\", \"TypeScript clean\"]}\n```"
+    },
+    {
+      "id": 3,
+      "subject": "Task 4: Client — inline COA/identity sub-form in QC sign-off",
+      "status": "completed",
+      "description": "**Goal:** Add workflow-type-aware inline fields to QC review form. COA_REVIEW = optional accordion. IDENTITY_CHECK = required identity fields. FULL_LAB_TEST = identity + lab details. Submit fields in POST body so server creates the COA document.\n\n**Files:**\n- Modify: client/src/pages/receiving.tsx\n\n**Acceptance Criteria:**\n- COA_REVIEW: optional COA accordion with sourceType + documentNumber + overallResult\n- IDENTITY_CHECK: required identity fields; Submit disabled until identityConfirmed checked\n- FULL_LAB_TEST: identity fields + labName + analystName + analysisDate + overallResult; Submit disabled until identityConfirmed checked\n- inlineCoa included in POST body when workflow requires it\n- TypeScript clean\n- Browser: can approve a FULL_LAB_TEST lot end-to-end without hitting 422\n\n**Verify:** npx tsc --noEmit + browser end-to-end test\n\n```json:metadata\n{\"files\": [\"client/src/pages/receiving.tsx\"], \"verifyCommand\": \"cd /Users/frederikhejlskov/Desktop/NEUROGAN-ERP && npx tsc --noEmit\", \"acceptanceCriteria\": [\"COA_REVIEW optional accordion shown\", \"IDENTITY_CHECK identity fields required\", \"FULL_LAB_TEST lab detail fields shown\", \"Submit disabled until identityConfirmed for identity workflows\", \"inlineCoa sent in POST body\", \"TypeScript clean\"]}\n```"
+    }
+  ],
+  "lastUpdated": "2026-05-05T16:00:00.000Z"
+}
