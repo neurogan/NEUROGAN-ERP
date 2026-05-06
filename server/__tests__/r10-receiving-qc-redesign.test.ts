@@ -144,31 +144,124 @@ describeIfDb("R10 — inline identity data gate", () => {
   });
 });
 
-describeIfDb("R10 — lot deduplication: APPROVED lot partial receipt", () => {
-  it("partial receipt creates new receiving record with status APPROVED when lot is APPROVED", async () => {
-    const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-    // Simulate an already-approved lot (as would exist after first receipt + QC)
-    const [lot] = await db.insert(schema.lots).values({
-      productId: productPackaging,
-      lotNumber: `R10-DEDUP-${suffix}`,
-      quarantineStatus: "APPROVED",
-    }).returning();
-    seededLotIds.push(lot!.id);
+describeIfDb("R10 — lot deduplication via receivePOLineItem", () => {
+  let lotDedupProductId: string;
+  let lotDedupSupplierId: string;
+  let lotDedupLocationId: string;
+  const seededPoIds: string[] = [];
+  const seededPoLineItemIds: string[] = [];
+  const seededLocationIds: string[] = [];
+  const seededSupplierIds: string[] = [];
 
-    // This is what receivePOLineItem's existingLot branch now does for an APPROVED lot
-    const [record] = await db.insert(schema.receivingRecords).values({
-      lotId: lot!.id,
-      uniqueIdentifier: `R10-DUP-${suffix}`,
-      status: "APPROVED",
-      qcWorkflowType: "EXEMPT",
-      requiresQualification: false,
-      dateReceived: "2026-05-05",
-      quantityReceived: "5",
-      uom: "pcs",
-    }).returning();
-    seededRecordIds.push(record!.id);
+  beforeAll(async () => {
+    if (!process.env.DATABASE_URL) return;
+    const sfx = `dedup-${Date.now()}`;
 
-    expect(record!.status).toBe("APPROVED");
-    expect(record!.qcWorkflowType).toBe("EXEMPT");
+    const [sup] = await db.insert(schema.suppliers)
+      .values({ name: `R10-Supplier-${sfx}` }).returning();
+    lotDedupSupplierId = sup!.id;
+    seededSupplierIds.push(sup!.id);
+
+    const [loc] = await db.insert(schema.locations)
+      .values({ name: `R10-Location-${sfx}` }).returning();
+    lotDedupLocationId = loc!.id;
+    seededLocationIds.push(loc!.id);
+
+    const [prod] = await db.insert(schema.products).values({
+      name: `R10-Dedup-Prod-${sfx}`, sku: `R10-DUP-${sfx}`,
+      category: "PRIMARY_PACKAGING", defaultUom: "pcs",
+    }).returning();
+    lotDedupProductId = prod!.id;
+    seededProductIds.push(prod!.id);
+  });
+
+  afterAll(async () => {
+    if (!process.env.DATABASE_URL) return;
+    for (const id of seededPoLineItemIds) await db.delete(schema.poLineItems).where(eq(schema.poLineItems.id, id)).catch(() => {});
+    for (const id of seededPoIds) await db.delete(schema.purchaseOrders).where(eq(schema.purchaseOrders.id, id)).catch(() => {});
+    for (const id of seededLocationIds) await db.delete(schema.locations).where(eq(schema.locations.id, id)).catch(() => {});
+    for (const id of seededSupplierIds) await db.delete(schema.suppliers).where(eq(schema.suppliers.id, id)).catch(() => {});
+  });
+
+  async function seedPo(productId: string, supplierId: string) {
+    const sfx = `${Date.now()}-${Math.random().toString(36).slice(2, 5)}`;
+    const [po] = await db.insert(schema.purchaseOrders).values({
+      supplierId, poNumber: `R10-PO-${sfx}`, status: "OPEN",
+    }).returning();
+    seededPoIds.push(po!.id);
+    const [lineItem] = await db.insert(schema.poLineItems).values({
+      purchaseOrderId: po!.id, productId,
+      quantityOrdered: "20", quantityReceived: "0", uom: "pcs",
+    }).returning();
+    seededPoLineItemIds.push(lineItem!.id);
+    return { po: po!, lineItem: lineItem! };
+  }
+
+  it("partial receipt of APPROVED lot → new receiving record has status APPROVED", async () => {
+    const lotNumber = `R10-DEDUP-A-${Date.now()}`;
+    const { lineItem } = await seedPo(lotDedupProductId, lotDedupSupplierId);
+
+    // First receipt — creates the lot
+    const first = await storage.receivePOLineItem(
+      lineItem.id, 10, lotNumber, lotDedupLocationId,
+      "Test Supplier", undefined, undefined, 0
+    );
+    seededLotIds.push(first.lot.id);
+    seededRecordIds.push(first.receivingRecordId);
+
+    // Mark the lot as APPROVED (simulate QC approval)
+    await db.update(schema.lots)
+      .set({ quarantineStatus: "APPROVED" })
+      .where(eq(schema.lots.id, first.lot.id));
+    await db.update(schema.receivingRecords)
+      .set({ status: "APPROVED" })
+      .where(eq(schema.receivingRecords.id, first.receivingRecordId));
+
+    // Second receipt of the same lot number
+    const { lineItem: lineItem2 } = await seedPo(lotDedupProductId, lotDedupSupplierId);
+    const second = await storage.receivePOLineItem(
+      lineItem2.id, 5, lotNumber, lotDedupLocationId,
+      "Test Supplier", undefined, undefined, 0
+    );
+    seededRecordIds.push(second.receivingRecordId);
+
+    const [secondRecord] = await db.select()
+      .from(schema.receivingRecords)
+      .where(eq(schema.receivingRecords.id, second.receivingRecordId));
+
+    expect(secondRecord!.status).toBe("APPROVED");
+    expect(secondRecord!.lotId).toBe(first.lot.id); // same lot
+  });
+
+  it("partial receipt of QUARANTINED lot → new receiving record has proper qcWorkflowType", async () => {
+    const lotNumber = `R10-DEDUP-Q-${Date.now()}`;
+    const { lineItem } = await seedPo(lotDedupProductId, lotDedupSupplierId);
+
+    // First receipt — creates the lot (QUARANTINED state)
+    const first = await storage.receivePOLineItem(
+      lineItem.id, 10, lotNumber, lotDedupLocationId,
+      "Test Supplier", undefined, undefined, 0
+    );
+    seededLotIds.push(first.lot.id);
+    seededRecordIds.push(first.receivingRecordId);
+
+    // Lot stays QUARANTINED — don't approve it
+
+    // Second receipt of the same lot number while still quarantined
+    const { lineItem: lineItem2 } = await seedPo(lotDedupProductId, lotDedupSupplierId);
+    const second = await storage.receivePOLineItem(
+      lineItem2.id, 5, lotNumber, lotDedupLocationId,
+      "Test Supplier", undefined, undefined, 0
+    );
+    seededRecordIds.push(second.receivingRecordId);
+
+    const [secondRecord] = await db.select()
+      .from(schema.receivingRecords)
+      .where(eq(schema.receivingRecords.id, second.receivingRecordId));
+
+    expect(secondRecord!.status).toBe("QUARANTINED");
+    // PRIMARY_PACKAGING → COA_REVIEW, not EXEMPT
+    expect(secondRecord!.qcWorkflowType).toBe("COA_REVIEW");
+    expect(secondRecord!.lotId).toBe(first.lot.id); // same lot
   });
 });
