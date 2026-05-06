@@ -6,7 +6,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -38,7 +38,7 @@ import {
 } from "@/components/ui/form";
 import { Plus, Trash2, Search, Package, Pencil } from "lucide-react";
 import type { Product, MmrWithSteps } from "@shared/schema";
-import { formatQty } from "@/lib/formatQty";
+
 
 // ── Product form schema (create / edit name+SKU) ─────────
 
