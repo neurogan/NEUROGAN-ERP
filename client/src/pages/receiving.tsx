@@ -258,6 +258,82 @@ function StatusTimeline({ record }: { record: ReceivingRecordWithDetails }) {
   );
 }
 
+// ── Inline COA helpers ──
+
+type InlineCoaData = {
+  sourceType?: string;
+  documentNumber?: string;
+  overallResult?: string;
+  identityConfirmed?: boolean;
+  identityTestMethod?: string;
+  labName?: string;
+  analystName?: string;
+  analysisDate?: string;
+};
+
+function CoaIdentityFields({
+  sourceType, setSourceType,
+  documentNumber, setDocumentNumber,
+  testMethod, setTestMethod,
+  confirmed, setConfirmed,
+  idPrefix,
+}: {
+  sourceType: string; setSourceType: (v: string) => void;
+  documentNumber: string; setDocumentNumber: (v: string) => void;
+  testMethod: string; setTestMethod: (v: string) => void;
+  confirmed: boolean; setConfirmed: (v: boolean) => void;
+  idPrefix: string;
+}) {
+  return (
+    <>
+      <div className="space-y-1">
+        <Label className="text-xs text-muted-foreground">COA Source</Label>
+        <Select value={sourceType} onValueChange={setSourceType}>
+          <SelectTrigger className="text-xs h-8" data-testid={`select-${idPrefix}-source-type`}>
+            <SelectValue placeholder="Select source…" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="SUPPLIER">Supplier</SelectItem>
+            <SelectItem value="INTERNAL">Internal</SelectItem>
+            <SelectItem value="THIRD_PARTY_LAB">Third-party Lab</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="space-y-1">
+        <Label className="text-xs text-muted-foreground">Document Number (optional)</Label>
+        <Input
+          className="text-xs h-8"
+          placeholder="e.g. COA-2024-001"
+          value={documentNumber}
+          onChange={(e) => setDocumentNumber(e.target.value)}
+          data-testid={`input-${idPrefix}-document-number`}
+        />
+      </div>
+      <div className="space-y-1">
+        <Label className="text-xs text-muted-foreground">Identity Test Method</Label>
+        <Input
+          className="text-xs h-8"
+          placeholder="FTIR / HPTLC / Organoleptic / Other"
+          value={testMethod}
+          onChange={(e) => setTestMethod(e.target.value)}
+          data-testid={`input-${idPrefix}-test-method`}
+        />
+      </div>
+      <div className="flex items-center gap-2">
+        <Checkbox
+          id={`${idPrefix}-identity-confirmed`}
+          checked={confirmed}
+          onCheckedChange={(v) => setConfirmed(v === true)}
+          data-testid={`checkbox-${idPrefix}-identity-confirmed`}
+        />
+        <label htmlFor={`${idPrefix}-identity-confirmed`} className="text-xs cursor-pointer select-none">
+          Identity confirmed — material matches specification
+        </label>
+      </div>
+    </>
+  );
+}
+
 // ── Detail panel ──
 
 function ReceivingDetail({
@@ -301,17 +377,7 @@ function ReceivingDetail({
   const [qcNotes, setQcNotes] = useState("");
   const [sigOpen, setSigOpen] = useState(false);
 
-  // Inline COA state (workflow-type-aware)
-  type InlineCoaData = {
-    sourceType?: string;
-    documentNumber?: string;
-    overallResult?: string;
-    identityConfirmed?: boolean;
-    identityTestMethod?: string;
-    labName?: string;
-    analystName?: string;
-    analysisDate?: string;
-  };
+  // Inline COA data state (sent to server on QC submit)
   const [coaSourceType, setCoaSourceType] = useState<string>("");
   const [coaDocumentNumber, setCoaDocumentNumber] = useState<string>("");
   const [coaOverallResult, setCoaOverallResult] = useState<string>("");
@@ -320,6 +386,7 @@ function ReceivingDetail({
   const [coaLabName, setCoaLabName] = useState<string>("");
   const [coaAnalystName, setCoaAnalystName] = useState<string>("");
   const [coaAnalysisDate, setCoaAnalysisDate] = useState<string>("");
+  // UI-only: COA_REVIEW section expand toggle (data survives collapse intentionally)
   const [coaExpanded, setCoaExpanded] = useState<boolean>(false);
 
   // Reset form when record changes
@@ -983,50 +1050,13 @@ function ReceivingDetail({
                       <Search className="h-3.5 w-3.5" />
                       Identity Verification
                     </p>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">COA Source</Label>
-                      <Select value={coaSourceType} onValueChange={setCoaSourceType}>
-                        <SelectTrigger className="text-xs h-8" data-testid="select-identity-source-type">
-                          <SelectValue placeholder="Select source…" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="SUPPLIER">Supplier</SelectItem>
-                          <SelectItem value="INTERNAL">Internal</SelectItem>
-                          <SelectItem value="THIRD_PARTY_LAB">Third-party Lab</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">Document Number (optional)</Label>
-                      <Input
-                        className="text-xs h-8"
-                        placeholder="e.g. COA-2024-001"
-                        value={coaDocumentNumber}
-                        onChange={(e) => setCoaDocumentNumber(e.target.value)}
-                        data-testid="input-identity-document-number"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">Identity Test Method</Label>
-                      <Input
-                        className="text-xs h-8"
-                        placeholder="FTIR / HPTLC / Organoleptic / Other"
-                        value={coaIdentityTestMethod}
-                        onChange={(e) => setCoaIdentityTestMethod(e.target.value)}
-                        data-testid="input-identity-test-method"
-                      />
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Checkbox
-                        id="identity-confirmed"
-                        checked={coaIdentityConfirmed}
-                        onCheckedChange={(v) => setCoaIdentityConfirmed(v === true)}
-                        data-testid="checkbox-identity-confirmed"
-                      />
-                      <label htmlFor="identity-confirmed" className="text-xs cursor-pointer select-none">
-                        Identity confirmed — material matches specification
-                      </label>
-                    </div>
+                    <CoaIdentityFields
+                      sourceType={coaSourceType} setSourceType={setCoaSourceType}
+                      documentNumber={coaDocumentNumber} setDocumentNumber={setCoaDocumentNumber}
+                      testMethod={coaIdentityTestMethod} setTestMethod={setCoaIdentityTestMethod}
+                      confirmed={coaIdentityConfirmed} setConfirmed={setCoaIdentityConfirmed}
+                      idPrefix="identity"
+                    />
                   </div>
                 )}
 
@@ -1037,39 +1067,13 @@ function ReceivingDetail({
                       <ClipboardCheck className="h-3.5 w-3.5" />
                       Lab Test Results
                     </p>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">COA Source</Label>
-                      <Select value={coaSourceType} onValueChange={setCoaSourceType}>
-                        <SelectTrigger className="text-xs h-8" data-testid="select-lab-source-type">
-                          <SelectValue placeholder="Select source…" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="SUPPLIER">Supplier</SelectItem>
-                          <SelectItem value="INTERNAL">Internal</SelectItem>
-                          <SelectItem value="THIRD_PARTY_LAB">Third-party Lab</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">Document Number (optional)</Label>
-                      <Input
-                        className="text-xs h-8"
-                        placeholder="e.g. COA-2024-001"
-                        value={coaDocumentNumber}
-                        onChange={(e) => setCoaDocumentNumber(e.target.value)}
-                        data-testid="input-lab-document-number"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">Identity Test Method</Label>
-                      <Input
-                        className="text-xs h-8"
-                        placeholder="FTIR / HPTLC / Organoleptic / Other"
-                        value={coaIdentityTestMethod}
-                        onChange={(e) => setCoaIdentityTestMethod(e.target.value)}
-                        data-testid="input-lab-identity-test-method"
-                      />
-                    </div>
+                    <CoaIdentityFields
+                      sourceType={coaSourceType} setSourceType={setCoaSourceType}
+                      documentNumber={coaDocumentNumber} setDocumentNumber={setCoaDocumentNumber}
+                      testMethod={coaIdentityTestMethod} setTestMethod={setCoaIdentityTestMethod}
+                      confirmed={coaIdentityConfirmed} setConfirmed={setCoaIdentityConfirmed}
+                      idPrefix="lab"
+                    />
                     <div className="grid grid-cols-2 gap-2">
                       <div className="space-y-1">
                         <Label className="text-xs text-muted-foreground">Lab Name</Label>
