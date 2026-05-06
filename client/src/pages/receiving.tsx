@@ -38,6 +38,7 @@ import {
   Upload,
   RotateCcw,
   Trash2,
+  MapPin,
 } from "lucide-react";
 import { formatQty } from "@/lib/formatQty";
 import { formatDate, formatDateTime } from "@/lib/formatDate";
@@ -94,11 +95,18 @@ function receivingStatusBadge(status: string) {
           Pending QC
         </Badge>
       );
+    case "APPROVED_PENDING_MOVE":
+      return (
+        <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 border-0 text-xs" data-testid={`badge-status-${status}`}>
+          <MapPin className="h-3 w-3 mr-1" />
+          Pending Move
+        </Badge>
+      );
     case "APPROVED":
       return (
         <Badge className="bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300 border-0 text-xs" data-testid={`badge-status-${status}`}>
           <ShieldCheck className="h-3 w-3 mr-1" />
-          Approved
+          Released
         </Badge>
       );
     case "REJECTED":
@@ -225,6 +233,17 @@ function StatusTimeline({ record }: { record: ReceivingRecordWithDetails }) {
     icon: Shield,
   };
 
+  const moveStep = {
+    label: "Location Confirmed",
+    description: record.status === "APPROVED"
+      ? "Warehouse move confirmed — material released"
+      : record.status === "APPROVED_PENDING_MOVE"
+      ? "Awaiting warehouse move confirmation"
+      : "Pending",
+    completed: record.status === "APPROVED",
+    icon: MapPin,
+  };
+
   const releasedStep = {
     label: "Released",
     description: record.status === "APPROVED"
@@ -236,9 +255,11 @@ function StatusTimeline({ record }: { record: ReceivingRecordWithDetails }) {
     icon: record.status === "REJECTED" ? XCircle : CheckCircle2,
   };
 
+  const isApprovedOrPendingMove = record.status === "APPROVED" || record.status === "APPROVED_PENDING_MOVE";
+
   const steps = isCOAWorkflow
-    ? [...baseSteps, coaStep, signOffStep, releasedStep]
-    : [...baseSteps, signOffStep, releasedStep];
+    ? [...baseSteps, coaStep, signOffStep, ...(isApprovedOrPendingMove ? [moveStep] : []), releasedStep]
+    : [...baseSteps, signOffStep, ...(isApprovedOrPendingMove ? [moveStep] : []), releasedStep];
 
   return (
     <div className="space-y-0">
@@ -286,11 +307,13 @@ function ReceivingDetail({
   onUpdated,
   onDeleted,
   _onNavigateTo,
+  locations,
 }: {
   record: ReceivingRecordWithDetails;
   onUpdated: () => void;
   onDeleted: () => void;
   _onNavigateTo: (id: string) => void;
+  locations: Location[];
 }) {
   const { toast } = useToast();
   const { user } = useAuth();
@@ -309,6 +332,10 @@ function ReceivingDetail({
   const [qcDisposition, setQcDisposition] = useState<string>("");
   const [qcNotes, setQcNotes] = useState("");
   const [sigOpen, setSigOpen] = useState(false);
+
+  // Location move form state (WH-01)
+  const [moveLocationId, setMoveLocationId] = useState<string>("");
+  const [moveNotes, setMoveNotes] = useState<string>("");
 
   // COA upload state — local copy so we can append on upload without re-fetching
   const [localCoaDocs, setLocalCoaDocs] = useState<CoaDocument[]>(record.coaDocuments);
@@ -461,9 +488,31 @@ function ReceivingDetail({
     },
   });
 
+  // WH-01: Location move confirmation mutation
+  const confirmMove = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/receiving/${record.id}/confirm-move`, {
+        toLocationId: moveLocationId,
+        notes: moveNotes || undefined,
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Location confirmed", description: "Receiving record released." });
+      setMoveLocationId("");
+      setMoveNotes("");
+      queryClient.invalidateQueries({ queryKey: ["/api/receiving"] });
+      onUpdated();
+    },
+    onError: (err: Error) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
   const isQuarantined = record.status === "QUARANTINED";
   const isPendingQc = record.status === "PENDING_QC";
-  const isReviewed = record.status === "APPROVED" || record.status === "REJECTED";
+  const isApprovedPendingMove = record.status === "APPROVED_PENDING_MOVE";
+  const isReviewed = record.status === "APPROVED" || record.status === "APPROVED_PENDING_MOVE" || record.status === "REJECTED";
   const isInheritedApproval = record.status === "APPROVED" && !record.qcReviewedBy;
   const showQcSection = (isPendingQc || isReviewed) && !isInheritedApproval;
   const isCOAWorkflow = record.qcWorkflowType !== "EXEMPT";
@@ -781,6 +830,57 @@ function ReceivingDetail({
                     </div>
                   )}
                 </div>
+
+                {/* WH-01: Location move confirmation widget */}
+                {isApprovedPendingMove && (
+                  <div className="rounded-lg border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20 p-4 space-y-3" data-testid="location-move-widget">
+                    <div className="flex items-center gap-2">
+                      <MapPin className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                      <p className="text-sm font-medium text-amber-800 dark:text-amber-300">
+                        QC Approved — confirm where this material is being stored
+                      </p>
+                    </div>
+                    <div className="flex gap-2 items-end">
+                      <div className="flex-1 space-y-1">
+                        <Label className="text-xs text-amber-800 dark:text-amber-300">Move to</Label>
+                        <Select value={moveLocationId} onValueChange={setMoveLocationId} data-testid="select-move-location">
+                          <SelectTrigger className="h-8 text-sm">
+                            <SelectValue placeholder="Select location…" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {locations.map((loc) => (
+                              <SelectItem key={loc.id} value={loc.id}>{loc.name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <Button
+                        size="sm"
+                        className="h-8 bg-amber-600 hover:bg-amber-700 text-white shrink-0"
+                        disabled={!moveLocationId || confirmMove.isPending}
+                        onClick={() => confirmMove.mutate()}
+                        data-testid="button-confirm-move"
+                      >
+                        {confirmMove.isPending ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
+                        ) : (
+                          <MapPin className="h-3.5 w-3.5 mr-1" />
+                        )}
+                        Confirm Move
+                      </Button>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-amber-700 dark:text-amber-400">Notes (optional)</Label>
+                      <Textarea
+                        className="text-xs h-16 resize-none"
+                        placeholder="e.g. Shelf B-3, bay 2…"
+                        value={moveNotes}
+                        onChange={(e) => setMoveNotes(e.target.value)}
+                        data-testid="textarea-move-notes"
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
             ) : (
               // QC review form: COA upload (non-EXEMPT) + sign-off
@@ -1096,7 +1196,8 @@ export default function Receiving() {
               <SelectItem value="ALL">All Statuses ({statusCounts.ALL ?? 0})</SelectItem>
               <SelectItem value="QUARANTINED">Quarantined ({statusCounts.QUARANTINED ?? 0})</SelectItem>
               <SelectItem value="PENDING_QC">Pending QC ({statusCounts.PENDING_QC ?? 0})</SelectItem>
-              <SelectItem value="APPROVED">Approved ({statusCounts.APPROVED ?? 0})</SelectItem>
+              <SelectItem value="APPROVED_PENDING_MOVE">Pending Move ({statusCounts.APPROVED_PENDING_MOVE ?? 0})</SelectItem>
+              <SelectItem value="APPROVED">Released ({statusCounts.APPROVED ?? 0})</SelectItem>
               <SelectItem value="REJECTED">Rejected ({statusCounts.REJECTED ?? 0})</SelectItem>
               <SelectItem value="SAMPLING">Sampling ({statusCounts.SAMPLING ?? 0})</SelectItem>
               <SelectItem value="ON_HOLD">On Hold ({statusCounts.ON_HOLD ?? 0})</SelectItem>
@@ -1180,6 +1281,7 @@ export default function Receiving() {
             onUpdated={handleUpdated}
             onDeleted={() => { setSelectedId(null); handleUpdated(); }}
             _onNavigateTo={(id: string) => setSelectedId(id)}
+            locations={locations}
           />
         ) : (
           <div className="flex flex-col items-center justify-center h-full text-center px-6">

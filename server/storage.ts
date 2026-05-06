@@ -38,6 +38,7 @@ import {
   type OosRecallClass,
   type OosNoInvestigationReason,
   type ReceivingBox,
+  type LocationMove,
 } from "@shared/schema";
 import type { Tx } from "./db";
 
@@ -46,7 +47,8 @@ export type ReceivingTaskType =
   | "QUALIFICATION_REQUIRED"
   | "PENDING_QC"
   | "IDENTITY_CHECK_REQUIRED"
-  | "REJECTED_LOT";
+  | "REJECTED_LOT"
+  | "LOCATION_MOVE_REQUIRED";
 
 export type ComplaintTaskType =
   | "COMPLAINT_TRIAGE_REQUIRED"
@@ -316,6 +318,10 @@ export interface IStorage {
   getNextReceivingIdentifier(): Promise<string>;
   getQuarantinedLots(): Promise<ReceivingRecordWithDetails[]>;
   deleteReceivingRecord(id: string, adminUserId: string): Promise<void>;
+
+  // WH-01: Location moves
+  confirmLocationMove(receivingRecordId: string, toLocationId: string, movedByUserId: string, notes?: string): Promise<void>;
+  getLocationMovesByLot(lotId: string): Promise<LocationMove[]>;
 
   // COA Documents
   getCoaDocuments(filters?: { lotId?: string; productionBatchId?: string; sourceType?: string; overallResult?: string }): Promise<CoaDocumentWithDetails[]>;
