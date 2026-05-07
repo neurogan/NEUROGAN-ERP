@@ -316,68 +316,10 @@ describeIfDb("R-03 BPR start gates", () => {
     });
   });
 
-  describe("EQUIPMENT_NOT_QUALIFIED", () => {
-    it("throws when equipment lacks IQ/OQ/PQ qualifications", async () => {
-      // Fresh equipment with calibration schedule but NO qualifications.
-      const bareEquipId = await makeEquipment("bare");
-      await createSchedule(bareEquipId, 30);
-
-      const err = await runAllGates(db, batchId, productAId, [bareEquipId]).catch(
-        (e: unknown) => e,
-      );
-      expect(err).toBeInstanceOf(GateError);
-      expect((err as GateError).code).toBe("EQUIPMENT_NOT_QUALIFIED");
-      const payload = (err as GateError).payload as {
-        equipment: Array<{ assetTag: string; missingTypes: string[] }>;
-      };
-      expect(payload.equipment).toHaveLength(1);
-      expect(payload.equipment[0]!.missingTypes.sort()).toEqual(["IQ", "OQ", "PQ"]);
-    });
-
-    it("passes when all three IQ/OQ/PQ are QUALIFIED and within validity window", async () => {
-      // The default equipId fixture has all three QUALIFIED — just confirm.
-      await expect(
-        runAllGates(db, batchId, productAId, [equipId]),
-      ).resolves.toBeUndefined();
-    });
-
-    it("reports only the missing types when some are present", async () => {
-      const partialEquipId = await makeEquipment("partial");
-      await createSchedule(partialEquipId, 30);
-      // Insert only IQ — OQ and PQ still missing.
-      const [sig] = await db
-        .insert(schema.electronicSignatures)
-        .values({
-          userId: qaId,
-          meaning: "EQUIPMENT_QUALIFIED",
-          entityType: "equipment",
-          entityId: partialEquipId,
-          fullNameAtSigning: "Test QA",
-          titleAtSigning: "QC Manager",
-          requestId: `r03g-partial-${Date.now()}`,
-          manifestationJson: { meaning: "EQUIPMENT_QUALIFIED" },
-        })
-        .returning();
-      await db.insert(schema.equipmentQualifications).values({
-        equipmentId: partialEquipId,
-        type: "IQ",
-        status: "QUALIFIED",
-        validFrom: isoDate(-1),
-        validUntil: isoDate(365),
-        signatureId: sig!.id,
-      });
-
-      const err = await runAllGates(db, batchId, productAId, [partialEquipId]).catch(
-        (e: unknown) => e,
-      );
-      expect(err).toBeInstanceOf(GateError);
-      expect((err as GateError).code).toBe("EQUIPMENT_NOT_QUALIFIED");
-      const payload = (err as GateError).payload as {
-        equipment: Array<{ missingTypes: string[] }>;
-      };
-      expect(payload.equipment[0]!.missingTypes.sort()).toEqual(["OQ", "PQ"]);
-    });
-  });
+  // IQ/OQ/PQ qualification gate removed (see bpr-equipment-gates.ts) — 21 CFR
+  // Part 111 does not require formal qualification protocols for dietary
+  // supplement equipment. Equipment fitness is demonstrated via SOPs and BPR
+  // step execution records instead.
 
   describe("LINE_CLEARANCE_MISSING", () => {
     it("throws when prior APPROVED BPR was a different product and no clearance exists", async () => {
@@ -542,48 +484,6 @@ describeIfDb("R-03 BPR start gates", () => {
   });
 
   describe("Gate ordering (first-failure semantics)", () => {
-    it("CALIBRATION_OVERDUE wins when both calibration and qualification would fail", async () => {
-      // Equipment with overdue calibration AND no qualifications. The gate
-      // order is calibration → qualification → line-clearance, so we expect
-      // CALIBRATION_OVERDUE.
-      const dualFailEquipId = await makeEquipment("dual-fail");
-      await db.insert(schema.calibrationSchedules).values({
-        equipmentId: dualFailEquipId,
-        frequencyDays: 365,
-        nextDueAt: new Date(Date.now() - 24 * 60 * 60 * 1000), // overdue
-      });
-      // No qualifications inserted — would fail qualification gate too.
-
-      const err = await runAllGates(db, batchId, productAId, [dualFailEquipId]).catch(
-        (e: unknown) => e,
-      );
-      expect(err).toBeInstanceOf(GateError);
-      expect((err as GateError).code).toBe("CALIBRATION_OVERDUE");
-    });
-
-    it("EQUIPMENT_NOT_QUALIFIED wins over LINE_CLEARANCE_MISSING when both would fail", async () => {
-      // Equipment with cal future, NO qualifications, AND a missing line-clearance
-      // precondition (prior APPROVED BPR for a different product, no clearance).
-      // Order is qualification → line-clearance, so we expect EQUIPMENT_NOT_QUALIFIED.
-      const qLcEquipId = await makeEquipment("q-vs-lc");
-      await createSchedule(qLcEquipId, 30);
-      // No qualifications — would fail qualification gate.
-
-      // Wire a prior APPROVED BPR for productB on this equipment with no clearance.
-      const qLcPriorBatchId = await makeBatch(productBId);
-      await makeBpr(qLcPriorBatchId, productBId, "APPROVED", new Date(Date.now() - 60_000));
-      await db.insert(schema.productionBatchEquipmentUsed).values({
-        productionBatchId: qLcPriorBatchId,
-        equipmentId: qLcEquipId,
-      });
-
-      const err = await runAllGates(db, batchId, productAId, [qLcEquipId]).catch(
-        (e: unknown) => e,
-      );
-      expect(err).toBeInstanceOf(GateError);
-      expect((err as GateError).code).toBe("EQUIPMENT_NOT_QUALIFIED");
-    });
-
     it("CALIBRATION_OVERDUE wins over LINE_CLEARANCE_MISSING when both would fail", async () => {
       // Equipment with overdue calibration, IQ/OQ/PQ qualified, AND a missing
       // line-clearance precondition. Order is calibration → line-clearance,
