@@ -821,7 +821,7 @@ export class DatabaseStorage implements IStorage {
       : equipmentIds;
 
     try {
-      await runAllGates(db, batchId, existing.productId, allEquipmentIds);
+      await runAllGates(db, allEquipmentIds);
     } catch (e: unknown) {
       if (GateError.is(e)) {
         await db.insert(schema.auditTrail).values({
@@ -1134,6 +1134,18 @@ export class DatabaseStorage implements IStorage {
         outputLotId = tx.lotId;
       }
     }
+
+    // Delete BPR steps and BPRs for this batch
+    const bprs = await db.select({ id: schema.batchProductionRecords.id })
+      .from(schema.batchProductionRecords)
+      .where(eq(schema.batchProductionRecords.productionBatchId, id));
+    for (const bpr of bprs) {
+      await db.delete(schema.bprSteps).where(eq(schema.bprSteps.bprId, bpr.id));
+    }
+    await db.delete(schema.batchProductionRecords).where(eq(schema.batchProductionRecords.productionBatchId, id));
+
+    // Delete equipment-used rows
+    await db.delete(schema.productionBatchEquipmentUsed).where(eq(schema.productionBatchEquipmentUsed.productionBatchId, id));
 
     // Delete all transactions linked to this batch
     await db.delete(schema.transactions).where(eq(schema.transactions.productionBatchId, id));
@@ -2653,6 +2665,25 @@ export class DatabaseStorage implements IStorage {
     if (!existing) return undefined;
     assertNotLocked("batch_production_record", existing.status);
     assertValidTransition("batch_production_record", existing.status, "PENDING_QC_REVIEW");
+
+    // All steps must be executed (performedBy set) before the BPR can be
+    // submitted for QC review. This enforces the SOPs-via-BPR compliance
+    // model required under 21 CFR §111.
+    const incompleteSteps = await (tx ?? db)
+      .select({ id: schema.bprSteps.id, stepNumber: schema.bprSteps.stepNumber })
+      .from(schema.bprSteps)
+      .where(and(
+        eq(schema.bprSteps.bprId, id),
+        isNull(schema.bprSteps.performedBy),
+      ));
+    if (incompleteSteps.length > 0) {
+      const nums = incompleteSteps.map((s) => s.stepNumber).join(", ");
+      throw Object.assign(
+        new Error(`Cannot submit for review: step(s) ${nums} have not been executed.`),
+        { status: 422, code: "STEPS_NOT_EXECUTED" },
+      );
+    }
+
     const [row] = await (tx ?? db).update(schema.batchProductionRecords).set({ status: "PENDING_QC_REVIEW", updatedAt: new Date() }).where(eq(schema.batchProductionRecords.id, id)).returning();
     return row;
   }

@@ -878,9 +878,7 @@ export async function registerRoutes(
       const e = err as { status?: number; code?: string; message?: string; payload?: unknown };
       if (
         e.code === "EQUIPMENT_LIST_EMPTY" ||
-        e.code === "CALIBRATION_OVERDUE" ||
-        e.code === "EQUIPMENT_NOT_QUALIFIED" ||
-        e.code === "LINE_CLEARANCE_MISSING"
+        e.code === "CALIBRATION_OVERDUE"
       ) {
         return res.status(409).json({ code: e.code, message: e.message, payload: e.payload });
       }
