@@ -35,12 +35,6 @@ type GateFailureCalibration = {
   dueAt: string;
 };
 
-type GateFailureQualification = {
-  equipmentId: string;
-  assetTag: string | null;
-  missingTypes: ("IQ" | "OQ" | "PQ")[];
-};
-
 type GateFailureLineClearance = {
   equipmentId: string;
   assetTag: string | null;
@@ -50,14 +44,12 @@ type GateFailureLineClearance = {
 
 type GateFailure =
   | GateFailureCalibration
-  | GateFailureQualification
   | GateFailureLineClearance;
 
 type GateError = {
   code:
     | "EQUIPMENT_LIST_EMPTY"
     | "CALIBRATION_OVERDUE"
-    | "EQUIPMENT_NOT_QUALIFIED"
     | "LINE_CLEARANCE_MISSING";
   message: string;
   payload: { equipment: GateFailure[] };
@@ -383,8 +375,8 @@ function GateBanners({ error }: { error: GateError }) {
           const cal = f as GateFailureCalibration;
           const dueAt = new Date(cal.dueAt).toLocaleDateString();
           const calibrationHref = cal.assetTag
-            ? `/equipment/calibration?focus=${encodeURIComponent(cal.assetTag)}`
-            : `/equipment/calibration`;
+            ? `/operations/equipment/calibration?focus=${encodeURIComponent(cal.assetTag)}`
+            : `/operations/equipment/calibration`;
           return (
             <Alert
               variant="destructive"
@@ -400,28 +392,6 @@ function GateBanners({ error }: { error: GateError }) {
                   data-testid={`link-resolve-${cal.equipmentId}`}
                 >
                   Log calibration record
-                </Link>
-              </AlertDescription>
-            </Alert>
-          );
-        }
-        if (error.code === "EQUIPMENT_NOT_QUALIFIED") {
-          const q = f as GateFailureQualification;
-          return (
-            <Alert
-              variant="destructive"
-              key={q.equipmentId}
-              data-testid={`gate-banner-${q.equipmentId}`}
-            >
-              <AlertDescription>
-                <strong>{q.assetTag ?? q.equipmentId}</strong>: missing
-                qualifications {q.missingTypes.join(", ")}.{" "}
-                <Link
-                  href={`/operations/equipment/${q.equipmentId}`}
-                  className="underline"
-                  data-testid={`link-resolve-${q.equipmentId}`}
-                >
-                  Open equipment
                 </Link>
               </AlertDescription>
             </Alert>

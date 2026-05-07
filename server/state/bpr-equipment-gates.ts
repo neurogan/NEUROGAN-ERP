@@ -9,14 +9,12 @@
 // Gate order (deterministic, codified for predictable error UX):
 //   1. EQUIPMENT_LIST_EMPTY    — short-circuits before any DB query
 //   2. CALIBRATION_OVERDUE     — any equipment whose nextDueAt is in the past
-//   3. EQUIPMENT_NOT_QUALIFIED — any equipment missing an active IQ/OQ/PQ
-//   4. LINE_CLEARANCE_MISSING  — equipment used on a different product's APPROVED
+//   3. LINE_CLEARANCE_MISSING  — equipment used on a different product's APPROVED
 //                                BPR with no line clearance since.
 //
-// Order rationale: Calibration first because it's the cheapest gate (one
-// inArray query) and most actionable ("send for cal"). Qualification second.
-// Line clearance last because it's the most expensive (per-equipment join
-// across BPRs and clearances) and the most context-dependent.
+// IQ/OQ/PQ qualification (formerly gate 3) removed: 21 CFR Part 111 (dietary
+// supplements) does not require formal equipment qualification protocols.
+// Equipment fitness is demonstrated through SOPs and BPR step execution records.
 //
 // Each error carries `payload.equipment: [{ assetTag, ...context }]` per
 // failing piece of equipment so the frontend (Task 15) can render actionable
@@ -24,7 +22,6 @@
 
 import * as schema from "@shared/schema";
 import { eq, and, lt, desc, inArray } from "drizzle-orm";
-import { getActiveQualifiedTypes } from "../storage/equipment";
 import { findClearance } from "../storage/cleaning-line-clearance";
 import { db as defaultDb } from "../db";
 
@@ -33,17 +30,10 @@ import { db as defaultDb } from "../db";
 // with the top-level db. The gate logic itself does not start a transaction.
 export type DbLike = typeof defaultDb;
 
-const REQUIRED_TYPES: Array<"IQ" | "OQ" | "PQ"> = ["IQ", "OQ", "PQ"];
-
 export interface GateFailureCalibration {
   equipmentId: string;
   assetTag: string | null;
   dueAt: Date;
-}
-export interface GateFailureQualification {
-  equipmentId: string;
-  assetTag: string | null;
-  missingTypes: Array<"IQ" | "OQ" | "PQ">;
 }
 export interface GateFailureLineClearance {
   equipmentId: string;
@@ -53,13 +43,11 @@ export interface GateFailureLineClearance {
 }
 export type GateFailure =
   | GateFailureCalibration
-  | GateFailureQualification
   | GateFailureLineClearance;
 
 export type GateCode =
   | "EQUIPMENT_LIST_EMPTY"
   | "CALIBRATION_OVERDUE"
-  | "EQUIPMENT_NOT_QUALIFIED"
   | "LINE_CLEARANCE_MISSING";
 
 export interface GatePayload {
@@ -109,7 +97,6 @@ export async function runAllGates(
   const tagById = new Map(equipmentRows.map((r) => [r.id, r.assetTag]));
 
   await checkCalibration(db, equipmentIds, tagById);
-  await checkQualification(equipmentIds, tagById);
   await checkLineClearance(db, productionBatchId, productId, equipmentIds, tagById);
 }
 
@@ -134,36 +121,6 @@ async function checkCalibration(
         assetTag: tagById.get(o.equipmentId) ?? null,
         dueAt: o.nextDueAt,
       })),
-    });
-  }
-}
-
-async function checkQualification(
-  equipmentIds: string[],
-  tagById: Map<string, string>,
-): Promise<void> {
-  // getActiveQualifiedTypes does its own latest-wins-per-type evaluation and
-  // returns a Set of currently-active types. We loop one equipment at a time
-  // (N is small — typically 1-3 pieces of equipment per BPR).
-  const failures: Array<{
-    equipmentId: string;
-    assetTag: string | null;
-    missingTypes: Array<"IQ" | "OQ" | "PQ">;
-  }> = [];
-  for (const id of equipmentIds) {
-    const active = await getActiveQualifiedTypes(id);
-    const missing = REQUIRED_TYPES.filter((t) => !active.has(t));
-    if (missing.length > 0) {
-      failures.push({
-        equipmentId: id,
-        assetTag: tagById.get(id) ?? null,
-        missingTypes: missing,
-      });
-    }
-  }
-  if (failures.length > 0) {
-    throw new GateError("EQUIPMENT_NOT_QUALIFIED", "Equipment not qualified", {
-      equipment: failures,
     });
   }
 }
