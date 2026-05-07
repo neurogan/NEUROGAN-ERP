@@ -1353,24 +1353,21 @@ export function ReceiveSheet({
                             </FormItem>
                           )}
                         />
-                        <FormField
-                          control={form.control}
-                          name={`items.${index}.lotNumber`}
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel className="text-xs">
-                                Lot #
-                                {isSecondaryPackaging(item.productId) && (
-                                  <span className="text-muted-foreground ml-1 font-normal">(optional)</span>
-                                )}
-                              </FormLabel>
-                              <FormControl>
-                                <Input {...field} placeholder={isSecondaryPackaging(item.productId) ? "Auto-generated if empty" : "e.g. LOT-001"} data-testid={`input-receive-lot-${index}`} />
-                              </FormControl>
-                              {!isSecondaryPackaging(item.productId) && <FormMessage />}
-                            </FormItem>
-                          )}
-                        />
+                        {!isSecondaryPackaging(item.productId) && (
+                          <FormField
+                            control={form.control}
+                            name={`items.${index}.lotNumber`}
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel className="text-xs">Lot #</FormLabel>
+                                <FormControl>
+                                  <Input {...field} placeholder="e.g. LOT-001" data-testid={`input-receive-lot-${index}`} />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                        )}
                       </div>
 
                       <div className="grid grid-cols-2 gap-2">
