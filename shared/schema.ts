@@ -91,7 +91,7 @@ export const receivingRecords = pgTable("erp_receiving_records", {
   visualExamBy: jsonb("visual_exam_by").$type<{ userId: string | null; fullName: string; title: string | null } | null>(),
   visualExamAt: timestamp("visual_exam_at"),
   // QC Review
-  status: text("status").notNull().default("QUARANTINED"), // QUARANTINED, SAMPLING, PENDING_QC, APPROVED, REJECTED, ON_HOLD
+  status: text("status").notNull().default("QUARANTINED").$type<"QUARANTINED" | "SAMPLING" | "PENDING_QC" | "APPROVED_PENDING_MOVE" | "APPROVED" | "REJECTED" | "ON_HOLD">(),
   qcReviewedBy: jsonb("qc_reviewed_by").$type<{ userId: string | null; fullName: string; title: string | null } | null>(),
   qcReviewedAt: timestamp("qc_reviewed_at"),
   qcDisposition: text("qc_disposition"), // APPROVED, REJECTED, APPROVED_WITH_CONDITIONS
@@ -126,6 +126,18 @@ export const locations = pgTable("erp_locations", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   name: text("name").notNull().unique(),
   description: text("description"),
+});
+
+// Location Moves — records physical material moves after QC approval (WH-01)
+export const locationMoves = pgTable("erp_location_moves", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  lotId: varchar("lot_id").notNull().references(() => lots.id),
+  fromLocationId: varchar("from_location_id").references(() => locations.id),
+  toLocationId: varchar("to_location_id").notNull().references(() => locations.id),
+  movedBy: uuid("moved_by").notNull().references(() => users.id),
+  movedAt: timestamp("moved_at").notNull().defaultNow(),
+  notes: text("notes"),
+  receivingRecordId: varchar("receiving_record_id").references(() => receivingRecords.id),
 });
 
 // Transactions (append-only audit log)
@@ -555,6 +567,8 @@ export const insertAppSettingsSchema = createInsertSchema(appSettings).omit({ id
 
 export const insertProductionNoteSchema = createInsertSchema(productionNotes).omit({ id: true, createdAt: true });
 export const insertSupplierDocumentSchema = createInsertSchema(supplierDocuments).omit({ id: true, uploadedAt: true });
+export const insertLocationMoveSchema = createInsertSchema(locationMoves).omit({ id: true, movedAt: true });
+
 export const insertReceivingRecordSchema = createInsertSchema(receivingRecords).omit({
   id: true,
   createdAt: true,
@@ -617,6 +631,8 @@ export type SupplierDocument = typeof supplierDocuments.$inferSelect;
 export type InsertSupplierDocument = z.infer<typeof insertSupplierDocumentSchema>;
 export type ReceivingRecord = typeof receivingRecords.$inferSelect;
 export type InsertReceivingRecord = z.infer<typeof insertReceivingRecordSchema>;
+export type LocationMove = typeof locationMoves.$inferSelect;
+export type InsertLocationMove = z.infer<typeof insertLocationMoveSchema>;
 export type ReceivingBox = typeof receivingBoxes.$inferSelect;
 export type InsertReceivingBox = z.infer<typeof insertReceivingBoxSchema>;
 export type ReceivingBoxWithSampler = ReceivingBox & {
@@ -987,6 +1003,8 @@ export const auditActionEnum = z.enum([
   "BPR_DEVIATION_SIGNED",
   // Admin data cleanup
   "RECORD_DELETED",
+  // WH-01 warehouse location move
+  "LOCATION_MOVE_CONFIRMED",
 ]);
 export type AuditAction = z.infer<typeof auditActionEnum>;
 

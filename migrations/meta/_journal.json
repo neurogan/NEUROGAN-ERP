@@ -295,6 +295,13 @@
       "when": 1778889600000,
       "tag": "0041_mmr_consolidation",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1778976000000,
+      "tag": "0042_wh01_location_moves",
+      "breakpoints": true
     }
   ]
 }

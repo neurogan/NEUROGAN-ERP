@@ -116,8 +116,14 @@ describe("F-05 — transition graph (unit)", () => {
     it("bprTransitions has all required edges", () => {
       expect(bprTransitions.length).toBeGreaterThanOrEqual(3);
     });
-    it("receiving mirrors lot transitions", () => {
-      expect(receivingTransitions).toBe(lotTransitions);
+    it("receiving extends lot transitions with location-move edges", () => {
+      // WH-01: receivingTransitions is now a superset of lotTransitions (adds
+      // APPROVED_PENDING_MOVE intermediate step). Verify it contains all lot edges.
+      for (const t of lotTransitions) {
+        expect(receivingTransitions).toContainEqual(t);
+      }
+      // And has at least the two new WH-01 edges
+      expect(receivingTransitions.length).toBeGreaterThan(lotTransitions.length);
     });
     it("every lot transition specifies at least one required role", () => {
       for (const t of lotTransitions) {
