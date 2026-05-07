@@ -17,6 +17,7 @@ export default tseslint.config(
       "pnpm-lock.yaml",
       "**/*.d.ts",
       "FDA/",
+      ".worktrees/",
       "tailwind.config.ts",
       "tailwind.config.ts.bak",
       "postcss.config.js",

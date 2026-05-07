@@ -31,8 +31,6 @@ let qaId: string;
 let equipId: string;
 let productAId: string;
 let productBId: string;
-let batchId: string;
-let priorBatchId: string;
 
 const createdEquipmentIds: string[] = [];
 const createdProductIds: string[] = [];
@@ -110,25 +108,6 @@ async function makeBatch(productId: string, status = "IN_PROGRESS"): Promise<str
   return batch!.id;
 }
 
-async function makeBpr(
-  productionBatchId: string,
-  productId: string,
-  status: string,
-  completedAt: Date | null,
-): Promise<string> {
-  const [bpr] = await db
-    .insert(schema.batchProductionRecords)
-    .values({
-      productionBatchId,
-      batchNumber: `R03G-BPR-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      productId,
-      status,
-      completedAt,
-    })
-    .returning();
-  return bpr!.id;
-}
-
 beforeAll(async () => {
   if (!dbUrl) return;
   const sfx = Date.now();
@@ -167,21 +146,14 @@ beforeAll(async () => {
   productAId = await makeProduct("A");
   productBId = await makeProduct("B");
 
-  // The "current" production batch (the one we're trying to start). The gate
-  // only looks at productionBatchEquipmentUsed + APPROVED prior BPRs, so the
-  // current batch's status doesn't matter for the gate logic — we keep it
-  // IN_PROGRESS as the realistic default.
-  batchId = await makeBatch(productAId);
+  await makeBatch(productAId);
 
   // Default-fixture equipment: passes all gates (cal future, IQ/OQ/PQ active).
   equipId = await makeEquipment("default");
   await createSchedule(equipId, 30);
   await qualifyAll(equipId);
 
-  // A "prior batch" placeholder used by line-clearance tests that simulate
-  // a previous APPROVED BPR. Created here so the FK chain is wired up; tests
-  // attach BPR rows + equipment-used rows on demand.
-  priorBatchId = await makeBatch(productBId, "IN_PROGRESS");
+  await makeBatch(productBId, "IN_PROGRESS");
 });
 
 afterAll(async () => {
