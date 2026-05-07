@@ -1135,6 +1135,18 @@ export class DatabaseStorage implements IStorage {
       }
     }
 
+    // Delete BPR steps and BPRs for this batch
+    const bprs = await db.select({ id: schema.batchProductionRecords.id })
+      .from(schema.batchProductionRecords)
+      .where(eq(schema.batchProductionRecords.productionBatchId, id));
+    for (const bpr of bprs) {
+      await db.delete(schema.bprSteps).where(eq(schema.bprSteps.bprId, bpr.id));
+    }
+    await db.delete(schema.batchProductionRecords).where(eq(schema.batchProductionRecords.productionBatchId, id));
+
+    // Delete equipment-used rows
+    await db.delete(schema.productionBatchEquipmentUsed).where(eq(schema.productionBatchEquipmentUsed.productionBatchId, id));
+
     // Delete all transactions linked to this batch
     await db.delete(schema.transactions).where(eq(schema.transactions.productionBatchId, id));
 
