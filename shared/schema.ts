@@ -583,7 +583,10 @@ export const insertReceivingBoxSchema = createInsertSchema(receivingBoxes).omit(
 export const insertCoaDocumentSchema = createInsertSchema(coaDocuments).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertSupplierQualificationSchema = createInsertSchema(supplierQualifications).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertBprSchema = createInsertSchema(batchProductionRecords).omit({ id: true, createdAt: true, updatedAt: true });
-export const insertBprStepSchema = createInsertSchema(bprSteps).omit({ id: true, createdAt: true });
+export const insertBprStepSchema = createInsertSchema(bprSteps, {
+  performedAt: z.union([z.coerce.date(), z.null()]).optional(),
+  verifiedAt: z.union([z.coerce.date(), z.null()]).optional(),
+}).omit({ id: true, createdAt: true });
 export const insertBprDeviationSchema = createInsertSchema(bprDeviations).omit({ id: true, createdAt: true });
 export const insertEquipmentSchema = createInsertSchema(equipment, {
   assetTag: z.string().min(1),
