@@ -270,7 +270,7 @@ beforeEach(async () => {
 describeIfDb("R-03 BPR start gates", () => {
   describe("EQUIPMENT_LIST_EMPTY", () => {
     it("throws when equipmentIds is empty", async () => {
-      await expect(runAllGates(db, batchId, productAId, [])).rejects.toMatchObject({
+      await expect(runAllGates(db, [])).rejects.toMatchObject({
         status: 409,
         code: "EQUIPMENT_LIST_EMPTY",
       });
@@ -278,7 +278,7 @@ describeIfDb("R-03 BPR start gates", () => {
 
     it("happy path: passes through all gates with valid fixture", async () => {
       await expect(
-        runAllGates(db, batchId, productAId, [equipId]),
+        runAllGates(db, [equipId]),
       ).resolves.toBeUndefined();
     });
   });
@@ -290,7 +290,7 @@ describeIfDb("R-03 BPR start gates", () => {
         .set({ nextDueAt: new Date(Date.now() - 24 * 60 * 60 * 1000) })
         .where(eq(schema.calibrationSchedules.equipmentId, equipId));
 
-      const err = await runAllGates(db, batchId, productAId, [equipId]).catch(
+      const err = await runAllGates(db, [equipId]).catch(
         (e: unknown) => e,
       );
       expect(err).toBeInstanceOf(GateError);
@@ -311,7 +311,7 @@ describeIfDb("R-03 BPR start gates", () => {
         .set({ nextDueAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) })
         .where(eq(schema.calibrationSchedules.equipmentId, equipId));
       await expect(
-        runAllGates(db, batchId, productAId, [equipId]),
+        runAllGates(db, [equipId]),
       ).resolves.toBeUndefined();
     });
   });
@@ -321,194 +321,7 @@ describeIfDb("R-03 BPR start gates", () => {
   // supplement equipment. Equipment fitness is demonstrated via SOPs and BPR
   // step execution records instead.
 
-  describe("LINE_CLEARANCE_MISSING", () => {
-    it("throws when prior APPROVED BPR was a different product and no clearance exists", async () => {
-      // Use a fresh equipment so we control the prior-BPR history precisely.
-      const lcEquipId = await makeEquipment("lc-missing");
-      await createSchedule(lcEquipId, 30);
-      await qualifyAll(lcEquipId);
-
-      // Wire a prior APPROVED BPR for productB on this equipment.
-      await makeBpr(priorBatchId, productBId, "APPROVED", new Date(Date.now() - 60_000));
-      await db.insert(schema.productionBatchEquipmentUsed).values({
-        productionBatchId: priorBatchId,
-        equipmentId: lcEquipId,
-      });
-
-      // Attempt to start a productA batch on the same equipment — clearance
-      // required, none exists.
-      const err = await runAllGates(db, batchId, productAId, [lcEquipId]).catch(
-        (e: unknown) => e,
-      );
-      expect(err).toBeInstanceOf(GateError);
-      expect((err as GateError).code).toBe("LINE_CLEARANCE_MISSING");
-      const payload = (err as GateError).payload as {
-        equipment: Array<{ assetTag: string; fromProductId: string; toProductId: string }>;
-      };
-      expect(payload.equipment).toHaveLength(1);
-      expect(payload.equipment[0]!.fromProductId).toBe(productBId);
-      expect(payload.equipment[0]!.toProductId).toBe(productAId);
-
-      // Cleanup the cross-test rows so other tests start clean.
-      await db
-        .delete(schema.productionBatchEquipmentUsed)
-        .where(eq(schema.productionBatchEquipmentUsed.equipmentId, lcEquipId));
-      await db
-        .delete(schema.batchProductionRecords)
-        .where(eq(schema.batchProductionRecords.productionBatchId, priorBatchId));
-    });
-
-    it("passes for first-batch case (no prior APPROVED BPR on this equipment)", async () => {
-      // Default equipId has no prior BPRs — happy path.
-      await expect(
-        runAllGates(db, batchId, productAId, [equipId]),
-      ).resolves.toBeUndefined();
-    });
-
-    it("passes when prior APPROVED BPR was the SAME product (no changeover)", async () => {
-      const sameEquipId = await makeEquipment("lc-same");
-      await createSchedule(sameEquipId, 30);
-      await qualifyAll(sameEquipId);
-
-      // Prior APPROVED BPR for productA, current batch also productA — no
-      // changeover, gate should pass.
-      const sameBatchId = await makeBatch(productAId);
-      await makeBpr(sameBatchId, productAId, "APPROVED", new Date(Date.now() - 60_000));
-      await db.insert(schema.productionBatchEquipmentUsed).values({
-        productionBatchId: sameBatchId,
-        equipmentId: sameEquipId,
-      });
-
-      await expect(
-        runAllGates(db, batchId, productAId, [sameEquipId]),
-      ).resolves.toBeUndefined();
-    });
-
-    it("passes when a clearance exists since the prior APPROVED batch's completion", async () => {
-      const okEquipId = await makeEquipment("lc-ok");
-      await createSchedule(okEquipId, 30);
-      await qualifyAll(okEquipId);
-
-      // Prior APPROVED BPR for productB completed 2 minutes ago.
-      const priorCompletedAt = new Date(Date.now() - 120_000);
-      const okPriorBatchId = await makeBatch(productBId);
-      await makeBpr(okPriorBatchId, productBId, "APPROVED", priorCompletedAt);
-      await db.insert(schema.productionBatchEquipmentUsed).values({
-        productionBatchId: okPriorBatchId,
-        equipmentId: okEquipId,
-      });
-
-      // Insert a line-clearance row for productA on this equipment, dated
-      // AFTER the prior batch's completion. We need a signature row first
-      // because lineClearances.signatureId is NOT NULL.
-      const [sig] = await db
-        .insert(schema.electronicSignatures)
-        .values({
-          userId: qaId,
-          meaning: "LINE_CLEARANCE",
-          entityType: "equipment",
-          entityId: okEquipId,
-          fullNameAtSigning: "Test QA",
-          titleAtSigning: "QC Manager",
-          requestId: `r03g-lc-${Date.now()}`,
-          manifestationJson: { meaning: "LINE_CLEARANCE" },
-        })
-        .returning();
-      await db.insert(schema.lineClearances).values({
-        equipmentId: okEquipId,
-        productChangeFromId: productBId,
-        productChangeToId: productAId,
-        performedAt: new Date(Date.now() - 30_000), // 30s ago, after prior at -120s
-        performedByUserId: qaId,
-        signatureId: sig!.id,
-      });
-
-      await expect(
-        runAllGates(db, batchId, productAId, [okEquipId]),
-      ).resolves.toBeUndefined();
-    });
-
-    it("throws LINE_CLEARANCE_MISSING when clearance was performed BEFORE prior batch completion (temporal cutoff)", async () => {
-      // Prior batch completed at T=-60s
-      // Clearance performed at T=-120s (BEFORE prior batch completion)
-      // Gate must FAIL — clearance must be NEWER than prior batch completion to count
-      const cutoffEquipId = await makeEquipment("lc-cutoff");
-      await createSchedule(cutoffEquipId, 30);
-      await qualifyAll(cutoffEquipId);
-
-      // Prior APPROVED BPR for productB completed 60s ago.
-      const priorCompletedAt = new Date(Date.now() - 60_000);
-      const cutoffPriorBatchId = await makeBatch(productBId);
-      await makeBpr(cutoffPriorBatchId, productBId, "APPROVED", priorCompletedAt);
-      await db.insert(schema.productionBatchEquipmentUsed).values({
-        productionBatchId: cutoffPriorBatchId,
-        equipmentId: cutoffEquipId,
-      });
-
-      // Insert a clearance row dated BEFORE prior batch completion (T=-120s).
-      // findClearance must reject this because it's older than the cutoff.
-      const [sig] = await db
-        .insert(schema.electronicSignatures)
-        .values({
-          userId: qaId,
-          meaning: "LINE_CLEARANCE",
-          entityType: "equipment",
-          entityId: cutoffEquipId,
-          fullNameAtSigning: "Test QA",
-          titleAtSigning: "QC Manager",
-          requestId: `r03g-lc-cutoff-${Date.now()}`,
-          manifestationJson: { meaning: "LINE_CLEARANCE" },
-        })
-        .returning();
-      await db.insert(schema.lineClearances).values({
-        equipmentId: cutoffEquipId,
-        productChangeFromId: productBId,
-        productChangeToId: productAId,
-        performedAt: new Date(Date.now() - 120_000), // BEFORE prior at -60s
-        performedByUserId: qaId,
-        signatureId: sig!.id,
-      });
-
-      const err = await runAllGates(db, batchId, productAId, [cutoffEquipId]).catch(
-        (e: unknown) => e,
-      );
-      expect(err).toBeInstanceOf(GateError);
-      expect((err as GateError).code).toBe("LINE_CLEARANCE_MISSING");
-      const payload = (err as GateError).payload as {
-        equipment: Array<{ assetTag: string; fromProductId: string; toProductId: string }>;
-      };
-      expect(payload.equipment).toHaveLength(1);
-      expect(payload.equipment[0]!.fromProductId).toBe(productBId);
-      expect(payload.equipment[0]!.toProductId).toBe(productAId);
-    });
-  });
-
-  describe("Gate ordering (first-failure semantics)", () => {
-    it("CALIBRATION_OVERDUE wins over LINE_CLEARANCE_MISSING when both would fail", async () => {
-      // Equipment with overdue calibration, IQ/OQ/PQ qualified, AND a missing
-      // line-clearance precondition. Order is calibration → line-clearance,
-      // so we expect CALIBRATION_OVERDUE.
-      const cLcEquipId = await makeEquipment("c-vs-lc");
-      await db.insert(schema.calibrationSchedules).values({
-        equipmentId: cLcEquipId,
-        frequencyDays: 365,
-        nextDueAt: new Date(Date.now() - 24 * 60 * 60 * 1000), // overdue
-      });
-      await qualifyAll(cLcEquipId);
-
-      // Wire a prior APPROVED BPR for productB on this equipment with no clearance.
-      const cLcPriorBatchId = await makeBatch(productBId);
-      await makeBpr(cLcPriorBatchId, productBId, "APPROVED", new Date(Date.now() - 60_000));
-      await db.insert(schema.productionBatchEquipmentUsed).values({
-        productionBatchId: cLcPriorBatchId,
-        equipmentId: cLcEquipId,
-      });
-
-      const err = await runAllGates(db, batchId, productAId, [cLcEquipId]).catch(
-        (e: unknown) => e,
-      );
-      expect(err).toBeInstanceOf(GateError);
-      expect((err as GateError).code).toBe("CALIBRATION_OVERDUE");
-    });
-  });
+  // LINE_CLEARANCE_MISSING gate removed — cleaning and line clearance are
+  // required BPR steps. The step-execution gate on submitBprForReview ensures
+  // they were performed before a batch can be completed.
 });

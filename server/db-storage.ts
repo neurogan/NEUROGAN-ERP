@@ -821,7 +821,7 @@ export class DatabaseStorage implements IStorage {
       : equipmentIds;
 
     try {
-      await runAllGates(db, batchId, existing.productId, allEquipmentIds);
+      await runAllGates(db, allEquipmentIds);
     } catch (e: unknown) {
       if (GateError.is(e)) {
         await db.insert(schema.auditTrail).values({

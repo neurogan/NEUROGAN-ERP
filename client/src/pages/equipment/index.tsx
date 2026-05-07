@@ -61,16 +61,12 @@ import {
 } from "@/components/ui/select";
 import type { Equipment, Location } from "@shared/schema";
 import { CalibrationTab } from "./calibration";
-import { CleaningTab } from "./cleaning";
-import { LineClearanceTab } from "./line-clearance";
 
-type SubTab = "master" | "calibration" | "cleaning" | "line-clearance";
+type SubTab = "master" | "calibration";
 
 const SUBTABS: { value: SubTab; label: string }[] = [
   { value: "master", label: "Master" },
   { value: "calibration", label: "Calibration" },
-  { value: "cleaning", label: "Cleaning" },
-  { value: "line-clearance", label: "Line Clearance" },
 ];
 
 const NO_LOCATION = "__none__";
@@ -93,9 +89,7 @@ export default function EquipmentPage() {
   const [, params] = useRoute<{ tab?: string }>("/operations/equipment/:tab");
   const tabParam = params?.tab;
   const activeTab: SubTab =
-    tabParam === "calibration" || tabParam === "cleaning" || tabParam === "line-clearance"
-      ? tabParam
-      : "master";
+    tabParam === "calibration" ? "calibration" : "master";
 
   return (
     <div className="p-6 space-y-4">
@@ -109,8 +103,6 @@ export default function EquipmentPage() {
 
       {activeTab === "master" && <MasterTab />}
       {activeTab === "calibration" && <CalibrationTab />}
-      {activeTab === "cleaning" && <CleaningTab />}
-      {activeTab === "line-clearance" && <LineClearanceTab />}
     </div>
   );
 }

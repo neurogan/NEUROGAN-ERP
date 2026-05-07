@@ -1,28 +1,25 @@
 // R-03 Task 8 — BPR start gates.
 //
-// Pure-function gate logic that runs before a Batch Production Record is
-// allowed to transition into IN_PROGRESS. Each gate checks one constraint and
-// throws a structured GateError (HTTP 409) on the FIRST failure encountered;
-// the orchestrator does not aggregate failures across gates because the user
-// experience we want is "fix the most blocking thing first".
+// Gates run before a Batch Production Record is allowed to transition into
+// IN_PROGRESS. Each gate checks one constraint and throws a structured
+// GateError (HTTP 409) on the first failure.
 //
-// Gate order (deterministic, codified for predictable error UX):
-//   1. EQUIPMENT_LIST_EMPTY    — short-circuits before any DB query
-//   2. CALIBRATION_OVERDUE     — any equipment whose nextDueAt is in the past
-//   3. LINE_CLEARANCE_MISSING  — equipment used on a different product's APPROVED
-//                                BPR with no line clearance since.
+// Active gates:
+//   1. EQUIPMENT_LIST_EMPTY  — short-circuits before any DB query
+//   2. CALIBRATION_OVERDUE   — any equipment whose nextDueAt is in the past
 //
-// IQ/OQ/PQ qualification (formerly gate 3) removed: 21 CFR Part 111 (dietary
-// supplements) does not require formal equipment qualification protocols.
-// Equipment fitness is demonstrated through SOPs and BPR step execution records.
+// Removed gates:
+//   - EQUIPMENT_NOT_QUALIFIED (IQ/OQ/PQ): not required under 21 CFR Part 111.
+//   - LINE_CLEARANCE_MISSING: cleaning and line clearance are required BPR
+//     steps. The step-execution gate on submitBprForReview ensures they were
+//     performed before a batch can be completed — making a separate start-time
+//     check redundant.
 //
 // Each error carries `payload.equipment: [{ assetTag, ...context }]` per
-// failing piece of equipment so the frontend (Task 15) can render actionable
-// per-row messages.
+// failing piece of equipment.
 
 import * as schema from "@shared/schema";
-import { eq, and, lt, desc, inArray } from "drizzle-orm";
-import { findClearance } from "../storage/cleaning-line-clearance";
+import { and, lt, inArray } from "drizzle-orm";
 import { db as defaultDb } from "../db";
 
 // DbLike covers both the default db handle and a Drizzle transaction object —
@@ -35,20 +32,11 @@ export interface GateFailureCalibration {
   assetTag: string | null;
   dueAt: Date;
 }
-export interface GateFailureLineClearance {
-  equipmentId: string;
-  assetTag: string | null;
-  fromProductId: string;
-  toProductId: string;
-}
-export type GateFailure =
-  | GateFailureCalibration
-  | GateFailureLineClearance;
+export type GateFailure = GateFailureCalibration;
 
 export type GateCode =
   | "EQUIPMENT_LIST_EMPTY"
-  | "CALIBRATION_OVERDUE"
-  | "LINE_CLEARANCE_MISSING";
+  | "CALIBRATION_OVERDUE";
 
 export interface GatePayload {
   equipment: GateFailure[];
@@ -73,8 +61,6 @@ export class GateError extends Error {
 
 export async function runAllGates(
   db: DbLike,
-  productionBatchId: string,
-  productId: string,
   equipmentIds: string[],
 ): Promise<void> {
   // Gate 1: list-empty short-circuit. Must run before any DB query because
@@ -97,7 +83,6 @@ export async function runAllGates(
   const tagById = new Map(equipmentRows.map((r) => [r.id, r.assetTag]));
 
   await checkCalibration(db, equipmentIds, tagById);
-  await checkLineClearance(db, productionBatchId, productId, equipmentIds, tagById);
 }
 
 async function checkCalibration(
@@ -125,81 +110,3 @@ async function checkCalibration(
   }
 }
 
-async function checkLineClearance(
-  db: DbLike,
-  productionBatchId: string,
-  productId: string,
-  equipmentIds: string[],
-  tagById: Map<string, string>,
-): Promise<void> {
-  const failures: Array<{
-    equipmentId: string;
-    assetTag: string | null;
-    fromProductId: string;
-    toProductId: string;
-  }> = [];
-
-  for (const id of equipmentIds) {
-    // Find the most recent APPROVED BPR for this equipment (excluding the
-    // current batch — a self-reference can't be a "prior product change").
-    const prior = await db
-      .select({
-        productId: schema.batchProductionRecords.productId,
-        completedAt: schema.batchProductionRecords.completedAt,
-        productionBatchId: schema.batchProductionRecords.productionBatchId,
-      })
-      .from(schema.batchProductionRecords)
-      .innerJoin(
-        schema.productionBatchEquipmentUsed,
-        eq(
-          schema.productionBatchEquipmentUsed.productionBatchId,
-          schema.batchProductionRecords.productionBatchId,
-        ),
-      )
-      .where(
-        and(
-          eq(schema.productionBatchEquipmentUsed.equipmentId, id),
-          eq(schema.batchProductionRecords.status, "APPROVED"),
-        ),
-      )
-      .orderBy(desc(schema.batchProductionRecords.completedAt))
-      .limit(5);
-
-    // Defense-in-depth: if a future caller (or refactor) inserts the current BPR
-    // row before invoking the gates, skip self-matches so we don't compare a
-    // batch to itself. The current contract forbids this — but cheap to guard.
-    const priorOther = prior.find((p) => p.productionBatchId !== productionBatchId);
-    if (!priorOther) continue; // first batch on this equipment, no clearance required
-
-    const priorProduct = priorOther.productId;
-    const priorCompleted = priorOther.completedAt;
-    if (priorProduct === productId) continue; // same SKU, no changeover, no clearance
-    if (!priorCompleted) {
-      // Defense: APPROVED is terminal; null completedAt = corruption.
-      throw Object.assign(
-        new Error(
-          `Data integrity: prior APPROVED BPR for production_batch ${priorOther.productionBatchId} has null completedAt`,
-        ),
-        { status: 500, code: "PRIOR_BPR_INCOMPLETE" },
-      );
-    }
-
-    const clearance = await findClearance(id, productId, priorCompleted);
-    if (!clearance) {
-      failures.push({
-        equipmentId: id,
-        assetTag: tagById.get(id) ?? null,
-        fromProductId: priorProduct,
-        toProductId: productId,
-      });
-    }
-  }
-
-  if (failures.length > 0) {
-    throw new GateError(
-      "LINE_CLEARANCE_MISSING",
-      "Line clearance missing for product change",
-      { equipment: failures },
-    );
-  }
-}
