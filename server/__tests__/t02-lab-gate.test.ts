@@ -158,7 +158,7 @@ describeIfDb("T02 — lab accreditation gate on qcReviewReceivingRecord", () => 
   it("approves when COA lab is ACTIVE", async () => {
     const { record } = await seedLotAndCoa(labActive);
     const result = await storage.qcReviewReceivingRecord(record.id, "APPROVED", adminId);
-    expect(result?.status).toBe("APPROVED");
+    expect(result?.status).toBe("APPROVED_PENDING_MOVE");
   });
 
   it("rejects APPROVED_WITH_CONDITIONS disposition when COA lab is INACTIVE (422)", async () => {
@@ -205,6 +205,6 @@ describeIfDb("T02 — lab accreditation gate on qcReviewReceivingRecord", () => 
     }).returning();
     seededCoaIds.push(coa!.id);
     const result = await storage.qcReviewReceivingRecord(record!.id, "APPROVED", adminId);
-    expect(result?.status).toBe("APPROVED");
+    expect(result?.status).toBe("APPROVED_PENDING_MOVE");
   });
 });
