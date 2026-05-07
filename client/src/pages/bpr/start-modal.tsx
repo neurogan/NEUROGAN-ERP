@@ -417,7 +417,7 @@ function GateBanners({ error }: { error: GateError }) {
                 <strong>{q.assetTag ?? q.equipmentId}</strong>: missing
                 qualifications {q.missingTypes.join(", ")}.{" "}
                 <Link
-                  href={`/equipment/${q.equipmentId}`}
+                  href={`/operations/equipment/${q.equipmentId}`}
                   className="underline"
                   data-testid={`link-resolve-${q.equipmentId}`}
                 >
@@ -430,8 +430,8 @@ function GateBanners({ error }: { error: GateError }) {
         if (error.code === "LINE_CLEARANCE_MISSING") {
           const lc = f as GateFailureLineClearance;
           const lineClearanceHref = lc.assetTag
-            ? `/equipment/line-clearance?focus=${encodeURIComponent(lc.assetTag)}`
-            : `/equipment/line-clearance`;
+            ? `/operations/equipment/line-clearance?focus=${encodeURIComponent(lc.assetTag)}`
+            : `/operations/equipment/line-clearance`;
           return (
             <Alert
               variant="destructive"

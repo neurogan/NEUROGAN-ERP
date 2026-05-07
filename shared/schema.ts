@@ -134,7 +134,7 @@ export const locationMoves = pgTable("erp_location_moves", {
   lotId: varchar("lot_id").notNull().references(() => lots.id),
   fromLocationId: varchar("from_location_id").references(() => locations.id),
   toLocationId: varchar("to_location_id").notNull().references(() => locations.id),
-  movedBy: varchar("moved_by").notNull(),
+  movedBy: uuid("moved_by").notNull().references(() => users.id),
   movedAt: timestamp("moved_at").notNull().defaultNow(),
   notes: text("notes"),
   receivingRecordId: varchar("receiving_record_id").references(() => receivingRecords.id),

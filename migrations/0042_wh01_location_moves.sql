@@ -10,7 +10,7 @@ CREATE TABLE erp_location_moves (
   lot_id              VARCHAR NOT NULL REFERENCES erp_lots(id),
   from_location_id    VARCHAR REFERENCES erp_locations(id),
   to_location_id      VARCHAR NOT NULL REFERENCES erp_locations(id),
-  moved_by            VARCHAR NOT NULL REFERENCES erp_users(id),
+  moved_by            UUID NOT NULL REFERENCES erp_users(id),
   moved_at            TIMESTAMP NOT NULL DEFAULT now(),
   notes               TEXT,
   receiving_record_id VARCHAR REFERENCES erp_receiving_records(id)
