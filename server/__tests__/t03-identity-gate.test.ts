@@ -84,57 +84,57 @@ async function seedForWorkflow(
 }
 
 describeIfDb("T03 — identity test gate on qcReviewReceivingRecord", () => {
-  it("FULL_LAB_TEST with COA (identityConfirmed=false) → APPROVED", async () => {
+  it("FULL_LAB_TEST with COA (identityConfirmed=false) → APPROVED_PENDING_MOVE", async () => {
     const { record } = await seedForWorkflow("FULL_LAB_TEST", "false");
     const result = await storage.qcReviewReceivingRecord(record.id, "APPROVED", adminId);
-    expect(result?.status).toBe("APPROVED");
+    expect(result?.status).toBe("APPROVED_PENDING_MOVE");
   });
 
-  it("FULL_LAB_TEST with identity confirmed → APPROVED", async () => {
+  it("FULL_LAB_TEST with identity confirmed → APPROVED_PENDING_MOVE", async () => {
     const { record } = await seedForWorkflow("FULL_LAB_TEST", "true");
     const result = await storage.qcReviewReceivingRecord(record.id, "APPROVED", adminId);
-    expect(result?.status).toBe("APPROVED");
+    expect(result?.status).toBe("APPROVED_PENDING_MOVE");
   });
 
-  it("IDENTITY_CHECK with COA (identityConfirmed=false) → APPROVED", async () => {
+  it("IDENTITY_CHECK with COA (identityConfirmed=false) → APPROVED_PENDING_MOVE", async () => {
     const { record } = await seedForWorkflow("IDENTITY_CHECK", "false");
     const result = await storage.qcReviewReceivingRecord(record.id, "APPROVED", adminId);
-    expect(result?.status).toBe("APPROVED");
+    expect(result?.status).toBe("APPROVED_PENDING_MOVE");
   });
 
-  it("IDENTITY_CHECK with identity confirmed → APPROVED", async () => {
+  it("IDENTITY_CHECK with identity confirmed → APPROVED_PENDING_MOVE", async () => {
     const { record } = await seedForWorkflow("IDENTITY_CHECK", "true");
     const result = await storage.qcReviewReceivingRecord(record.id, "APPROVED", adminId);
-    expect(result?.status).toBe("APPROVED");
+    expect(result?.status).toBe("APPROVED_PENDING_MOVE");
   });
 
-  it("COA_REVIEW without identity confirmed → APPROVED (gate not applied)", async () => {
+  it("COA_REVIEW without identity confirmed → APPROVED_PENDING_MOVE (gate not applied)", async () => {
     const { record } = await seedForWorkflow("COA_REVIEW", "false");
     const result = await storage.qcReviewReceivingRecord(record.id, "APPROVED", adminId);
-    expect(result?.status).toBe("APPROVED");
+    expect(result?.status).toBe("APPROVED_PENDING_MOVE");
   });
 
-  it("EXEMPT without identity confirmed → APPROVED (gate not applied)", async () => {
+  it("EXEMPT without identity confirmed → APPROVED_PENDING_MOVE (gate not applied)", async () => {
     const { record } = await seedForWorkflow("EXEMPT", "false");
     const result = await storage.qcReviewReceivingRecord(record.id, "APPROVED", adminId);
-    expect(result?.status).toBe("APPROVED");
+    expect(result?.status).toBe("APPROVED_PENDING_MOVE");
   });
 
-  it("FULL_LAB_TEST with COA (identityConfirmed=null) → APPROVED", async () => {
+  it("FULL_LAB_TEST with COA (identityConfirmed=null) → APPROVED_PENDING_MOVE", async () => {
     const { record } = await seedForWorkflow("FULL_LAB_TEST", null);
     const result = await storage.qcReviewReceivingRecord(record.id, "APPROVED", adminId);
-    expect(result?.status).toBe("APPROVED");
+    expect(result?.status).toBe("APPROVED_PENDING_MOVE");
   });
 
-  it("FULL_LAB_TEST with COA + APPROVED_WITH_CONDITIONS → APPROVED", async () => {
+  it("FULL_LAB_TEST with COA + APPROVED_WITH_CONDITIONS → APPROVED_PENDING_MOVE", async () => {
     const { record } = await seedForWorkflow("FULL_LAB_TEST", "false");
     const result = await storage.qcReviewReceivingRecord(record.id, "APPROVED_WITH_CONDITIONS", adminId);
-    expect(result?.status).toBe("APPROVED");
+    expect(result?.status).toBe("APPROVED_PENDING_MOVE");
   });
 
-  it("FULL_LAB_TEST with APPROVED_WITH_CONDITIONS + identity confirmed → APPROVED", async () => {
+  it("FULL_LAB_TEST with APPROVED_WITH_CONDITIONS + identity confirmed → APPROVED_PENDING_MOVE", async () => {
     const { record } = await seedForWorkflow("FULL_LAB_TEST", "true");
     const result = await storage.qcReviewReceivingRecord(record.id, "APPROVED_WITH_CONDITIONS", adminId);
-    expect(result?.status).toBe("APPROVED");
+    expect(result?.status).toBe("APPROVED_PENDING_MOVE");
   });
 });

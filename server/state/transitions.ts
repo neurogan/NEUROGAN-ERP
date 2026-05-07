@@ -11,7 +11,7 @@ import type { UserRole, SignatureMeaning } from "@shared/schema";
 import { AppError } from "../errors";
 
 export type LotStatus = "QUARANTINED" | "SAMPLING" | "PENDING_QC" | "APPROVED" | "REJECTED" | "ON_HOLD";
-export type ReceivingStatus = "QUARANTINED" | "SAMPLING" | "PENDING_QC" | "APPROVED" | "REJECTED" | "ON_HOLD";
+export type ReceivingStatus = "QUARANTINED" | "SAMPLING" | "PENDING_QC" | "APPROVED_PENDING_MOVE" | "APPROVED" | "REJECTED" | "ON_HOLD";
 export type BprStatus = "IN_PROGRESS" | "PENDING_QC_REVIEW" | "APPROVED" | "REJECTED";
 
 export interface Transition<TState extends string> {
@@ -34,8 +34,15 @@ export const lotTransitions: Transition<LotStatus>[] = [
   // APPROVED and REJECTED are terminal — no outbound transitions.
 ];
 
-// Receiving records share the same status lifecycle as lots.
-export const receivingTransitions: Transition<ReceivingStatus>[] = lotTransitions as Transition<ReceivingStatus>[];
+// Receiving records share most of the lot lifecycle, plus the WH-01 two-phase
+// approval flow: PENDING_QC → APPROVED_PENDING_MOVE (QC sign-off) →
+// RELEASED/APPROVED (warehouse confirms move).
+// PENDING_QC → APPROVED is kept for backwards compatibility with existing data.
+export const receivingTransitions: Transition<ReceivingStatus>[] = [
+  ...lotTransitions as Transition<ReceivingStatus>[],
+  { from: "PENDING_QC",            to: "APPROVED_PENDING_MOVE", action: "QC_APPROVE_PENDING_MOVE", requiredRoles: ["QA"], requiredSignatureMeaning: "QC_DISPOSITION" },
+  { from: "APPROVED_PENDING_MOVE", to: "APPROVED",              action: "CONFIRM_LOCATION_MOVE",   requiredRoles: ["WAREHOUSE", "QA", "ADMIN"] },
+];
 
 // Batch Production Records.
 export const bprTransitions: Transition<BprStatus>[] = [

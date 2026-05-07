@@ -37,6 +37,7 @@ import {
   type OosInvestigationDetail,
   type OosInvestigationSummary,
   type ReceivingBox,
+  type LocationMove,
 } from "@shared/schema";
 import type {
   IStorage,
@@ -1612,7 +1613,7 @@ export class DatabaseStorage implements IStorage {
 
   async getReceivingRecords(filters?: { status?: string }): Promise<ReceivingRecordWithDetails[]> {
     const conditions: SQL[] = [];
-    if (filters?.status) conditions.push(eq(schema.receivingRecords.status, filters.status));
+    if (filters?.status) conditions.push(eq(schema.receivingRecords.status, filters.status as schema.ReceivingRecord["status"]));
     const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
     const records = await db.select().from(schema.receivingRecords).where(whereClause).orderBy(desc(schema.receivingRecords.createdAt));
     return Promise.all(records.map(r => this.enrichReceivingRecord(r)));
@@ -1648,7 +1649,7 @@ export class DatabaseStorage implements IStorage {
 
       const [record] = await tx
         .insert(schema.receivingRecords)
-        .values({ ...data, qcWorkflowType, requiresQualification, samplingPlan })
+        .values({ ...data, status: (data.status ?? "QUARANTINED") as schema.ReceivingRecord["status"], qcWorkflowType, requiresQualification, samplingPlan })
         .returning();
 
       await tx
@@ -1713,10 +1714,13 @@ export class DatabaseStorage implements IStorage {
         }
       }
 
+      // Destructure status out to allow explicit cast — drizzle typed column rejects string
+      const { status: rawStatus, ...restData } = data;
       const [updated] = await tx
         .update(schema.receivingRecords)
         .set({
-          ...data,
+          ...restData,
+          ...(rawStatus ? { status: rawStatus as schema.ReceivingRecord["status"] } : {}),
           ...(visualExamBySnapshot ? { visualExamBy: visualExamBySnapshot } : {}),
           updatedAt: new Date(),
         })
@@ -1745,8 +1749,14 @@ export class DatabaseStorage implements IStorage {
 
       assertNotLocked("receiving_record", existing.status);
 
+      // WH-01: approved dispositions go to APPROVED_PENDING_MOVE (warehouse confirms
+      // physical move before record is fully released). Rejected stays REJECTED.
+      // Lot quarantineStatus is set to "APPROVED" immediately (Phase 1) — production
+      // is unblocked at QC sign-off, not delayed until move confirmation.
       const newStatus =
-        disposition === "APPROVED" || disposition === "APPROVED_WITH_CONDITIONS" ? "APPROVED" : "REJECTED";
+        disposition === "APPROVED" || disposition === "APPROVED_WITH_CONDITIONS"
+          ? "APPROVED_PENDING_MOVE"
+          : "REJECTED";
       assertValidTransition("receiving_record", existing.status, newStatus);
 
       // Gate 3: COA-required workflows must have an uploaded COA before sign-off
@@ -1802,13 +1812,20 @@ export class DatabaseStorage implements IStorage {
         .where(eq(schema.receivingRecords.id, id))
         .returning();
 
+      // WH-01 Phase 1: lot quarantineStatus becomes "APPROVED" immediately at QC
+      // sign-off, regardless of whether receiving record is APPROVED_PENDING_MOVE or
+      // APPROVED. Production is unblocked at sign-off; move confirmation is a
+      // warehouse ops step only.
+      const lotQuarantineStatus = newStatus === "APPROVED_PENDING_MOVE" ? "APPROVED" : newStatus;
       await tx
         .update(schema.lots)
-        .set({ quarantineStatus: newStatus })
+        .set({ quarantineStatus: lotQuarantineStatus })
         .where(eq(schema.lots.id, existing.lotId));
 
-      // Auto-create approved_materials entry on first approval of a qualification-required lot
-      if (newStatus === "APPROVED" && existing.requiresQualification && existing.supplierId) {
+      // Auto-create approved_materials entry on first approval of a qualification-required lot.
+      // Use disposition to check (newStatus is APPROVED_PENDING_MOVE for approved paths, not "APPROVED").
+      const isApprovedDisposition = disposition === "APPROVED" || disposition === "APPROVED_WITH_CONDITIONS";
+      if (isApprovedDisposition && existing.requiresQualification && existing.supplierId) {
         const [lot] = await tx
           .select({ productId: schema.lots.productId })
           .from(schema.lots)
@@ -1932,6 +1949,78 @@ export class DatabaseStorage implements IStorage {
       // Delete receiving record — boxes cascade via FK
       await tx.delete(schema.receivingRecords).where(eq(schema.receivingRecords.id, id));
     });
+  }
+
+  // WH-01: Confirm physical location move after QC approval.
+  // Transitions receiving record from APPROVED_PENDING_MOVE → APPROVED.
+  // Writes an erp_location_moves row and an audit trail entry.
+  async confirmLocationMove(receivingRecordId: string, toLocationId: string, movedByUserId: string, notes?: string): Promise<void> {
+    await db.transaction(async (tx) => {
+      // 1. Load receiving record
+      const [record] = await tx
+        .select()
+        .from(schema.receivingRecords)
+        .where(eq(schema.receivingRecords.id, receivingRecordId));
+      if (!record) throw Object.assign(new Error("Receiving record not found"), { status: 404 });
+
+      // 2. Verify status
+      if (record.status !== "APPROVED_PENDING_MOVE") {
+        throw Object.assign(
+          new Error(`Cannot confirm move: receiving record status is "${record.status}", expected "APPROVED_PENDING_MOVE".`),
+          { status: 422 },
+        );
+      }
+
+      assertValidTransition("receiving_record", record.status, "APPROVED");
+
+      // 3. Derive fromLocationId from most recent PO_RECEIPT transaction for this lot
+      const [receiptTx] = await tx
+        .select({ locationId: schema.transactions.locationId })
+        .from(schema.transactions)
+        .where(
+          and(
+            eq(schema.transactions.lotId, record.lotId),
+            eq(schema.transactions.type, "PO_RECEIPT"),
+          ),
+        )
+        .orderBy(desc(schema.transactions.createdAt))
+        .limit(1);
+      const fromLocationId = receiptTx?.locationId ?? null;
+
+      // 4. Insert location move record
+      await tx.insert(schema.locationMoves).values({
+        lotId: record.lotId,
+        fromLocationId,
+        toLocationId,
+        movedBy: movedByUserId,
+        receivingRecordId,
+        notes: notes ?? null,
+      });
+
+      // 5. Update receiving record status to APPROVED
+      await tx
+        .update(schema.receivingRecords)
+        .set({ status: "APPROVED", updatedAt: new Date() })
+        .where(eq(schema.receivingRecords.id, receivingRecordId));
+
+      // 6. Write audit trail entry
+      await tx.insert(schema.auditTrail).values({
+        userId: movedByUserId,
+        action: "LOCATION_MOVE_CONFIRMED",
+        entityType: "receiving_record",
+        entityId: receivingRecordId,
+        before: { status: "APPROVED_PENDING_MOVE" } as Record<string, unknown>,
+        after: { status: "APPROVED", toLocationId, fromLocationId, notes: notes ?? null } as Record<string, unknown>,
+      });
+    });
+  }
+
+  async getLocationMovesByLot(lotId: string): Promise<LocationMove[]> {
+    return db
+      .select()
+      .from(schema.locationMoves)
+      .where(eq(schema.locationMoves.lotId, lotId))
+      .orderBy(desc(schema.locationMoves.movedAt));
   }
 
   async createReceivingBoxes(receivingRecordId: string, boxCount: number, uniqueIdentifier: string, outerTx?: Tx): Promise<ReceivingBox[]> {
@@ -3645,6 +3734,32 @@ export class DatabaseStorage implements IStorage {
     }
 
     if (isWarehouse) {
+      // WH-01: location move confirmation tasks
+      const pendingMoveRows = await db
+        .select(baseSelect)
+        .from(schema.receivingRecords)
+        .leftJoin(schema.lots, eq(schema.receivingRecords.lotId, schema.lots.id))
+        .leftJoin(schema.products, eq(schema.lots.productId, schema.products.id))
+        .leftJoin(schema.suppliers, eq(schema.receivingRecords.supplierId, schema.suppliers.id))
+        .where(eq(schema.receivingRecords.status, "APPROVED_PENDING_MOVE"));
+
+      for (const row of pendingMoveRows) {
+        tasks.push({
+          id: `move-${row.id}`,
+          taskType: "LOCATION_MOVE_REQUIRED",
+          sourceModule: "RECEIVING",
+          sourceRecordId: row.id,
+          sourceIdentifier: row.receivingIdentifier,
+          primaryLabel: row.materialName ?? null,
+          secondaryLabel: row.supplierName ?? null,
+          quantityReceived: row.quantityReceived ?? null,
+          uom: row.uom ?? null,
+          dateReceived: row.dateReceived ?? null,
+          isUrgent: false,
+          dueAt: null,
+        });
+      }
+
       const rejectedRows = await db
         .select(baseSelect)
         .from(schema.receivingRecords)

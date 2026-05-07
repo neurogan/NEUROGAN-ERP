@@ -1308,6 +1308,22 @@ export async function registerRoutes(
     },
   );
 
+  // WH-01: Confirm warehouse location move — transitions APPROVED_PENDING_MOVE → APPROVED
+  app.post(
+    "/api/receiving/:id/confirm-move",
+    requireAuth, requireRole("WAREHOUSE", "QA", "ADMIN"),
+    async (req, res, next) => {
+      try {
+        const { toLocationId, notes } = req.body as { toLocationId?: string; notes?: string };
+        if (!toLocationId) return res.status(400).json({ message: "toLocationId is required" });
+        await storage.confirmLocationMove(req.params.id as string, toLocationId, req.user!.id, notes);
+        const updated = await storage.getReceivingRecord(req.params.id as string);
+        if (!updated) return res.status(404).json({ message: "Not found" });
+        res.json(updated);
+      } catch (err) { next(err); }
+    },
+  );
+
   app.delete("/api/receiving/:id", requireAuth, requireRole("ADMIN"), async (req, res, next) => {
     try {
       await storage.deleteReceivingRecord(req.params.id as string, req.user!.id);

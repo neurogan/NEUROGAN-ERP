@@ -194,7 +194,7 @@ describeIfDb("R-11 — Receiving QC Redesign", () => {
       .set("Cookie", qaCookie)
       .send({ disposition: "APPROVED", password: "Neurogan1!Secure", commentary: "" });
     expect(res.status).toBe(200);
-    expect(res.body.status).toBe("APPROVED");
+    expect(res.body.status).toBe("APPROVED_PENDING_MOVE");
   });
 
   it("allows sign-off after COA is uploaded for non-EXEMPT records", async () => {
@@ -205,7 +205,7 @@ describeIfDb("R-11 — Receiving QC Redesign", () => {
       .set("Cookie", qaCookie)
       .send({ disposition: "APPROVED", password: "Neurogan1!Secure", commentary: "" });
     expect(res.status).toBe(200);
-    expect(res.body.status).toBe("APPROVED");
+    expect(res.body.status).toBe("APPROVED_PENDING_MOVE");
   });
 
   it("COA gate checks receivingRecordId, not lotId — COA on same lot different record does not satisfy gate", async () => {
