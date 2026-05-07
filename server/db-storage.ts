@@ -862,6 +862,29 @@ export class DatabaseStorage implements IStorage {
         mmrVersion: approvedMmr?.version ?? null,
       }, tx);
 
+      // Fixed pre-production steps always inserted before MMR steps.
+      // Step 0 = Equipment Cleaning, step 0.5 = Line Clearance.
+      // These are 21 CFR Part 111 §111.210(a)/(b) requirements and must be
+      // executed and signed before production proceeds.
+      await tx.insert(schema.bprSteps).values([
+        {
+          bprId: bpr.id,
+          stepNumber: "0",
+          stepDescription: "Equipment Cleaning",
+          monitoringResults: JSON.stringify({
+            guidance: "Clean all equipment that will be used in this batch per the applicable SOP. Record the cleaning agent used, contact time, and confirm equipment is dry and free of residue before proceeding.",
+          }),
+        },
+        {
+          bprId: bpr.id,
+          stepNumber: "0.5",
+          stepDescription: "Line Clearance",
+          monitoringResults: JSON.stringify({
+            guidance: "Verify the production area is clear of all materials, labels, and documents from any previous batch. Confirm correct product, lot, and quantity of materials are staged. No prior batch materials may be present.",
+          }),
+        },
+      ]);
+
       // R-07: pre-populate BPR steps from approved MMR
       if (mmrSteps.length > 0) {
         await tx.insert(schema.bprSteps).values(
@@ -946,6 +969,25 @@ export class DatabaseStorage implements IStorage {
   ): Promise<ProductionBatchWithDetails> {
     const [batch] = await db.select().from(schema.productionBatches).where(eq(schema.productionBatches.id, id));
     if (!batch) throw new Error("Production batch not found");
+
+    // Gate: all BPR steps must be executed before completing the batch.
+    const bprs = await db
+      .select({ id: schema.batchProductionRecords.id })
+      .from(schema.batchProductionRecords)
+      .where(eq(schema.batchProductionRecords.productionBatchId, id));
+    for (const bpr of bprs) {
+      const incomplete = await db
+        .select({ stepNumber: schema.bprSteps.stepNumber })
+        .from(schema.bprSteps)
+        .where(and(eq(schema.bprSteps.bprId, bpr.id), isNull(schema.bprSteps.performedBy)));
+      if (incomplete.length > 0) {
+        const nums = incomplete.map((s) => `Step ${s.stepNumber}`).join(", ");
+        throw Object.assign(
+          new Error(`Cannot complete batch: ${nums} have not been executed.`),
+          { status: 422, code: "STEPS_NOT_EXECUTED" },
+        );
+      }
+    }
 
     // Stock validation
     const inputs = await db.select().from(schema.productionInputs).where(eq(schema.productionInputs.batchId, id));

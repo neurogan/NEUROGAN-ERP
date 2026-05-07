@@ -1015,7 +1015,8 @@ function CompleteBatchDialog({
       });
     },
     onError: (err: Error) => {
-      toast({ title: "Insufficient Stock", description: err.message, variant: "destructive" });
+      const title = err.message.includes("not been executed") ? "BPR steps incomplete" : "Cannot complete batch";
+      toast({ title, description: err.message, variant: "destructive" });
     },
   });
 
@@ -1632,8 +1633,9 @@ function BatchDetail({
             )}
             <Button
               onClick={onCompleteBatch}
-              disabled={isUpdating}
+              disabled={isUpdating || (totalSteps > 0 && completedSteps < totalSteps)}
               size="sm"
+              title={totalSteps > 0 && completedSteps < totalSteps ? `Complete all BPR steps first (${completedSteps}/${totalSteps} done)` : undefined}
               data-testid="button-complete-batch"
             >
               <CheckCircle className="h-3.5 w-3.5 mr-1.5" />
@@ -1754,8 +1756,9 @@ function BatchDetail({
       {/* Notes section */}
       <BatchNotes batchId={batch.id} />
 
-      {/* Label cage section */}
-      {["IN_PROGRESS", "ON_HOLD", "COMPLETED"].includes(batch.status) && (
+      {/* Label cage section — only accessible once all BPR steps are executed */}
+      {["IN_PROGRESS", "ON_HOLD", "COMPLETED"].includes(batch.status) &&
+        (batch.status !== "IN_PROGRESS" || (totalSteps > 0 && completedSteps === totalSteps)) && (
         <>
           <Separator />
           <BprLabelingSection
