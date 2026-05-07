@@ -3,7 +3,7 @@ import { useLocation } from "wouter";
 import {
   AlertTriangle, FlaskConical, ClipboardCheck, Search, XCircle,
   MessageSquareWarning, PackageSearch, Microscope, HeartPulse,
-  TestTube, FileCheck, Clock, AlertOctagon, PackageX,
+  TestTube, FileCheck, Clock, AlertOctagon, PackageX, MoveRight,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -14,7 +14,8 @@ type ReceivingTaskType =
   | "QUALIFICATION_REQUIRED"
   | "PENDING_QC"
   | "IDENTITY_CHECK_REQUIRED"
-  | "REJECTED_LOT";
+  | "REJECTED_LOT"
+  | "LOCATION_MOVE_REQUIRED";
 
 type ComplaintTaskType =
   | "COMPLAINT_TRIAGE_REQUIRED"
@@ -51,6 +52,7 @@ const TASK_CONFIG: Record<UserTask["taskType"], { label: string; icon: Component
   PENDING_QC:                     { label: "Lot pending QC disposition", icon: ClipboardCheck },
   IDENTITY_CHECK_REQUIRED:        { label: "Identity check required", icon: Search },
   REJECTED_LOT:                   { label: "Rejected lot — coordinate return", icon: XCircle },
+  LOCATION_MOVE_REQUIRED:         { label: "Move to approved storage location", icon: MoveRight },
   COMPLAINT_TRIAGE_REQUIRED:      { label: "Complaint awaiting triage", icon: MessageSquareWarning },
   COMPLAINT_LOT_UNRESOLVED:       { label: "Complaint — lot unresolved", icon: PackageSearch },
   COMPLAINT_INVESTIGATION_REQUIRED: { label: "Complaint investigation required", icon: Microscope },
