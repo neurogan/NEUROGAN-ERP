@@ -176,7 +176,7 @@ function LotTable({ lots, highlightLotId }: { lots: InventoryGrouped["lots"]; hi
                   className={highlightLotId === lot.lotId ? "ring-2 ring-primary ring-inset bg-primary/5" : ""}
                 >
                   <TableCell className="text-sm font-mono whitespace-nowrap font-medium">
-                    {lot.lotNumber}
+                    {lot.lotNumber?.startsWith("NOLOT-") ? "—" : lot.lotNumber}
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
                     {lot.supplierName ?? "—"}
