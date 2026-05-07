@@ -1756,9 +1756,9 @@ function BatchDetail({
       {/* Notes section */}
       <BatchNotes batchId={batch.id} />
 
-      {/* Label cage section — only accessible once all BPR steps are executed */}
+      {/* Label Issuance section — visible once the operator reaches the label step */}
       {["IN_PROGRESS", "ON_HOLD", "COMPLETED"].includes(batch.status) &&
-        (batch.status !== "IN_PROGRESS" || (totalSteps > 0 && completedSteps === totalSteps)) && (
+        (batch.status !== "IN_PROGRESS" || (totalSteps > 0 && completedSteps >= totalSteps - 1)) && (
         <>
           <Separator />
           <BprLabelingSection

@@ -862,14 +862,18 @@ export class DatabaseStorage implements IStorage {
         mmrVersion: approvedMmr?.version ?? null,
       }, tx);
 
-      // Fixed pre-production steps always inserted before MMR steps.
-      // Step 0 = Equipment Cleaning, step 0.5 = Line Clearance.
-      // These are 21 CFR Part 111 §111.210(a)/(b) requirements and must be
-      // executed and signed before production proceeds.
+      // Fixed steps: Cleaning (1) and Line Clearance (2) always precede
+      // MMR steps. Label Issuance always follows as the final step.
+      // MMR step numbers are offset by +2 so the full sequence is
+      // 1, 2, [3…N+2], N+3 regardless of how many MMR steps exist.
+      const mmrOffset = 2;
+      const lastStepNumber = mmrOffset + mmrSteps.length; // last MMR step (or 2 if no MMR)
+      const labelStepNumber = lastStepNumber + 1;
+
       await tx.insert(schema.bprSteps).values([
         {
           bprId: bpr.id,
-          stepNumber: "0",
+          stepNumber: "1",
           stepDescription: "Equipment Cleaning",
           monitoringResults: JSON.stringify({
             guidance: "Clean all equipment that will be used in this batch per the applicable SOP. Record the cleaning agent used, contact time, and confirm equipment is dry and free of residue before proceeding.",
@@ -877,7 +881,7 @@ export class DatabaseStorage implements IStorage {
         },
         {
           bprId: bpr.id,
-          stepNumber: "0.5",
+          stepNumber: "2",
           stepDescription: "Line Clearance",
           monitoringResults: JSON.stringify({
             guidance: "Verify the production area is clear of all materials, labels, and documents from any previous batch. Confirm correct product, lot, and quantity of materials are staged. No prior batch materials may be present.",
@@ -885,12 +889,12 @@ export class DatabaseStorage implements IStorage {
         },
       ]);
 
-      // R-07: pre-populate BPR steps from approved MMR
+      // R-07: pre-populate BPR steps from approved MMR (offset by 2)
       if (mmrSteps.length > 0) {
         await tx.insert(schema.bprSteps).values(
           mmrSteps.map((s) => ({
             bprId: bpr.id,
-            stepNumber: String(s.stepNumber),
+            stepNumber: String(Number(s.stepNumber) + mmrOffset),
             stepDescription: s.description,
             monitoringResults: s.criticalParams
               ? JSON.stringify({ guidance: s.criticalParams })
@@ -898,6 +902,16 @@ export class DatabaseStorage implements IStorage {
           })),
         );
       }
+
+      // Final step: Label Issuance & Reconciliation
+      await tx.insert(schema.bprSteps).values({
+        bprId: bpr.id,
+        stepNumber: String(labelStepNumber),
+        stepDescription: "Label Issuance & Reconciliation",
+        monitoringResults: JSON.stringify({
+          guidance: "Issue product labels using the Label Issuance section below. Record the number of labels applied, destroyed, and returned. Submit the reconciliation before completing the batch. Variance must be zero or documented.",
+        }),
+      });
 
       return updated!;
     });
