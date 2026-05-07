@@ -191,11 +191,13 @@ function StepView({
   deviations,
   bprId,
   onStepUpdated,
+  onStepCompleted,
 }: {
   step: BprStep;
   deviations: BprDeviation[];
   bprId: string;
   onStepUpdated: () => void;
+  onStepCompleted: () => void;
 }) {
   const { toast } = useToast();
   const { user } = useAuth();
@@ -212,11 +214,14 @@ function StepView({
         `/api/batch-production-records/${bprId}/steps/${step.id}`,
         data,
       ),
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({
         queryKey: ["/api/batch-production-records/by-batch"],
       });
       onStepUpdated();
+      if ((variables as Record<string, unknown>).status === "COMPLETED") {
+        onStepCompleted();
+      }
     },
     onError: () => {
       toast({
@@ -421,6 +426,10 @@ export function BprExecutionSheet({
     // query cache is already invalidated by mutations; nothing extra needed
   }, []);
 
+  const handleStepCompleted = useCallback(() => {
+    setCurrentIndex((i) => Math.min(totalCount - 1, i + 1));
+  }, [totalCount]);
+
   const currentStep = steps[currentIndex] ?? null;
 
   return (
@@ -523,6 +532,7 @@ export function BprExecutionSheet({
               deviations={deviations}
               bprId={bpr!.id}
               onStepUpdated={handleStepUpdated}
+              onStepCompleted={handleStepCompleted}
             />
           ) : null}
         </div>

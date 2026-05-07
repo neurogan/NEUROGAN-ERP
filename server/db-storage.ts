@@ -581,6 +581,7 @@ export class DatabaseStorage implements IStorage {
       quantityReceived: String(quantity),
       uom: lineItem.uom,
       supplierLotNumber: lotNumber,
+      supplierId: po.supplierId ?? undefined,
       status: "QUARANTINED",
     });
 

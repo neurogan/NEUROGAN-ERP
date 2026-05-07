@@ -165,7 +165,9 @@ function ReceivingListItem({
             {receivingStatusBadge(record.status)}
           </div>
           <p className="text-xs text-muted-foreground mt-0.5 truncate">
-            <span className="font-mono" data-testid={`text-lot-number-${record.id}`}>{record.lotNumber}</span>
+            <span className="font-mono" data-testid={`text-lot-number-${record.id}`}>
+              {record.lotNumber?.startsWith("NOLOT-") ? "—" : record.lotNumber}
+            </span>
             {record.productSku && (
               <span className="ml-2 opacity-70">{record.productSku}</span>
             )}
@@ -597,7 +599,9 @@ function ReceivingDetail({
         <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-sm">
           <div>
             <span className="text-muted-foreground">Lot Number:</span>{" "}
-            <span className="font-mono font-medium" data-testid="text-detail-lot">{record.lotNumber}</span>
+            <span className="font-mono font-medium" data-testid="text-detail-lot">
+              {record.lotNumber?.startsWith("NOLOT-") ? "—" : record.lotNumber}
+            </span>
           </div>
           <div>
             <span className="text-muted-foreground">Unique ID:</span>{" "}
@@ -793,6 +797,15 @@ function ReceivingDetail({
                       {latestCoa.fileName} · {latestCoa.sourceType} · {latestCoa.overallResult}
                       {latestCoa.documentNumber ? ` · ${latestCoa.documentNumber}` : ""}
                     </p>
+                    {latestCoa.fileData && (
+                      <a
+                        href={`data:application/pdf;base64,${latestCoa.fileData}`}
+                        download={latestCoa.fileName ?? "coa.pdf"}
+                        className="text-xs text-primary hover:underline"
+                      >
+                        Download PDF
+                      </a>
+                    )}
                   </div>
                 )}
                 <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-2">
@@ -900,6 +913,15 @@ function ReceivingDetail({
                             {latestCoa!.fileName} · {latestCoa!.sourceType} · {latestCoa!.overallResult}
                             {latestCoa!.documentNumber ? ` · ${latestCoa!.documentNumber}` : ""}
                           </p>
+                          {latestCoa!.fileData && (
+                            <a
+                              href={`data:application/pdf;base64,${latestCoa!.fileData}`}
+                              download={latestCoa!.fileName ?? "coa.pdf"}
+                              className="text-xs text-emerald-700 dark:text-emerald-400 hover:underline"
+                            >
+                              Download PDF
+                            </a>
+                          )}
                         </div>
                         <Button
                           variant="outline"
