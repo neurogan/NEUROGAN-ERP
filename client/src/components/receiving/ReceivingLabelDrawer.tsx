@@ -59,9 +59,10 @@ interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   jobs: PrintJob[];
+  isReprint?: boolean;
 }
 
-export function ReceivingLabelDrawer({ open, onOpenChange, jobs }: Props) {
+export function ReceivingLabelDrawer({ open, onOpenChange, jobs, isReprint = false }: Props) {
   const { toast } = useToast();
   const [printer, setPrinter] = useState<ZebraDevice | null>(null);
   const [detecting, setDetecting] = useState(false);
@@ -147,7 +148,7 @@ export function ReceivingLabelDrawer({ open, onOpenChange, jobs }: Props) {
   }
 
   function requestClose() {
-    if (!hasPrinted) {
+    if (!hasPrinted && !isReprint) {
       setConfirmClose(true);
     } else {
       onOpenChange(false);
@@ -180,7 +181,7 @@ export function ReceivingLabelDrawer({ open, onOpenChange, jobs }: Props) {
         <style>{labelPrintStyles}</style>
         <SheetHeader className="no-print">
           <SheetTitle>
-            Print Labels — {totalLabels} label{totalLabels > 1 ? "s" : ""}
+            {isReprint ? "Reprint Labels" : "Print Labels"} — {totalLabels} label{totalLabels > 1 ? "s" : ""}
           </SheetTitle>
         </SheetHeader>
 

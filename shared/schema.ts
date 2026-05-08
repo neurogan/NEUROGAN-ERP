@@ -647,6 +647,7 @@ export type ReceivingRecordWithDetails = ReceivingRecord & {
   productSku: string;
   lotNumber: string;
   supplierName: string | null;
+  poNumber: string | null;
   coaDocuments: CoaDocument[];
 };
 

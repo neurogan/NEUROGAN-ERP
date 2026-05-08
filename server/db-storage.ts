@@ -1670,12 +1670,21 @@ export class DatabaseStorage implements IStorage {
       .from(schema.coaDocuments)
       .where(eq(schema.coaDocuments.receivingRecordId, r.id))
       .orderBy(schema.coaDocuments.createdAt);
+    let poNumber: string | null = null;
+    if (r.purchaseOrderId) {
+      const [po] = await db
+        .select({ poNumber: schema.purchaseOrders.poNumber })
+        .from(schema.purchaseOrders)
+        .where(eq(schema.purchaseOrders.id, r.purchaseOrderId));
+      poNumber = po?.poNumber ?? null;
+    }
     return {
       ...r,
       productName: product?.name ?? "Unknown",
       productSku: product?.sku ?? "",
       lotNumber: lot?.lotNumber ?? "",
       supplierName: lot?.supplierName ?? null,
+      poNumber,
       coaDocuments,
     };
   }

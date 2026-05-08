@@ -39,6 +39,7 @@ import {
   RotateCcw,
   Trash2,
   MapPin,
+  Printer,
 } from "lucide-react";
 import { formatQty } from "@/lib/formatQty";
 import { formatDate, formatDateTime } from "@/lib/formatDate";
@@ -339,6 +340,35 @@ function ReceivingDetail({
   const [moveLocationId, setMoveLocationId] = useState<string>("");
   const [moveNotes, setMoveNotes] = useState<string>("");
 
+  // Reprint labels state
+  const [reprintJobs, setReprintJobs] = useState<PrintJob[]>([]);
+  const [reprintLoading, setReprintLoading] = useState(false);
+
+  async function handleReprintLabels() {
+    setReprintLoading(true);
+    try {
+      const res = await apiRequest("GET", `/api/receiving/${record.id}/boxes`);
+      const { boxes } = await res.json() as { boxes: { boxLabel: string; boxNumber: number }[] };
+      if (boxes.length === 0) {
+        toast({ title: "No box labels found for this record.", variant: "destructive" });
+        return;
+      }
+      setReprintJobs([{
+        componentName: record.productName,
+        supplierLotNumber: record.supplierLotNumber ?? "",
+        supplierName: record.supplierName ?? "",
+        poNumber: record.poNumber ?? "",
+        dateReceived: record.dateReceived ?? "",
+        receivingUniqueId: record.uniqueIdentifier,
+        boxes,
+      }]);
+    } catch {
+      toast({ title: "Failed to load box labels", variant: "destructive" });
+    } finally {
+      setReprintLoading(false);
+    }
+  }
+
   // COA upload state — local copy so we can append on upload without re-fetching
   const [localCoaDocs, setLocalCoaDocs] = useState<CoaDocument[]>(record.coaDocuments);
   const [showCoaUploadForm, setShowCoaUploadForm] = useState(false);
@@ -522,6 +552,7 @@ function ReceivingDetail({
   const latestCoa = localCoaDocs[localCoaDocs.length - 1];
 
   return (
+    <>
     <div className="p-5 space-y-6 overflow-y-auto h-full" data-tour="receiving-detail">
       {/* Header */}
       <div>
@@ -530,6 +561,15 @@ function ReceivingDetail({
             {record.productName}
           </h2>
           {receivingStatusBadge(record.status)}
+          <Button
+            variant="ghost" size="icon"
+            className="h-7 w-7 text-muted-foreground hover:text-foreground"
+            onClick={handleReprintLabels}
+            disabled={reprintLoading}
+            title="Reprint box labels"
+          >
+            {reprintLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Printer className="h-4 w-4" />}
+          </Button>
           {isAdmin && !confirmDelete && (
             <Button
               variant="ghost" size="icon"
@@ -1096,6 +1136,14 @@ function ReceivingDetail({
       </div>
 
     </div>
+
+    <ReceivingLabelDrawer
+      open={reprintJobs.length > 0}
+      onOpenChange={(open) => { if (!open) setReprintJobs([]); }}
+      jobs={reprintJobs}
+      isReprint
+    />
+    </>
   );
 }
 
