@@ -213,6 +213,8 @@ function CreateBatchSheet({
 
   // FIFO allocations state: maps recipe line index → allocations
   const [allocationsMap, setAllocationsMap] = useState<Map<number, { allocations: FIFOAllocation[]; sufficient: boolean; requested: number }>>(new Map());
+  // Total stock for secondary packaging lines (no lot/FIFO): index → total qty
+  const [secondaryStockMap, setSecondaryStockMap] = useState<Map<number, number>>(new Map());
 
   // Override quantities per recipe line (index → custom qty string)
   const [overrides, setOverrides] = useState<Map<number, string>>(new Map());
@@ -258,6 +260,7 @@ function CreateBatchSheet({
   useEffect(() => {
     if (open) {
       setAllocationsMap(new Map());
+      setSecondaryStockMap(new Map());
       setOverrides(new Map());
       if (isEditMode && editBatch) {
         form.reset({
@@ -290,9 +293,24 @@ function CreateBatchSheet({
       return;
     }
 
-    // Skip FIFO for secondary packaging
     const prod = products.find(p => p.id === productId);
-    if (prod?.category === "SECONDARY_PACKAGING") return;
+
+    // Secondary packaging: no FIFO, but fetch total stock for visibility
+    if (prod?.category === "SECONDARY_PACKAGING") {
+      try {
+        const res = await apiRequest("GET", `/api/stock/${productId}`);
+        const rows: { availableQty: number }[] = await res.json();
+        const total = rows.reduce((sum, r) => sum + r.availableQty, 0);
+        setSecondaryStockMap(prev => {
+          const next = new Map(prev);
+          next.set(index, total);
+          return next;
+        });
+      } catch {
+        // Silently handle
+      }
+      return;
+    }
 
     try {
       const res = await apiRequest("POST", "/api/stock/allocate-fifo", {
@@ -492,7 +510,14 @@ function CreateBatchSheet({
   }
 
   // Stock status helper for a recipe line
-  function stockStatus(index: number): { label: string; color: string } {
+  function stockStatus(index: number, isSecondary = false): { label: string; color: string } {
+    if (isSecondary) {
+      const total = secondaryStockMap.get(index);
+      if (total === undefined) return { label: "—", color: "text-muted-foreground" };
+      const needed = parseFloat(recipeLines[index]?.effectiveQty ?? "0");
+      if (total >= needed) return { label: formatQty(total), color: "text-emerald-600 dark:text-emerald-400" };
+      return { label: `Low (${formatQty(total)})`, color: "text-red-600 dark:text-red-400" };
+    }
     const allocData = allocationsMap.get(index);
     if (!allocData) return { label: "—", color: "text-muted-foreground" };
     if (allocData.sufficient) return { label: "OK", color: "text-emerald-600 dark:text-emerald-400" };
@@ -667,8 +692,8 @@ function CreateBatchSheet({
                         const lotDisplay = allocData && allocData.allocations.length > 0
                           ? allocData.allocations.map(a => a.lotNumber).join(", ")
                           : "—";
-                        const status = stockStatus(idx);
                         const isSecondary = products.find(p => p.id === line.productId)?.category === "SECONDARY_PACKAGING";
+                        const status = stockStatus(idx, isSecondary);
 
                         return (
                           <TableRow key={line.id || idx} data-testid={`row-recipe-line-${idx}`}>
@@ -757,9 +782,7 @@ function CreateBatchSheet({
                               )}
                             </TableCell>
                             <TableCell className="text-center">
-                              {isSecondary ? (
-                                <span className="text-xs text-muted-foreground">—</span>
-                              ) : (
+                              {(
                                 <span className={`text-xs font-medium ${status.color}`} data-testid={`text-stock-status-${idx}`}>
                                   {status.label}
                                 </span>
