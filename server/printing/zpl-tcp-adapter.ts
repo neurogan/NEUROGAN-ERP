@@ -10,14 +10,14 @@ export class ZplOverTcpAdapter implements LabelPrintAdapter {
 
   async print(input: PrintInput): Promise<PrintResult> {
     const zpl = renderZpl(input);
-    return this.sendZpl(zpl);
+    return this.sendZpl(zpl, input.qty);
   }
 
   async printRaw(zpl: string): Promise<PrintResult> {
-    return this.sendZpl(zpl);
+    return this.sendZpl(zpl, 1);
   }
 
-  private sendZpl(zpl: string): Promise<PrintResult> {
+  private sendZpl(zpl: string, qty: number): Promise<PrintResult> {
     const start = Date.now();
     const { host, port } = this;
     return new Promise<PrintResult>((resolve) => {
@@ -69,7 +69,7 @@ export class ZplOverTcpAdapter implements LabelPrintAdapter {
         clearTimeout(total);
         resolve({
           status: "SUCCESS",
-          qtyPrinted: 1,
+          qtyPrinted: qty,
           diagnostics: {
             host,
             port,
