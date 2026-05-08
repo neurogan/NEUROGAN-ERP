@@ -62,6 +62,7 @@ import * as retainedSamplesStorage from "./storage/retained-samples";
 import { requireHmacOrAuth } from "./auth/middleware";
 import { HELPCORE_SYSTEM_USER_ID } from "./seed/ids";
 import { getLabelPrintAdapter } from "./printing/registry";
+import { buildBoxLabelZpl, type BoxLabelData as BoxLabelZplData } from "./printing/box-label-zpl";
 import { runCompletionGates, CompletionGateError } from "./state/bpr-completion-gates";
 
 function formatZodError(error: ZodError): string {
@@ -2884,6 +2885,48 @@ export async function registerRoutes(
       const e = err as { status?: number; code?: string; message?: string };
       if (e.status === 404) return res.status(404).json({ message: "Label spool not found" });
       if (e.status === 409) return res.status(409).json({ code: e.code, message: e.message });
+      next(err);
+    }
+  });
+
+  // ─── Server-side box label printing (iPad / non-desktop) ──────────────────
+
+  // GET /api/print/status — returns adapter type so client knows if server-side print is available
+  app.get("/api/print/status", requireAuth, async (_req, res, next) => {
+    try {
+      const adapter = await getLabelPrintAdapter();
+      res.json({ adapter: adapter.name, configured: adapter.name !== "STUB" });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // POST /api/print/box-labels — print box labels via TCP adapter (works from any device)
+  app.post("/api/print/box-labels", requireAuth, async (req, res, next) => {
+    try {
+      const { boxes } = req.body as { boxes: BoxLabelZplData[] };
+      if (!Array.isArray(boxes) || boxes.length === 0) {
+        return res.status(400).json({ message: "boxes array is required" });
+      }
+      const adapter = await getLabelPrintAdapter();
+      if (adapter.name === "STUB") {
+        return res.status(503).json({
+          message: "Printer not configured on server. Set labelPrintAdapter=ZPL_TCP, labelPrintHost, and labelPrintPort in app settings.",
+        });
+      }
+      const failures: string[] = [];
+      for (const box of boxes) {
+        const zpl = buildBoxLabelZpl(box);
+        const result = await adapter.printRaw(zpl);
+        if (result.status === "FAILED") {
+          failures.push(box.boxLabel);
+        }
+      }
+      if (failures.length > 0) {
+        return res.status(502).json({ message: `Print failed for: ${failures.join(", ")}. Check printer connectivity.` });
+      }
+      res.json({ printed: boxes.length });
+    } catch (err) {
       next(err);
     }
   });

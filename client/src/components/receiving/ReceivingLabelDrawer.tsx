@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import QRCode from "qrcode";
 import {
   Sheet,
@@ -18,7 +19,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Printer, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
+import { Printer, CheckCircle2, AlertCircle, Loader2, Server } from "lucide-react";
 import {
   getZebraPrinter,
   printLabels,
@@ -26,6 +27,7 @@ import {
   type BoxLabelData,
 } from "@/lib/zebra-print";
 import { useToast } from "@/hooks/use-toast";
+import { apiRequest } from "@/lib/queryClient";
 
 const labelPrintStyles = `
   @page {
@@ -67,12 +69,19 @@ export function ReceivingLabelDrawer({ open, onOpenChange, jobs, isReprint = fal
   const [printer, setPrinter] = useState<ZebraDevice | null>(null);
   const [detecting, setDetecting] = useState(false);
   const [printing, setPrinting] = useState(false);
+  const [printingViaServer, setPrintingViaServer] = useState(false);
   const [progress, setProgress] = useState(0);
   const [qrUrls, setQrUrls] = useState<Record<string, string>>({});
   const [hasPrinted, setHasPrinted] = useState(false);
   const [confirmClose, setConfirmClose] = useState(false);
 
   const totalLabels = jobs.reduce((sum, j) => sum + j.boxes.length, 0);
+
+  const { data: printStatus } = useQuery<{ adapter: string; configured: boolean }>({
+    queryKey: ["/api/print/status"],
+    staleTime: 60_000,
+  });
+  const serverConfigured = printStatus?.configured ?? false;
 
   useEffect(() => {
     if (!open) return;
@@ -93,7 +102,7 @@ export function ReceivingLabelDrawer({ open, onOpenChange, jobs, isReprint = fal
     getZebraPrinter().then((device) => {
       setPrinter(device);
     }).catch(() => {
-      // BrowserPrint SDK error — remain in not-detected state
+      // BrowserPrint SDK not available — iPad/mobile or no bridge installed
     }).finally(() => {
       setDetecting(false);
     });
@@ -147,6 +156,43 @@ export function ReceivingLabelDrawer({ open, onOpenChange, jobs, isReprint = fal
     }
   }
 
+  async function handlePrintViaServer() {
+    if (jobs.length === 0) return;
+    setPrintingViaServer(true);
+
+    const allBoxes: BoxLabelData[] = jobs.flatMap((job) =>
+      job.boxes.map((box) => ({
+        ...box,
+        boxCount: job.boxes.length,
+        componentName: job.componentName,
+        supplierLotNumber: job.supplierLotNumber,
+        supplierName: job.supplierName,
+        poNumber: job.poNumber,
+        dateReceived: job.dateReceived,
+        receivingUniqueId: job.receivingUniqueId,
+      }))
+    );
+
+    try {
+      const res = await apiRequest("POST", "/api/print/box-labels", { boxes: allBoxes });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ message: "Unknown error" }));
+        throw new Error(err.message);
+      }
+      setHasPrinted(true);
+      toast({ title: `${totalLabels} label${totalLabels > 1 ? "s" : ""} sent to printer` });
+      onOpenChange(false);
+    } catch (err) {
+      toast({
+        title: "Server print failed",
+        description: err instanceof Error ? err.message : "Check printer connectivity",
+        variant: "destructive",
+      });
+    } finally {
+      setPrintingViaServer(false);
+    }
+  }
+
   function requestClose() {
     if (!hasPrinted && !isReprint) {
       setConfirmClose(true);
@@ -186,55 +232,49 @@ export function ReceivingLabelDrawer({ open, onOpenChange, jobs, isReprint = fal
         </SheetHeader>
 
         <div className="mt-4 space-y-4">
-          {/* Printer status */}
-          <div className="no-print flex items-center gap-2 min-h-[28px]">
-            {detecting ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                <span className="text-sm text-muted-foreground">
-                  Detecting printer…
-                </span>
-              </>
-            ) : printer ? (
-              <>
-                <CheckCircle2 className="h-4 w-4 text-green-600" />
-                <Badge
-                  variant="outline"
-                  className="text-green-700 border-green-300"
-                >
-                  {printer.name}
-                </Badge>
-              </>
-            ) : (
-              <>
-                <AlertCircle className="h-4 w-4 text-destructive" />
-                <span className="text-sm text-destructive">
-                  Printer not detected
-                </span>
-              </>
-            )}
+          {/* Printer status section */}
+          <div className="no-print space-y-2">
+            {/* Local (BrowserPrint) status */}
+            <div className="flex items-center gap-2 min-h-[24px]">
+              <span className="text-xs text-muted-foreground w-24 shrink-0">Local printer</span>
+              {detecting ? (
+                <><Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" /><span className="text-xs text-muted-foreground">Detecting…</span></>
+              ) : printer ? (
+                <><CheckCircle2 className="h-3.5 w-3.5 text-green-600" /><Badge variant="outline" className="text-green-700 border-green-300 text-xs">{printer.name}</Badge></>
+              ) : (
+                <><AlertCircle className="h-3.5 w-3.5 text-muted-foreground" /><span className="text-xs text-muted-foreground">Not detected — requires Zebra Browser Print on this device</span></>
+              )}
+            </div>
+            {/* Server print status */}
+            <div className="flex items-center gap-2 min-h-[24px]">
+              <span className="text-xs text-muted-foreground w-24 shrink-0">Via server</span>
+              {serverConfigured ? (
+                <><CheckCircle2 className="h-3.5 w-3.5 text-green-600" /><Badge variant="outline" className="text-green-700 border-green-300 text-xs">Ready</Badge></>
+              ) : (
+                <><AlertCircle className="h-3.5 w-3.5 text-muted-foreground" /><span className="text-xs text-muted-foreground">Not configured</span></>
+              )}
+            </div>
           </div>
 
+          {/* Setup help — only shown when neither path is available */}
+          {!printer && !detecting && !serverConfigured && (
+            <div className="no-print rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-700 dark:text-amber-400 space-y-1">
+              <p className="font-medium">No print path available</p>
+              <p><strong>On iPad/mobile:</strong> Configure server-side printing in Settings → Printer (requires printer accessible from server).</p>
+              <p><strong>On Mac/Windows:</strong> Run <strong>Zebra Browser Print</strong> on this device, then{" "}
+                <button className="underline" onClick={retryDetect}>retry detection</button>.{" "}
+                <a href="https://www.zebra.com/us/en/support-downloads/printer-software/browser-print.html" target="_blank" rel="noopener noreferrer" className="underline">Download</a>
+              </p>
+            </div>
+          )}
+
+          {/* Retry detect link — shown when not detected but could be (desktop) */}
           {!printer && !detecting && (
             <p className="no-print text-xs text-muted-foreground">
-              Run the <strong>Zebra Browser Print</strong> app on the warehouse
-              workstation, then{" "}
-              <button
-                className="underline text-primary"
-                onClick={retryDetect}
-                data-testid="button-retry-detect"
-              >
-                retry detection
+              On a workstation?{" "}
+              <button className="underline text-primary" onClick={retryDetect} data-testid="button-retry-detect">
+                Retry local detection
               </button>
-              .{" "}
-              <a
-                href="https://www.zebra.com/us/en/support-downloads/printer-software/browser-print.html"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="underline text-primary"
-              >
-                Download Zebra Browser Print
-              </a>
             </p>
           )}
 
@@ -273,7 +313,6 @@ export function ReceivingLabelDrawer({ open, onOpenChange, jobs, isReprint = fal
                       </div>
                     </div>
                   )}
-
                 </div>
               );
             })}
@@ -281,30 +320,35 @@ export function ReceivingLabelDrawer({ open, onOpenChange, jobs, isReprint = fal
 
           {/* Progress */}
           {printing && (
-            <p
-              className="no-print text-sm text-muted-foreground"
-              data-testid="text-print-progress"
-            >
+            <p className="no-print text-sm text-muted-foreground" data-testid="text-print-progress">
               Printing label {progress} of {totalLabels}…
             </p>
           )}
         </div>
 
-        <div className="no-print flex justify-end gap-2 mt-6">
-          <Button
-            variant="outline"
-            onClick={requestClose}
-            disabled={printing}
-          >
+        <div className="no-print flex flex-wrap justify-end gap-2 mt-6">
+          <Button variant="outline" onClick={requestClose} disabled={printing || printingViaServer}>
             Done
           </Button>
-          {!printer && !detecting && (
+          <Button
+            variant="secondary"
+            onClick={() => window.print()}
+            data-testid="button-print-as-pdf"
+          >
+            Print as PDF
+          </Button>
+          {serverConfigured && (
             <Button
-              variant="secondary"
-              onClick={() => window.print()}
-              data-testid="button-print-as-pdf"
+              variant={printer ? "outline" : "default"}
+              onClick={handlePrintViaServer}
+              disabled={printingViaServer || printing}
+              data-testid="button-print-via-server"
             >
-              Print as PDF
+              {printingViaServer ? (
+                <><Loader2 className="h-4 w-4 animate-spin mr-2" />Printing…</>
+              ) : (
+                <><Server className="h-4 w-4 mr-2" />Print via Server</>
+              )}
             </Button>
           )}
           <Button
@@ -313,15 +357,9 @@ export function ReceivingLabelDrawer({ open, onOpenChange, jobs, isReprint = fal
             data-testid="button-print-labels"
           >
             {printing ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                Printing…
-              </>
+              <><Loader2 className="h-4 w-4 animate-spin mr-2" />Printing…</>
             ) : (
-              <>
-                <Printer className="h-4 w-4 mr-2" />
-                Print {totalLabels} Label{totalLabels > 1 ? "s" : ""}
-              </>
+              <><Printer className="h-4 w-4 mr-2" />Print {totalLabels} Label{totalLabels > 1 ? "s" : ""}</>
             )}
           </Button>
         </div>

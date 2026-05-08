@@ -10,7 +10,16 @@ export class ZplOverTcpAdapter implements LabelPrintAdapter {
 
   async print(input: PrintInput): Promise<PrintResult> {
     const zpl = renderZpl(input);
+    return this.sendZpl(zpl);
+  }
+
+  async printRaw(zpl: string): Promise<PrintResult> {
+    return this.sendZpl(zpl);
+  }
+
+  private sendZpl(zpl: string): Promise<PrintResult> {
     const start = Date.now();
+    const { host, port } = this;
     return new Promise<PrintResult>((resolve) => {
       const sock = new net.Socket();
       let settled = false;
@@ -23,15 +32,12 @@ export class ZplOverTcpAdapter implements LabelPrintAdapter {
           qtyPrinted: 0,
           diagnostics: {
             error: "total timeout",
-            host: this.host,
-            port: this.port,
+            host,
+            port,
             durationMs: Date.now() - start,
           },
         });
       }, TOTAL_TIMEOUT_MS);
-      // sock.setTimeout fires on inactivity (no data sent/received for N ms).
-      // It acts as a connect-stall guard for unreachable hosts but resets once
-      // data starts flowing. The TOTAL_TIMEOUT_MS timer is the hard deadline.
       sock.setTimeout(CONNECT_TIMEOUT_MS);
       sock.on("timeout", () => {
         if (settled) return;
@@ -41,7 +47,7 @@ export class ZplOverTcpAdapter implements LabelPrintAdapter {
         resolve({
           status: "FAILED",
           qtyPrinted: 0,
-          diagnostics: { error: "connect timeout", host: this.host, port: this.port },
+          diagnostics: { error: "connect timeout", host, port },
         });
       });
       sock.on("error", (err) => {
@@ -51,10 +57,10 @@ export class ZplOverTcpAdapter implements LabelPrintAdapter {
         resolve({
           status: "FAILED",
           qtyPrinted: 0,
-          diagnostics: { error: err.message, host: this.host, port: this.port },
+          diagnostics: { error: err.message, host, port },
         });
       });
-      sock.connect(this.port, this.host, () => {
+      sock.connect(port, host, () => {
         sock.write(zpl, () => sock.end());
       });
       sock.on("close", () => {
@@ -63,10 +69,10 @@ export class ZplOverTcpAdapter implements LabelPrintAdapter {
         clearTimeout(total);
         resolve({
           status: "SUCCESS",
-          qtyPrinted: input.qty,
+          qtyPrinted: 1,
           diagnostics: {
-            host: this.host,
-            port: this.port,
+            host,
+            port,
             durationMs: Date.now() - start,
             bytesSent: zpl.length,
           },

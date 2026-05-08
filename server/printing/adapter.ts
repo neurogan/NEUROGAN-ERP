@@ -16,4 +16,5 @@ export interface PrintResult {
 export interface LabelPrintAdapter {
   readonly name: "ZPL_TCP" | "STUB";
   print(input: PrintInput): Promise<PrintResult>;
+  printRaw(zpl: string): Promise<PrintResult>;
 }
