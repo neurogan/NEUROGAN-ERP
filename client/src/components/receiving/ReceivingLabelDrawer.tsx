@@ -54,6 +54,7 @@ export interface PrintJob {
   poNumber: string;
   dateReceived: string;
   receivingUniqueId: string;
+  expiryDate?: string;
   boxes: { boxLabel: string; boxNumber: number }[];
 }
 
@@ -134,6 +135,7 @@ export function ReceivingLabelDrawer({ open, onOpenChange, jobs, isReprint = fal
         poNumber: job.poNumber,
         dateReceived: job.dateReceived,
         receivingUniqueId: job.receivingUniqueId,
+        expiryDate: job.expiryDate,
       }))
     );
 
@@ -170,6 +172,7 @@ export function ReceivingLabelDrawer({ open, onOpenChange, jobs, isReprint = fal
         poNumber: job.poNumber,
         dateReceived: job.dateReceived,
         receivingUniqueId: job.receivingUniqueId,
+        expiryDate: job.expiryDate,
       }))
     );
 

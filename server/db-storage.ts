@@ -1684,6 +1684,7 @@ export class DatabaseStorage implements IStorage {
       productSku: product?.sku ?? "",
       lotNumber: lot?.lotNumber ?? "",
       supplierName: lot?.supplierName ?? null,
+      expirationDate: lot?.expirationDate ?? null,
       poNumber,
       coaDocuments,
     };

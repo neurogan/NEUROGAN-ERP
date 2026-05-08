@@ -1264,6 +1264,7 @@ export function ReceiveSheet({
             poNumber: po.poNumber,
             dateReceived: values.receivedDate,
             receivingUniqueId: result.receivingUniqueId,
+            expiryDate: item.expirationDate || undefined,
             boxes: result.boxes,
           });
         }

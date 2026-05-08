@@ -360,6 +360,7 @@ function ReceivingDetail({
         poNumber: record.poNumber ?? "",
         dateReceived: record.dateReceived ?? "",
         receivingUniqueId: record.uniqueIdentifier,
+        expiryDate: record.expirationDate ?? undefined,
         boxes,
       }]);
     } catch {
