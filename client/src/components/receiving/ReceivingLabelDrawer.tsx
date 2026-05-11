@@ -333,13 +333,6 @@ export function ReceivingLabelDrawer({ open, onOpenChange, jobs, isReprint = fal
           <Button variant="outline" onClick={requestClose} disabled={printing || printingViaServer}>
             Done
           </Button>
-          <Button
-            variant="secondary"
-            onClick={() => window.print()}
-            data-testid="button-print-as-pdf"
-          >
-            Print as PDF
-          </Button>
           {serverConfigured && (
             <Button
               variant={printer ? "outline" : "default"}

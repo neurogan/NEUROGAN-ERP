@@ -50,7 +50,7 @@ export function buildZpl(box: BoxLabelData): string {
 
   lines.push(`^FO40,${nextY}^A0N,44,44^FDBox ${box.boxNumber} of ${box.boxCount}^FS`);
   // Barcode pinned to bottom of label
-  lines.push(`^FO40,1300^BY2,2,70^BCN,,Y,N,N^FD${box.boxLabel}^FS`);
+  lines.push(`^FO40,1200^BY2,2,70^BCN,,Y,N,N^FD${box.boxLabel}^FS`);
   lines.push("^XZ");
 
   return lines.join("\n");
