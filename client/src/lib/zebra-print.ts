@@ -33,22 +33,24 @@ export function buildZpl(box: BoxLabelData): string {
     "^PW1015",
     "^LL1421",
     `^FO40,30^A0N,55,55^FD${box.componentName}^FS`,
-    // Large QR code centered (mag 10 ≈ 330 dots wide for typical box label data)
-    `^FO342,100^BQN,2,10^FDMM,A${box.boxLabel}^FS`,
-    `^FO40,500^A0N,36,36^FDSupplier lot: ${box.supplierLotNumber}^FS`,
-    `^FO40,545^A0N,36,36^FDSupplier: ${box.supplierName}^FS`,
-    `^FO40,590^A0N,36,36^FDPO: ${box.poNumber}^FS`,
-    `^FO40,635^A0N,36,36^FDReceived: ${box.dateReceived}^FS`,
+    // Large QR code centered (mag 12 ≈ 444 dots wide; center X = (1015-444)/2 = 285)
+    `^FO285,100^BQN,2,12^FDMM,A${box.boxLabel}^FS`,
+    // Text fields start below QR (mag 12 bottom ≈ y=544)
+    `^FO40,570^A0N,36,36^FDSupplier lot: ${box.supplierLotNumber}^FS`,
+    `^FO40,615^A0N,36,36^FDSupplier: ${box.supplierName}^FS`,
+    `^FO40,660^A0N,36,36^FDPO: ${box.poNumber}^FS`,
+    `^FO40,705^A0N,36,36^FDReceived: ${box.dateReceived}^FS`,
   ];
 
-  let nextY = 680;
+  let nextY = 750;
   if (box.expiryDate) {
     lines.push(`^FO40,${nextY}^A0N,36,36^FDExpiry: ${box.expiryDate}^FS`);
     nextY += 45;
   }
 
   lines.push(`^FO40,${nextY}^A0N,44,44^FDBox ${box.boxNumber} of ${box.boxCount}^FS`);
-  lines.push(`^FO40,${nextY + 80}^BY2,2,70^BCN,,Y,N,N^FD${box.boxLabel}^FS`);
+  // Barcode pinned to bottom of label
+  lines.push(`^FO40,1300^BY2,2,70^BCN,,Y,N,N^FD${box.boxLabel}^FS`);
   lines.push("^XZ");
 
   return lines.join("\n");
