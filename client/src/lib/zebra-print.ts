@@ -35,13 +35,13 @@ export function buildZpl(box: BoxLabelData): string {
     `^FO40,30^A0N,55,55^FD${box.componentName}^FS`,
     // Large QR code centered (mag 10 ≈ 330 dots wide for typical box label data)
     `^FO342,100^BQN,2,10^FDMM,A${box.boxLabel}^FS`,
-    `^FO40,460^A0N,36,36^FDSupplier lot: ${box.supplierLotNumber}^FS`,
-    `^FO40,505^A0N,36,36^FDSupplier: ${box.supplierName}^FS`,
-    `^FO40,550^A0N,36,36^FDPO: ${box.poNumber}^FS`,
-    `^FO40,595^A0N,36,36^FDReceived: ${box.dateReceived}^FS`,
+    `^FO40,500^A0N,36,36^FDSupplier lot: ${box.supplierLotNumber}^FS`,
+    `^FO40,545^A0N,36,36^FDSupplier: ${box.supplierName}^FS`,
+    `^FO40,590^A0N,36,36^FDPO: ${box.poNumber}^FS`,
+    `^FO40,635^A0N,36,36^FDReceived: ${box.dateReceived}^FS`,
   ];
 
-  let nextY = 640;
+  let nextY = 680;
   if (box.expiryDate) {
     lines.push(`^FO40,${nextY}^A0N,36,36^FDExpiry: ${box.expiryDate}^FS`);
     nextY += 45;
