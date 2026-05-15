@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useLocation, Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,13 +20,56 @@ export default function ResetPassword() {
   const token = params.get("token");
   const email = params.get("email");
 
-  useEffect(() => {
-    if (!token || !email) {
-      navigate("/login");
-    }
-  }, [token, email, navigate]);
-
-  if (!token || !email) return null;
+  // If params are missing, show an actionable error instead of a blank/redirect.
+  // Common cause: an email client mangled the hash fragment.
+  if (!token || !email) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background px-4">
+        <div className="w-full max-w-sm space-y-6">
+          <div className="flex flex-col items-center gap-3">
+            <img src={neuroganLogo} alt="Neurogan" className="h-12 w-12 rounded-xl object-cover" />
+            <div className="text-center">
+              <h1 className="text-xl font-semibold tracking-tight text-foreground">Neurogan ERP</h1>
+            </div>
+          </div>
+          <Card data-testid="reset-password-missing-params">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Reset link is incomplete</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <Alert variant="destructive">
+                <AlertDescription className="text-sm">
+                  This password-reset link is missing required information. Some email apps
+                  (especially mobile apps and corporate inboxes) can strip parts of the link.
+                </AlertDescription>
+              </Alert>
+              <div className="text-sm text-muted-foreground space-y-2">
+                <p>Try one of these:</p>
+                <ul className="list-disc pl-4 space-y-1">
+                  <li>Open the reset email in a desktop browser (Chrome, Firefox, Safari)</li>
+                  <li>Copy the full URL from the email and paste it into your browser&apos;s address bar</li>
+                  <li>Request a fresh reset link below</li>
+                </ul>
+              </div>
+              <div className="flex gap-2">
+                <Button variant="outline" className="flex-1" onClick={() => navigate("/login")}>
+                  Sign in
+                </Button>
+                <Link href="/forgot-password" className="flex-1">
+                  <Button variant="default" className="w-full">
+                    New reset link
+                  </Button>
+                </Link>
+              </div>
+            </CardContent>
+          </Card>
+          <p className="text-center text-[11px] text-muted-foreground">
+            21 CFR Part 11 — electronic records system
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

@@ -31,7 +31,13 @@ export async function sendInviteEmail(to: string, rawToken: string): Promise<voi
             Set your password
           </a>
         </p>
-        <p style="color:#666;font-size:12px;">This link expires in 7 days. If you did not expect this invitation, you can ignore this email.</p>
+        <p style="color:#666;font-size:11px;margin-top:16px">
+          If the button doesn't work, copy and paste this link into your browser:
+        </p>
+        <p style="color:#333;font-size:11px;word-break:break-all;background:#f5f5f5;padding:8px;border-radius:4px;font-family:monospace">
+          ${inviteUrl}
+        </p>
+        <p style="color:#666;font-size:12px;margin-top:16px">This link expires in 7 days. If you did not expect this invitation, you can ignore this email.</p>
       </div>
     `,
     text: `You have been invited to Neurogan ERP.\n\nSet your password here:\n${inviteUrl}\n\nThis link expires in 7 days.`,
@@ -63,7 +69,13 @@ export async function sendPasswordResetEmail(to: string, rawToken: string): Prom
             Reset password
           </a>
         </p>
-        <p style="color:#666;font-size:12px;">This link expires in 1 hour. If you did not request this, you can ignore this email.</p>
+        <p style="color:#666;font-size:11px;margin-top:16px">
+          If the button doesn't work, copy and paste this link into your browser:
+        </p>
+        <p style="color:#333;font-size:11px;word-break:break-all;background:#f5f5f5;padding:8px;border-radius:4px;font-family:monospace">
+          ${resetUrl}
+        </p>
+        <p style="color:#666;font-size:12px;margin-top:16px">This link expires in 1 hour. If you did not request this, you can ignore this email.</p>
       </div>
     `,
     text: `You requested a password reset for Neurogan ERP.\n\nReset your password here:\n${resetUrl}\n\nThis link expires in 1 hour.`,
