@@ -302,6 +302,20 @@
       "when": 1778976000000,
       "tag": "0042_wh01_location_moves",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1779235200000,
+      "tag": "0043_remove_training_tables",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1779494400000,
+      "tag": "0044_remove_stability_and_em",
+      "breakpoints": true
     }
   ]
 }

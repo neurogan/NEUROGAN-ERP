@@ -22,9 +22,6 @@ import { componentSpecsSteps } from "./quality/component-specs";
 import { fgSpecsSteps } from "./quality/fg-specs";
 import { retainedSamplesSteps } from "./quality/retained-samples";
 import { capaSteps } from "./quality/capa";
-import { trainingSteps } from "./quality/training";
-import { stabilitySteps } from "./quality/stability";
-import { emSteps } from "./quality/em";
 
 interface TourEntry {
   pattern: RegExp;
@@ -55,9 +52,6 @@ const REGISTRY: TourEntry[] = [
   { pattern: /^\/quality\/fg-specifications/, steps: fgSpecsSteps },
   { pattern: /^\/quality\/retained-samples/, steps: retainedSamplesSteps },
   { pattern: /^\/quality\/capa/, steps: capaSteps },
-  { pattern: /^\/quality\/training/, steps: trainingSteps },
-  { pattern: /^\/quality\/stability/, steps: stabilitySteps },
-  { pattern: /^\/quality\/em/, steps: emSteps },
 ];
 
 export function startTour(location: string): boolean {

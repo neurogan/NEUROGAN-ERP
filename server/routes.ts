@@ -42,9 +42,6 @@ import { componentSpecRouter } from "./routes/component-spec-routes";
 import { finishedGoodsSpecRouter } from "./routes/finished-goods-spec-routes";
 import { registerFgTestRoutes } from "./routes/finished-goods-test-routes";
 import { registerCapaRoutes } from "./routes/capa-routes";
-import { registerTrainingRoutes } from "./routes/training-routes";
-import { registerStabilityRoutes } from "./routes/stability-routes";
-import { registerEmRoutes } from "./routes/em-routes";
 import { checkFgTestsGate } from "./storage/finished-goods-tests";
 import { createNonconformance } from "./storage/capa";
 import { db } from "./db";
@@ -95,15 +92,6 @@ export async function registerRoutes(
 
   // ─── R2-03 CAPA / QMS backbone (§111.140) ──────────────
   registerCapaRoutes(app, requireAuth, requireRole);
-
-  // ─── R2-04 Training gate (§111.12–14) ──────────────────
-  registerTrainingRoutes(app, requireAuth, requireRole);
-
-  // ─── R2-01 Stability program (§111.210(f)) ──────────────
-  registerStabilityRoutes(app, requireAuth, requireRole);
-
-  // ─── R2-02 Environmental monitoring (§111.15) ────────────
-  registerEmRoutes(app, requireAuth, requireRole);
 
   // ─── Health / IQ traceability ──────────────────────────
   //

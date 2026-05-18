@@ -1,7 +1,6 @@
 import { useEffect } from "react";
 import { useLocation } from "wouter";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import LabelingPage from "./labeling";
 import SopsPage from "./sops";
 import ComplaintsPage from "./complaints";
@@ -11,11 +10,8 @@ import ComponentSpecifications from "./ComponentSpecifications";
 import FinishedGoodsSpecifications from "./FinishedGoodsSpecifications";
 import RetainedSamplesPage from "./RetainedSamples";
 import CapaPage from "./Capa";
-import TrainingPage from "./Training";
-import StabilityPage from "./Stability";
-import EnvironmentalMonitoringPage from "./EnvironmentalMonitoring";
 
-type QualityTab = "labeling" | "sops" | "complaints" | "returns" | "oos" | "component-specifications" | "fg-specifications" | "retained-samples" | "capa" | "training" | "stability" | "em";
+type QualityTab = "labeling" | "sops" | "complaints" | "returns" | "oos" | "component-specifications" | "fg-specifications" | "retained-samples" | "capa";
 
 const ACTIVE_TABS: { value: QualityTab; label: string }[] = [
   { value: "labeling", label: "Labeling" },
@@ -27,13 +23,6 @@ const ACTIVE_TABS: { value: QualityTab; label: string }[] = [
   { value: "fg-specifications", label: "FG Specifications" },
   { value: "retained-samples", label: "Retained Samples" },
   { value: "capa", label: "CAPA" },
-  { value: "training", label: "Training" },
-  { value: "stability", label: "Stability" },
-  { value: "em", label: "Env. Monitoring" },
-];
-
-const DISABLED_TABS: { value: string; label: string; tooltip: string }[] = [
-  { value: "validation", label: "Validation", tooltip: "Coming soon" },
 ];
 
 export default function QualityPage() {
@@ -42,7 +31,7 @@ export default function QualityPage() {
   // because wouter's :param stops at "/". Extract the tab segment directly from location instead.
   const tabParam = location.split("/")[2] as string | undefined;
 
-  const validTabs: QualityTab[] = ["labeling", "sops", "complaints", "returns", "oos", "component-specifications", "fg-specifications", "retained-samples", "capa", "training", "stability", "em"];
+  const validTabs: QualityTab[] = ["labeling", "sops", "complaints", "returns", "oos", "component-specifications", "fg-specifications", "retained-samples", "capa"];
 
   useEffect(() => {
     if (!tabParam || !validTabs.includes(tabParam as QualityTab)) {
@@ -59,9 +48,6 @@ export default function QualityPage() {
     : tabParam === "fg-specifications" ? "fg-specifications"
     : tabParam === "retained-samples" ? "retained-samples"
     : tabParam === "capa" ? "capa"
-    : tabParam === "training" ? "training"
-    : tabParam === "stability" ? "stability"
-    : tabParam === "em" ? "em"
     : "labeling";
 
   return (
@@ -77,18 +63,6 @@ export default function QualityPage() {
               {t.label}
             </TabsTrigger>
           ))}
-          {DISABLED_TABS.map((t) => (
-            <Tooltip key={t.value}>
-              <TooltipTrigger asChild>
-                <span>
-                  <TabsTrigger value={t.value} disabled data-testid={`tab-quality-${t.value}`} className="cursor-not-allowed opacity-40">
-                    {t.label}
-                  </TabsTrigger>
-                </span>
-              </TooltipTrigger>
-              <TooltipContent>{t.tooltip}</TooltipContent>
-            </Tooltip>
-          ))}
         </TabsList>
       </Tabs>
 
@@ -101,9 +75,6 @@ export default function QualityPage() {
       {activeTab === "fg-specifications" && <FinishedGoodsSpecifications />}
       {activeTab === "retained-samples" && <RetainedSamplesPage />}
       {activeTab === "capa" && <CapaPage />}
-      {activeTab === "training" && <TrainingPage />}
-      {activeTab === "stability" && <StabilityPage />}
-      {activeTab === "em" && <EnvironmentalMonitoringPage />}
     </div>
   );
 }
