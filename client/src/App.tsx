@@ -230,7 +230,6 @@ function AppLayout() {
           <Route path="/quality/fg-specifications" component={QualityPage} />
           <Route path="/quality/retained-samples" component={QualityPage} />
           <Route path="/quality/capa" component={QualityPage} />
-          <Route path="/quality/training" component={QualityPage} />
           <Route path="/quality/stability" component={QualityPage} />
           <Route path="/quality/em" component={QualityPage} />
           <Route path="/quality/return-investigations" component={ReturnInvestigations} />
