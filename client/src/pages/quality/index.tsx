@@ -1,7 +1,6 @@
 import { useEffect } from "react";
 import { useLocation } from "wouter";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import LabelingPage from "./labeling";
 import SopsPage from "./sops";
 import ComplaintsPage from "./complaints";
@@ -30,10 +29,6 @@ const ACTIVE_TABS: { value: QualityTab; label: string }[] = [
   { value: "training", label: "Training" },
   { value: "stability", label: "Stability" },
   { value: "em", label: "Env. Monitoring" },
-];
-
-const DISABLED_TABS: { value: string; label: string; tooltip: string }[] = [
-  { value: "validation", label: "Validation", tooltip: "Coming soon" },
 ];
 
 export default function QualityPage() {
@@ -76,18 +71,6 @@ export default function QualityPage() {
             <TabsTrigger key={t.value} value={t.value} data-testid={`tab-quality-${t.value}`}>
               {t.label}
             </TabsTrigger>
-          ))}
-          {DISABLED_TABS.map((t) => (
-            <Tooltip key={t.value}>
-              <TooltipTrigger asChild>
-                <span>
-                  <TabsTrigger value={t.value} disabled data-testid={`tab-quality-${t.value}`} className="cursor-not-allowed opacity-40">
-                    {t.label}
-                  </TabsTrigger>
-                </span>
-              </TooltipTrigger>
-              <TooltipContent>{t.tooltip}</TooltipContent>
-            </Tooltip>
           ))}
         </TabsList>
       </Tabs>
